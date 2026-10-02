@@ -50,7 +50,7 @@ pub struct DayData {
     pub last_unprompted_at: Option<UnixMillis>,
     /// End of the owner's mute period.
     pub muted_until: Option<UnixMillis>,
-    /// Fired day-wide triggers; task-specific ones also live on Task.
+    /// Authoritative consumed facts, including deleted tasks; task facts also live on Task.
     pub triggers_fired: Vec<Trigger>,
     /// Pending triggers held for later consideration.
     pub held_triggers: Vec<Trigger>,

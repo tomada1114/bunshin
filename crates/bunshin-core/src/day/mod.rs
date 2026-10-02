@@ -5,7 +5,7 @@ mod serde_civil;
 
 use crate::{Tuning, UnixMillis};
 pub use change::{Change, ChangeSet};
-use jiff::civil::{Date, Time};
+use jiff::civil::{Date, DateTime, Time};
 use serde::{Deserialize, Serialize};
 
 /// The meaning of a task's optional civil time.
@@ -66,7 +66,7 @@ pub struct Task {
     pub created_at: UnixMillis,
     /// Closing instant, absent for an open task.
     pub closed_at: Option<UnixMillis>,
-    /// Triggers already consumed, filled by the later check-in use case.
+    /// Task-specific triggers already consumed by the check-in rules.
     pub triggers_fired: Vec<Trigger>,
     /// Original request source.
     pub origin: TaskOrigin,
@@ -128,7 +128,7 @@ pub struct Trigger {
     pub kind: TriggerKind,
     /// Task number when task-specific.
     pub task: Option<u64>,
-    /// When it became due.
+    /// Instant at which it was first found due.
     pub due_at: UnixMillis,
 }
 /// The speaker of a chat row.
@@ -425,6 +425,7 @@ impl Day {
     pub fn delete(mut self, number: u64, at: UnixMillis) -> Result<(Self, ChangeSet), DayError> {
         let index = self.index(number)?;
         let snapshot = self.snapshot();
+        self.retain_fired_facts();
         let task = self.data.tasks.remove(index);
         Ok(self.record(
             snapshot,
@@ -470,7 +471,9 @@ impl Day {
     /// No retained session changes.
     pub fn undo(mut self, at: UnixMillis) -> Result<(Self, ChangeSet), DayError> {
         let entry = self.undo.pop().ok_or(DayError::NothingToUndo)?;
+        self.retain_fired_facts();
         self.data.tasks = entry.snapshot.tasks;
+        self.restore_fired_facts();
         self.data.muted_until = entry.snapshot.muted_until;
         let set = ChangeSet {
             time: at,
@@ -479,6 +482,67 @@ impl Day {
         };
         self.append_change(&set);
         Ok((self, set))
+    }
+    // Narrow metadata transitions cannot modify task content or historical rows.
+    pub(crate) fn record_checkin_trigger(&mut self, trigger: Trigger) {
+        if let Some(number) = trigger.task
+            && let Some(task) = self
+                .data
+                .tasks
+                .iter_mut()
+                .find(|task| task.number == number)
+        {
+            task.triggers_fired.push(trigger.clone());
+        }
+        self.data.triggers_fired.push(trigger.clone());
+        self.data.held_triggers.push(trigger);
+    }
+    pub(crate) fn consume_planned_look(&mut self, at: UnixMillis) {
+        self.data.next_planned_look = None;
+        self.record_checkin_trigger(Trigger {
+            kind: TriggerKind::PlannedLook,
+            task: None,
+            due_at: at,
+        });
+    }
+    pub(crate) fn take_held_triggers(&mut self) -> Vec<Trigger> {
+        std::mem::take(&mut self.data.held_triggers)
+    }
+    pub(crate) fn take_held_triggers_matching(&mut self, eligible: &[Trigger]) -> Vec<Trigger> {
+        let mut remaining = eligible.to_vec();
+        let mut ready = Vec::new();
+        let mut held = Vec::new();
+        for trigger in self.take_held_triggers() {
+            if let Some(index) = remaining.iter().position(|event| event == &trigger) {
+                remaining.remove(index);
+                ready.push(trigger);
+            } else {
+                held.push(trigger);
+            }
+        }
+        self.data.held_triggers = held;
+        ready
+    }
+    pub(crate) fn schedule_look(&mut self, at: DateTime) {
+        self.data.next_planned_look = Some(at);
+    }
+    fn retain_fired_facts(&mut self) {
+        for task in &self.data.tasks {
+            for trigger in &task.triggers_fired {
+                if !self.data.triggers_fired.contains(trigger) {
+                    self.data.triggers_fired.push(trigger.clone());
+                }
+            }
+        }
+    }
+    fn restore_fired_facts(&mut self) {
+        for task in &mut self.data.tasks {
+            for trigger in &self.data.triggers_fired {
+                if trigger.task == Some(task.number) && !task.triggers_fired.contains(trigger) {
+                    task.triggers_fired.push(trigger.clone());
+                }
+            }
+        }
     }
     fn index(&self, number: u64) -> Result<usize, DayError> {
         self.data

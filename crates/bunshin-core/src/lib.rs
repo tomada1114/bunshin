@@ -9,11 +9,12 @@
 // error at every place that must decide what it means (`.claude/rules/testing.md`).
 #![deny(clippy::wildcard_enum_match_arm)]
 
+pub mod checkin;
 pub mod day;
 pub mod shell;
 pub mod time;
 pub mod tuning;
-pub use tuning::DayTuning;
+pub use tuning::{CheckinTuning, DayTuning};
 
 pub use shell::{ShellAction, ShellKey, ShellScreen};
 pub use time::{Clock, Now, UnixMillis, logical_date};
