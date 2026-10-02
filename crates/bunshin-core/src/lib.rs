@@ -11,6 +11,7 @@
 
 pub mod checkin;
 pub mod day;
+pub mod screen;
 pub mod shell;
 pub mod time;
 pub mod tuning;
