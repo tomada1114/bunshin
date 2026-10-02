@@ -120,7 +120,9 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
 ## The model call
 
 - **How:** one child process per call: `fm respond --no-stream --schema '<schema JSON>'
-  --instructions '<instructions>'`, with the prompt on stdin (`fm respond` reads its
+  --instructions '<instructions>'`. The schema is inline JSON in the format emitted
+  by `fm schema`; `--schema` accepts either this JSON or a schema-file path (`man fm`,
+  observed 2026-10-02). The prompt stays on stdin (`fm respond` reads its
   prompt from stdin, `fm respond --help`, observed 2026-10-02) so the day's tasks and chat
   never appear in another process's argument list. The instructions are on the command
   line for the call's duration; on a single-user Mac that is accepted. `fm` lives at
@@ -228,6 +230,16 @@ In code it is a set of `const` `Style`s beside the labels in the view, asserted 
 
 ## Open
 
+- Observed with `fm schema object --name Empty`, 2026-10-02: the empty-object schema
+  includes `title`, `properties`, `additionalProperties`, `x-order`, and `required`
+  alongside `type`. A response using a schema fixture without `title`, `x-order`, and
+  `required` exited 1 with an invalid-schema, missing-data diagnostic; that is a schema
+  fixture failure, not an observed runtime refusal.
+- Observed with `fm respond --no-stream --schema` using that generated empty-object
+  schema inline under agent execution, 2026-10-02: exit 1 with
+  `ModelManagerServices.ModelManagerError` error 1008, also on an elevated retry.
+  This remains `Failed`; it has not been identified as a rate limit, guardrail, or
+  refusal. A successful real-model contract is still unverified.
 - Unverified: the exit codes and stderr of `fm respond` for a runtime model error
   (window exceeded, guardrail, rate limit). Until `just test-local` observes them, they
   map to `Failed`, and the budget is the only guard against an overflow. Apple's error

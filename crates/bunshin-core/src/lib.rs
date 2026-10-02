@@ -10,6 +10,7 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 pub mod counter;
+pub mod model;
 pub mod time;
 
 pub use counter::{
@@ -17,3 +18,8 @@ pub use counter::{
     StorageError, StorageErrorKind, StoredCounter, Tuning, TuningError, store::CounterStore,
 };
 pub use time::{Clock, Now, UnixMillis, logical_date};
+
+pub use model::{
+    Availability, CancelFlag, LanguageModel, ModelAnswer, ModelError, ModelRequest,
+    UnavailableReason,
+};

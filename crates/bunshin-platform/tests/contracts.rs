@@ -19,3 +19,18 @@ fn json_file_store_meets_the_counter_store_contract() {
 fn system_clock_meets_the_clock_contract() {
     clock_contract(|| Box::new(SystemClock));
 }
+
+#[test]
+fn unsupported_model_meets_contract() {
+    bunshin_test_support::language_model_contract(|| {
+        Box::new(bunshin_platform::UnavailableLanguageModel)
+    });
+}
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "local machine: fm with Apple Intelligence enabled"]
+fn real_fm_meets_contract() {
+    bunshin_test_support::language_model_contract(|| {
+        Box::new(bunshin_platform::FmLanguageModel::default())
+    });
+}
