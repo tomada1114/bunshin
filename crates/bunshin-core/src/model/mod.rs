@@ -35,6 +35,20 @@ pub struct ModelRequest {
     /// Maximum wait measured by the adapter's monotonic clock.
     pub timeout: Duration,
 }
+impl ModelRequest {
+    /// Build a fresh request using the same timeout tuning as the model adapter.
+    /// The supplied text is copied unchanged; individual callers may then override
+    /// the public timeout for a particular request.
+    #[must_use]
+    pub fn new(instructions: &str, prompt: &str, schema: &str, tuning: crate::Tuning) -> Self {
+        Self {
+            instructions: instructions.into(),
+            prompt: prompt.into(),
+            schema: schema.into(),
+            timeout: tuning.model_timeout,
+        }
+    }
+}
 impl std::fmt::Debug for ModelRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ModelRequest")

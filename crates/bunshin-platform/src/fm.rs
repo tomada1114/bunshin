@@ -34,12 +34,12 @@ mod command {
 
     const FM_PATH: &str = "/usr/bin/fm";
     const POLL_INTERVAL: Duration = Duration::from_millis(5);
-    const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
     /// A fresh `fm` process per call, never a shell. Routine tests inject a stub path.
     #[derive(Debug)]
     pub struct FmLanguageModel {
         executable: PathBuf,
+        probe_timeout: Duration,
     }
     impl Default for FmLanguageModel {
         fn default() -> Self {
@@ -50,7 +50,16 @@ mod command {
         /// Use an absolute command path, allowing harmless stub commands in tests.
         #[must_use]
         pub fn new(executable: PathBuf) -> Self {
-            Self { executable }
+            Self::with_tuning(executable, bunshin_core::Tuning::default())
+        }
+        /// Use a literal command path and the root timeout for availability probes.
+        /// Each response still uses its request's timeout, built from the same tuning.
+        #[must_use]
+        pub fn with_tuning(executable: PathBuf, tuning: bunshin_core::Tuning) -> Self {
+            Self {
+                executable,
+                probe_timeout: tuning.model_timeout,
+            }
         }
         #[cfg(test)]
         pub(super) fn executable_for_test(&self) -> PathBuf {
@@ -168,7 +177,12 @@ mod command {
     }
     impl LanguageModel for FmLanguageModel {
         fn availability(&self) -> Result<Availability, ModelError> {
-            let result = self.run(&["available"], "", PROBE_TIMEOUT, &CancelFlag::default());
+            let result = self.run(
+                &["available"],
+                "",
+                self.probe_timeout,
+                &CancelFlag::default(),
+            );
             match result {
                 Err(ModelError::Unavailable(reason)) => Ok(Availability::Unavailable(reason)),
                 Err(error) => Err(error),
@@ -465,5 +479,15 @@ printf '{"reply":"了解"}'"#,
         let log = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
         assert!(log.contains("code=73"));
         assert!(!log.contains("private"));
+    }
+    #[test]
+    fn availability_uses_custom_tuning_timeout_and_reaps_child() {
+        let (dir, model) =
+            stub("printf '%s' \"$$\" >\"$(dirname \"$0\")/pid\"\nexec /bin/sleep 30");
+        let mut tuning = bunshin_core::Tuning::default();
+        tuning.model_timeout = Duration::from_millis(200);
+        let model = FmLanguageModel::with_tuning(model.executable_for_test(), tuning);
+        assert_eq!(model.availability(), Err(ModelError::TimedOut));
+        assert_reaped(&dir);
     }
 }

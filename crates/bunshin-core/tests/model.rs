@@ -115,3 +115,46 @@ fn cloned_cancel_flag_is_shared_and_model_debug_redacts_text() {
     let model = ScriptedLanguageModel::new([Ok(answer)]);
     assert!(!format!("{model:?}").contains("secret"));
 }
+
+#[test]
+fn model_request_uses_the_root_timeout_default() {
+    use bunshin_core::Tuning;
+    assert_eq!(Tuning::default().model_timeout, Duration::from_secs(30));
+    assert_eq!(
+        Tuning::new(0, 3).unwrap().model_timeout,
+        Duration::from_secs(30)
+    );
+    let request = ModelRequest::new("rules", "prompt", "{}", Tuning::default());
+    assert_eq!(
+        request,
+        ModelRequest {
+            instructions: "rules".into(),
+            prompt: "prompt".into(),
+            schema: "{}".into(),
+            timeout: Duration::from_secs(30)
+        }
+    );
+}
+
+#[test]
+fn model_request_preserves_text_and_custom_timeout() {
+    use bunshin_core::Tuning;
+    let mut tuning = Tuning::default();
+    tuning.model_timeout = Duration::from_millis(75);
+    let request = ModelRequest::new("rules\n'", "prompt\n日本語", "{}\n", tuning);
+    assert_eq!(
+        request,
+        ModelRequest {
+            instructions: "rules\n'".into(),
+            prompt: "prompt\n日本語".into(),
+            schema: "{}\n".into(),
+            timeout: Duration::from_millis(75)
+        }
+    );
+    let model = ScriptedLanguageModel::new([Err(ModelError::TimedOut)]);
+    assert_eq!(
+        model.respond(&request, &CancelFlag::default()),
+        Err(ModelError::TimedOut)
+    );
+    assert_eq!(model.requests(), vec![request]);
+}

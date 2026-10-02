@@ -7,7 +7,10 @@
 pub mod screen;
 pub mod store;
 
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::{
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    time::Duration,
+};
 
 use jiff::civil::Time;
 use serde::Serialize;
@@ -15,6 +18,8 @@ use serde::Serialize;
 use crate::time::{Clock, UnixMillis};
 pub use screen::{CounterScreen, ScreenAction, ScreenKey};
 pub use store::{CounterStore, StorageError, StorageErrorKind, StoredCounter};
+
+const DEFAULT_MODEL_TIMEOUT: Duration = Duration::from_secs(30);
 
 const DEFAULT_DAY_BOUNDARY: Time = Time::constant(4, 0, 0, 0);
 
@@ -35,6 +40,8 @@ pub struct Tuning {
     max: i64,
     /// 04:00 keeps late-night work on the preceding logical day; callers may tune it.
     pub day_boundary: Time,
+    /// Maximum model call and availability-probe wait; callers may tune it.
+    pub model_timeout: Duration,
 }
 
 impl Tuning {
@@ -51,6 +58,7 @@ impl Tuning {
             min,
             max,
             day_boundary: DEFAULT_DAY_BOUNDARY,
+            model_timeout: DEFAULT_MODEL_TIMEOUT,
         })
     }
 
@@ -73,6 +81,7 @@ impl Default for Tuning {
             min: 0,
             max: 99,
             day_boundary: DEFAULT_DAY_BOUNDARY,
+            model_timeout: DEFAULT_MODEL_TIMEOUT,
         }
     }
 }

@@ -50,16 +50,15 @@ review holds that line, so a screen's state machine stays testable with plain va
 
 ## Ports and adapters
 
-Anything outside the process — the filesystem, the clock, and later the OS APIs an app
-needs — reaches core through a port. It is always the same four pieces, and the sample
-has two worked examples:
+Anything outside the process — the filesystem, the clock, and the on-device model —
+reaches core through a port. Each port has the same four pieces:
 
-| Piece | Where | `CounterStore` | `Clock` |
-|---|---|---|---|
-| The port: a `Send + Sync` trait over types core owns | `crates/bunshin-core` | `counter::store::CounterStore` | `time::Clock` |
-| The adapter: translates OS results into core's types and OS failures into core's error kinds, and decides nothing | `crates/bunshin-platform` | `JsonFileCounterStore` | `SystemClock` |
-| The fake: a real implementation answering from memory | `crates/bunshin-test-support` | `InMemoryCounterStore`, `FailingCounterStore` | `FixedClock` |
-| The contract: the behaviour every implementation must have | `crates/bunshin-test-support` | `counter_store_contract` | `clock_contract` |
+| Piece | Where | `CounterStore` | `Clock` | `LanguageModel` |
+|---|---|---|---|---|
+| The port: a `Send + Sync` trait over types core owns | `crates/bunshin-core` | `counter::store::CounterStore` | `time::Clock` | `model::LanguageModel` |
+| The adapter: translates OS results into core's types and OS failures into core's error kinds, and decides nothing | `crates/bunshin-platform` | `JsonFileCounterStore` | `SystemClock` | `FmLanguageModel` (macOS), `UnavailableLanguageModel` (Linux) |
+| The fake: a real implementation answering from memory | `crates/bunshin-test-support` | `InMemoryCounterStore`, `FailingCounterStore` | `FixedClock` | `ScriptedLanguageModel` |
+| The contract: the behaviour every implementation must have | `crates/bunshin-test-support` | `counter_store_contract` | `clock_contract` | `language_model_contract` |
 
 `Clock::now` returns `Now` with both views of one millisecond-precision sample:
 `instant: UnixMillis` for gaps and `local: jiff::civil::DateTime` for dates and
@@ -69,13 +68,25 @@ uses the local view and `Tuning.day_boundary` (04:00 by default); a zone change 
 alter the instant used to measure a gap. The sample counter stores `now().instant`,
 keeping its persisted timestamp and JSON shape.
 
+`LanguageModel` probes availability and answers one `ModelRequest` with JSON text or
+one typed `ModelError`. The macOS adapter passes the prompt unchanged on stdin and the
+schema and instructions as literal arguments. It validates JSON syntax; schema and
+proposal validation stay in core's caller. Every timeout or cancellation kills and
+reaps the child, and pre-cancellation spawns nothing. Unknown process exits remain
+`Failed`, with only the numeric code logged. `ModelRequest::new` and
+`FmLanguageModel::with_tuning` use the shared `Tuning.model_timeout` (30 seconds by
+default) for responses and availability probes respectively. The Linux adapter
+reports `Unavailable(UnsupportedOs)`.
+
 `crates/bunshin-core/tests/contracts.rs` runs each contract against the fake, on Linux,
 inside the coverage floor. `crates/bunshin-platform/tests/contracts.rs` runs the same
 function against the real adapter, on the Linux and macOS CI runners when it needs only
 a filesystem (each test gets its own temporary directory). An adapter test that needs a
 logged-in GUI session, a TCC grant, or the Keychain is marked
 `#[ignore = "local machine: <what it needs>"]` and runs only in `just test-local`, which
-a human starts; the sample has none. Core's integration tests live in
+a human starts. The genuine-model contract is ignored with reason
+`local machine: fm with Apple Intelligence enabled`; routine tests run it against a
+stub and never invoke the real model. Core's integration tests live in
 `crates/bunshin-core/tests/`, never in its inline `#[cfg(test)]` modules, because there
 test-support's types would come from a second copy of core.
 
@@ -161,7 +172,7 @@ private.
 
 | Contract | What depends on it | What changing it requires |
 |---|---|---|
-| **Core's public API** — every `pub` item re-exported from `crates/bunshin-core/src/lib.rs` (`Counter`, `CounterService`, `CounterView`, `CounterError`, `CounterScreen`, `ScreenAction`, `ScreenKey`, `CounterStore`, `StoredCounter`, `StorageError`, `StorageErrorKind`, `Tuning`, `TuningError`, `Clock`, `Now`, `UnixMillis`, `logical_date`) | `bunshin-platform`, `bunshin-test-support`, `bunshin`, and their tests | Update every caller in the same pull request; the compiler finds them. A new port is a recorded decision. |
+| **Core's public API** — every `pub` item re-exported from `crates/bunshin-core/src/lib.rs` (`Counter`, `CounterService`, `CounterView`, `CounterError`, `CounterScreen`, `ScreenAction`, `ScreenKey`, `CounterStore`, `StoredCounter`, `StorageError`, `StorageErrorKind`, `Tuning`, `TuningError`, `Clock`, `Now`, `UnixMillis`, `logical_date`, `LanguageModel`, `ModelRequest`, `ModelAnswer`, `Availability`, `UnavailableReason`, `ModelError`, `CancelFlag`) | `bunshin-platform`, `bunshin-test-support`, `bunshin`, and their tests | Update every caller in the same pull request; the compiler finds them. A new port is a recorded decision. |
 | **The data and log locations** — the bundle identifier `io.github.tomada1114.bunshin` (`BUNDLE_IDENTIFIER` in `crates/bunshin-platform/src/paths.rs` and `bundle_id` in the justfile) and the XDG directory name `bunshin` (`XDG_APP_NAME`) | Where the tool's files are on a machine that ran it: on macOS `~/Library/Application Support/io.github.tomada1114.bunshin/` and `~/Library/Logs/io.github.tomada1114.bunshin/` (and any privacy grant, keyed by the identifier); on Linux `$XDG_DATA_HOME/bunshin/` and `$XDG_STATE_HOME/bunshin/logs/` | Fixed once the tool has run anywhere but your checkout: a new name leaves the user's data behind under the old one. Changing it is a human's decision, recorded as a decision (`deciding-architecture`); the bootstrap sets both once. |
 | **On-disk file formats** — see below | Files already on a user's disk; `just logs` and anyone reading the logs | A new version still reads the old format: a format version and a migration, with a test that reads a sample of the previous format. |
 | **The command line** — `bunshin counter show`, `bunshin counter increment`, `bunshin tui`, `--help`, `--version`, what goes to stdout and what to stderr, and the exit codes (0 success, 1 the action failed, 2 a usage error) — see [The binary](#the-binary) | A person, a script, or a scheduled job that runs `bunshin` | Keep the old form working, or treat the change as breaking and say so in `CHANGELOG.md`. |

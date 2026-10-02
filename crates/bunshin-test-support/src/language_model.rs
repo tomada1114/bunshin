@@ -1,10 +1,9 @@
 use bunshin_core::{
-    Availability, CancelFlag, LanguageModel, ModelAnswer, ModelError, ModelRequest,
+    Availability, CancelFlag, LanguageModel, ModelAnswer, ModelError, ModelRequest, Tuning,
 };
 use std::{
     collections::VecDeque,
     sync::{Mutex, PoisonError},
-    time::Duration,
 };
 
 /// Scripted calls consume one queued result and record their input, except when
@@ -72,12 +71,12 @@ impl LanguageModel for ScriptedLanguageModel {
 /// # Panics
 /// When an implementation violates these promises.
 pub fn language_model_contract(mut make: impl FnMut() -> Box<dyn LanguageModel>) {
-    let request = ModelRequest {
-        instructions: "Reply with a JSON object.".into(),
-        prompt: "Return an empty JSON object.".into(),
-        schema: r#"{"type":"object","title":"Empty","properties":{},"additionalProperties":false,"x-order":[],"required":[]}"#.into(),
-        timeout: Duration::from_secs(30),
-    };
+    let request = ModelRequest::new(
+        "Reply with a JSON object.",
+        "Return an empty JSON object.",
+        r#"{"type":"object","title":"Empty","properties":{},"additionalProperties":false,"x-order":[],"required":[]}"#,
+        Tuning::default(),
+    );
     let model = make();
     let cancelled = CancelFlag::default();
     cancelled.cancel();
