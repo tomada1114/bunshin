@@ -103,21 +103,20 @@ impl MainScreen {
     pub const fn finished(&self) -> bool {
         self.finished
     }
-    /// Apply a normalized key and supplied clock value; model and storage are absent.
+    /// Normalize command lookup while preserving form text; time is supplied by the caller.
     /// Successful Day mutations emit exactly one Save; navigation emits no effects.
     #[must_use]
     pub fn update(mut self, key: ScreenKey, now: Now) -> (Self, Vec<Effect>) {
         if self.finished {
             return (self, Vec::new());
         }
-        let key = key.normalized();
-        let action = action_for(key, KeyRegion::Anywhere).or_else(|| match self.focus {
-            Focus::Input => action_for(key, KeyRegion::Main),
-            Focus::Tasks => {
-                action_for(key, KeyRegion::Tasks).or_else(|| action_for(key, KeyRegion::Main))
-            }
-            Focus::Form => action_for(key, KeyRegion::Form),
-            Focus::Help => action_for(key, KeyRegion::Help),
+        let command_key = key.normalized();
+        let action = action_for(command_key, KeyRegion::Anywhere).or_else(|| match self.focus {
+            Focus::Input => action_for(command_key, KeyRegion::Main),
+            Focus::Tasks => action_for(command_key, KeyRegion::Tasks)
+                .or_else(|| action_for(command_key, KeyRegion::Main)),
+            Focus::Form => action_for(command_key, KeyRegion::Form),
+            Focus::Help => action_for(command_key, KeyRegion::Help),
         });
         let mut effects = Vec::new();
         if let Some(action) = action {

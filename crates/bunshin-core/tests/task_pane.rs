@@ -339,6 +339,7 @@ fn clock_bounds_and_full_width_punctuation_save_as_minute_precision() {
             ScreenKey::Tab,
         );
         let screen = text(screen, value);
+        assert_eq!(form(&screen).time_text(), value);
         let (screen, effects) = screen.update(ScreenKey::Enter, now());
         assert_eq!(effects, vec![Effect::Save]);
         assert_eq!(screen.day().tasks()[1].time, Some(expected));
@@ -756,4 +757,15 @@ fn mute_end_saturates_at_the_instant_bound_without_overflow() {
     let (screen, effects) = pane(Tuning::default()).update(ScreenKey::Char('m'), near_end);
     assert_eq!(effects, vec![Effect::Save]);
     assert_eq!(screen.day().data().muted_until, Some(UnixMillis(i64::MAX)));
+}
+
+#[test]
+fn full_width_form_title_is_preserved_before_and_after_save() {
+    let screen = no_save(pane(Tuning::default()), ScreenKey::Char('ａ'));
+    let screen = text(screen, "Ａ社　資料");
+    assert_eq!(form(&screen).title(), "Ａ社　資料");
+    let (screen, effects) = screen.update(ScreenKey::Enter, now());
+    assert_eq!(effects, vec![Effect::Save]);
+    assert_eq!(screen.day().tasks()[1].title, "Ａ社　資料");
+    assert_eq!(screen.day().tasks()[1].kind, TaskKind::Untimed);
 }
