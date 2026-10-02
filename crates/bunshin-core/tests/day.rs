@@ -125,7 +125,7 @@ fn every_task_operation_and_mute_is_one_visible_undoable_set() {
 }
 
 #[test]
-fn task_boundaries_count_unicode_characters_and_retained_tasks() {
+fn task_boundaries_count_unicode_characters_and_daily_creations() {
     let mut day = Day::new(date(2026, 10, 2), Tuning::default());
     for _ in 0..50 {
         (day, _) = day
@@ -157,16 +157,36 @@ fn task_boundaries_count_unicode_characters_and_retained_tasks() {
     );
     assert_eq!(day, snapshot);
     let (day, _) = day.delete(3, UnixMillis(2)).unwrap();
-    let (day, _) = day
-        .add(
+    let snapshot = day.clone();
+    assert_eq!(
+        day.clone().add(
             "新".into(),
             TaskKind::Untimed,
             None,
             TaskOrigin::Key,
-            UnixMillis(3),
-        )
-        .unwrap();
-    assert_eq!(day.tasks().last().unwrap().number, 51);
+            UnixMillis(3)
+        ),
+        Err(DayError::LimitReached)
+    );
+    assert_eq!(day, snapshot);
+    assert_eq!(day.tasks().len(), 49);
+    assert_eq!(day.data().next_task_number, 51);
+    let (day, _) = day.undo(UnixMillis(4)).unwrap();
+    let (day, _) = day.undo(UnixMillis(5)).unwrap();
+    let snapshot = day.clone();
+    assert_eq!(
+        day.clone().add(
+            "新".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            UnixMillis(6)
+        ),
+        Err(DayError::LimitReached)
+    );
+    assert_eq!(day, snapshot);
+    assert_eq!(day.tasks().len(), 49);
+    assert_eq!(day.data().next_task_number, 51);
 }
 
 #[test]
@@ -380,4 +400,70 @@ fn ordered_task_view_preserves_display_facts_without_store_bookkeeping() {
             origin,
         }]
     );
+}
+
+#[test]
+fn deleting_three_under_the_daily_limit_never_reuses_its_number() {
+    let mut day = Day::new(date(2026, 10, 2), Tuning::default());
+    for _ in 0..6 {
+        (day, _) = day
+            .add(
+                "task".into(),
+                TaskKind::Untimed,
+                None,
+                TaskOrigin::Key,
+                UnixMillis(0),
+            )
+            .unwrap();
+    }
+    let (day, _) = day.delete(3, UnixMillis(1)).unwrap();
+    let (day, _) = day
+        .add(
+            "next".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            UnixMillis(2),
+        )
+        .unwrap();
+    assert_eq!(
+        day.tasks()
+            .iter()
+            .map(|task| task.number)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 4, 5, 6, 7]
+    );
+}
+
+#[test]
+fn tuned_creation_limit_cannot_be_bypassed_by_deletion_or_undo() {
+    let mut tuning = Tuning::default();
+    tuning.day.tasks_per_day = 1;
+    let (day, _) = Day::new(date(2026, 10, 2), tuning)
+        .add(
+            "one".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            UnixMillis(0),
+        )
+        .unwrap();
+    let (deleted, _) = day.clone().delete(1, UnixMillis(1)).unwrap();
+    let (undone, _) = day.undo(UnixMillis(1)).unwrap();
+    for day in [deleted, undone] {
+        let snapshot = day.clone();
+        assert_eq!(
+            day.clone().add(
+                "two".into(),
+                TaskKind::Untimed,
+                None,
+                TaskOrigin::Key,
+                UnixMillis(2)
+            ),
+            Err(DayError::LimitReached)
+        );
+        assert_eq!(day, snapshot);
+        assert_eq!(day.data().next_task_number, 2);
+        assert!(day.tasks().is_empty());
+    }
 }

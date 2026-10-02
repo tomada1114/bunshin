@@ -82,7 +82,7 @@ struct CounterTuning {
 pub struct DayTuning {
     /// Eighty Unicode scalar values keep a title compact in the task pane.
     pub title_max_chars: usize,
-    /// Fifty retained tasks bound one day's list.
+    /// Fifty total creations bound one day; deletion and undo never restore this budget.
     pub tasks_per_day: usize,
     /// Twenty changes can be undone during one session.
     pub undo_depth: usize,

@@ -1,8 +1,8 @@
 //! Versioned day file schema, round-trip and corruption refusal contracts.
 use bunshin_core::day::file::{DayFile, DayFileError, FormatHeader};
-use bunshin_core::day::{Day, DayError, TaskKind, TaskOrigin};
+use bunshin_core::day::{Day, DayError, TaskKind, TaskOrigin, TaskStatus};
 use bunshin_core::{Tuning, UnixMillis};
-use jiff::civil::{date, time};
+use jiff::civil::{Time, date, time};
 #[test]
 fn day_file_round_trips_and_does_not_persist_undo() {
     let (day, _) = Day::new(date(2026, 10, 2), Tuning::default())
@@ -187,7 +187,9 @@ fn invalid_numbering_status_and_task_fields_are_refused() {
 fn exhausted_identifiers_are_refused_without_wraparound() {
     let mut file = DayFile::from(&Day::new(date(2026, 10, 2), Tuning::default()));
     file.data.next_task_number = u64::MAX;
-    let day = file.into_day(Tuning::default()).unwrap();
+    let mut tuning = Tuning::default();
+    tuning.day.tasks_per_day = usize::MAX;
+    let day = file.into_day(tuning).unwrap();
     assert_eq!(
         day.add(
             "a".into(),
@@ -262,4 +264,189 @@ fn loading_retains_deleted_number_high_water_mark() {
         invalid.into_day(Tuning::default()),
         Err(DayFileError::InvalidNumbering)
     );
+}
+
+#[test]
+fn loading_cannot_restore_creation_budget_consumed_by_delete_or_undo() {
+    let mut tuning = Tuning::default();
+    tuning.day.tasks_per_day = 1;
+    let (day, _) = Day::new(date(2026, 10, 2), tuning)
+        .add(
+            "one".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            UnixMillis(0),
+        )
+        .unwrap();
+    let (deleted, _) = day.clone().delete(1, UnixMillis(1)).unwrap();
+    let (undone, _) = day.undo(UnixMillis(1)).unwrap();
+    for day in [deleted, undone] {
+        let value = serde_json::to_value(DayFile::from(&day)).unwrap();
+        let loaded = serde_json::from_value::<DayFile>(value)
+            .unwrap()
+            .into_day(tuning)
+            .unwrap();
+        assert_eq!(loaded.data(), day.data());
+        assert_eq!(
+            loaded.clone().add(
+                "two".into(),
+                TaskKind::Untimed,
+                None,
+                TaskOrigin::Key,
+                UnixMillis(2)
+            ),
+            Err(DayError::LimitReached)
+        );
+        let mut invalid = DayFile::from(&loaded);
+        invalid.data.next_task_number = 3;
+        assert_eq!(
+            invalid.into_day(tuning),
+            Err(DayFileError::InvalidTask {
+                kind: DayError::LimitReached
+            })
+        );
+    }
+}
+
+#[test]
+fn history_only_task_snapshots_obey_live_task_validation() {
+    use bunshin_core::day::Change;
+    let (day, _) = Day::new(date(2026, 10, 2), Tuning::default())
+        .add(
+            "valid".into(),
+            TaskKind::Deadline,
+            Some(time(15, 0, 0, 0)),
+            TaskOrigin::Key,
+            UnixMillis(0),
+        )
+        .unwrap();
+    let (deleted, _) = day.clone().delete(1, UnixMillis(1)).unwrap();
+    let (undone, _) = day.undo(UnixMillis(1)).unwrap();
+    for day in [deleted, undone] {
+        assert!(day.tasks().is_empty());
+        let original = DayFile::from(&day);
+        // The same number appears in the add and its delete/undo row: this is valid
+        // history, not a duplicate live task.
+        assert_eq!(
+            original.clone().into_day(Tuning::default()).unwrap().data(),
+            day.data()
+        );
+        for (title, kind, clock, status, closed_at, error) in invalid_history_cases() {
+            // Cover every before and after occurrence independently: corrupting just
+            // one must be refused even if a valid snapshot of that number also exists.
+            for message_index in 0..original.data.messages.len() {
+                for before_side in [true, false] {
+                    let mut invalid = original.clone();
+                    let set = invalid.data.messages[message_index]
+                        .change_set
+                        .as_mut()
+                        .unwrap();
+                    let snapshot = match &mut set.changes[0] {
+                        Change::Task { before, after } => {
+                            if before_side {
+                                before
+                            } else {
+                                after
+                            }
+                        }
+                        Change::Mute {
+                            before: _,
+                            after: _,
+                        } => panic!("task-only fixture"),
+                    };
+                    if let Some(task) = snapshot {
+                        task.title = title.clone();
+                        task.kind = kind;
+                        task.time = clock;
+                        task.status = status;
+                        task.closed_at = closed_at;
+                        assert_eq!(
+                            invalid.into_day(Tuning::default()),
+                            Err(DayFileError::InvalidTask { kind: error })
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Independent invalid inputs paired with their expected sanitized domain failure.
+type InvalidHistoryCase = (
+    String,
+    TaskKind,
+    Option<Time>,
+    TaskStatus,
+    Option<UnixMillis>,
+    DayError,
+);
+
+fn invalid_history_cases() -> Vec<InvalidHistoryCase> {
+    vec![
+        (
+            String::new(),
+            TaskKind::Deadline,
+            Some(time(15, 0, 0, 0)),
+            TaskStatus::Open,
+            None,
+            DayError::EmptyTitle,
+        ),
+        (
+            "あ".repeat(81),
+            TaskKind::Deadline,
+            Some(time(15, 0, 0, 0)),
+            TaskStatus::Open,
+            None,
+            DayError::TitleTooLong,
+        ),
+        (
+            "valid".into(),
+            TaskKind::Deadline,
+            None,
+            TaskStatus::Open,
+            None,
+            DayError::MissingTime,
+        ),
+        (
+            "valid".into(),
+            TaskKind::Appointment,
+            None,
+            TaskStatus::Open,
+            None,
+            DayError::MissingTime,
+        ),
+        (
+            "valid".into(),
+            TaskKind::Untimed,
+            Some(time(15, 0, 0, 0)),
+            TaskStatus::Open,
+            None,
+            DayError::UnexpectedTime,
+        ),
+        (
+            "valid".into(),
+            TaskKind::Deadline,
+            Some(time(15, 0, 1, 0)),
+            TaskStatus::Open,
+            None,
+            DayError::InvalidTime,
+        ),
+        (
+            "valid".into(),
+            TaskKind::Deadline,
+            Some(time(15, 0, 0, 0)),
+            TaskStatus::Done,
+            None,
+            DayError::InvalidStatus,
+        ),
+        (
+            "valid".into(),
+            TaskKind::Deadline,
+            Some(time(15, 0, 0, 0)),
+            TaskStatus::Open,
+            Some(UnixMillis(1)),
+            DayError::InvalidStatus,
+        ),
+    ]
 }

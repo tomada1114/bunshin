@@ -255,7 +255,7 @@ pub enum DayError {
     /// A title exceeds the configured character bound.
     #[error("task title too long")]
     TitleTooLong,
-    /// The day's retained task count reached its configured limit.
+    /// The day's total creations reached its configured limit.
     #[error("task limit reached")]
     LimitReached,
     /// Timed task has no time.
@@ -343,7 +343,8 @@ impl Day {
         at: UnixMillis,
     ) -> Result<(Self, ChangeSet), DayError> {
         validate_task(&title, kind, time, self.tuning)?;
-        if self.data.tasks.len() >= self.tuning.day.tasks_per_day {
+        let creation_limit = u64::try_from(self.tuning.day.tasks_per_day).unwrap_or(u64::MAX);
+        if self.data.next_task_number.saturating_sub(1) >= creation_limit {
             return Err(DayError::LimitReached);
         }
         let number = self.data.next_task_number;

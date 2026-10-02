@@ -37,7 +37,7 @@ pub struct DayData {
     /// Logical date used as the day file's key.
     #[serde(with = "serde_civil::date")]
     pub date: Date,
-    /// Next unused number, retained even after delete and undo.
+    /// Next unused number; one less is the total creations, even after delete and undo.
     pub next_task_number: u64,
     /// Current tasks in creation order.
     pub tasks: Vec<Task>,
@@ -101,32 +101,20 @@ impl DayFile {
             format: self.format,
         }
         .check()?;
-        if self.data.tasks.len() > tuning.day.tasks_per_day {
-            return Err(DayFileError::InvalidTask {
-                kind: DayError::LimitReached,
-            });
-        }
         let mut numbers = BTreeSet::new();
         if self.data.next_task_number == 0 {
             return Err(DayFileError::InvalidNumbering);
         }
+        let creation_limit = u64::try_from(tuning.day.tasks_per_day).unwrap_or(u64::MAX);
+        if self.data.next_task_number - 1 > creation_limit {
+            return Err(DayFileError::InvalidTask {
+                kind: DayError::LimitReached,
+            });
+        }
         for task in &self.data.tasks {
-            validate_task(&task.title, task.kind, task.time, tuning)
-                .map_err(|kind| DayFileError::InvalidTask { kind })?;
-            if task.number == 0
-                || task.number >= self.data.next_task_number
-                || !numbers.insert(task.number)
-            {
+            validate_stored_task(task, tuning, self.data.next_task_number)?;
+            if !numbers.insert(task.number) {
                 return Err(DayFileError::InvalidNumbering);
-            }
-            let closed = match task.status {
-                TaskStatus::Open => false,
-                TaskStatus::Done | TaskStatus::Dropped | TaskStatus::CarriedOver => true,
-            };
-            if closed != task.closed_at.is_some() {
-                return Err(DayFileError::InvalidTask {
-                    kind: DayError::InvalidStatus,
-                });
             }
         }
         // Deleted and undone additions remain in visible rows; a corrupt high-water
@@ -137,9 +125,7 @@ impl DayFile {
                     match change {
                         super::Change::Task { before, after } => {
                             for task in before.iter().chain(after.iter()) {
-                                if task.number == 0 || task.number >= self.data.next_task_number {
-                                    return Err(DayFileError::InvalidNumbering);
-                                }
+                                validate_stored_task(task, tuning, self.data.next_task_number)?;
                             }
                         }
                         super::Change::Mute {
@@ -159,6 +145,30 @@ impl DayFile {
         })
     }
 }
+// Live tasks and historical snapshots obey the same domain invariants. Numbers
+// may recur in history; uniqueness is checked only in the current task collection.
+fn validate_stored_task(
+    task: &Task,
+    tuning: Tuning,
+    next_task_number: u64,
+) -> Result<(), DayFileError> {
+    validate_task(&task.title, task.kind, task.time, tuning)
+        .map_err(|kind| DayFileError::InvalidTask { kind })?;
+    if task.number == 0 || task.number >= next_task_number {
+        return Err(DayFileError::InvalidNumbering);
+    }
+    let closed = match task.status {
+        TaskStatus::Open => false,
+        TaskStatus::Done | TaskStatus::Dropped | TaskStatus::CarriedOver => true,
+    };
+    if closed != task.closed_at.is_some() {
+        return Err(DayFileError::InvalidTask {
+            kind: DayError::InvalidStatus,
+        });
+    }
+    Ok(())
+}
+
 /// Typed version/domain refusal; serde syntax failures are mapped by the adapter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Serialize)]
 #[serde(tag = "code", rename_all = "camelCase")]

@@ -173,8 +173,9 @@ The JSON object has `"format": 1` and camelCase fields for the logical date, tas
 high-water mark, tasks, messages, planned look, delivery and mute instants, fired and
 held triggers, and yesterday's record. Dates use `YYYY-MM-DD`, task times use `HH:MM`,
 the planned look uses a civil datetime, and elapsed-gap timestamps use Unix milliseconds.
-The next task number survives deletion and undo. Visible change and undo rows persist;
-the session's undo stack does not.
+The next task number survives deletion and undo; one less than it is the day's consumed
+creation budget. The default limit of fifty creations therefore also survives deletion,
+undo, and reload. Visible change and undo rows persist; the session's undo stack does not.
 
 A reader first decodes `FormatHeader` and checks it before decoding the rest of the
 payload, so a newer format produces typed `NewerFormat` even when its shape has changed.
