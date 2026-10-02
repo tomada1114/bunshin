@@ -1,0 +1,56 @@
+[workspace]
+members = ["crates/*", "xtask", "xtask/guard"]
+resolver = "3" # explicit: a virtual manifest has no edition to infer it from
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90" # raise it deliberately, through an ADR
+license = "MIT"
+publish = false
+
+# The only place a dependency version is written (managing-dependencies skill).
+[workspace.dependencies]
+myapp-core = { path = "crates/myapp-core" }
+myapp-platform = { path = "crates/myapp-platform" }
+myapp-test-support = { path = "crates/myapp-test-support" }
+clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+# Only the crossterm backend: the default widget set, macros, and layout cache go unused.
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+# The staged guard's credential shapes (xtask only), with its default features spelled
+# out: `unicode` makes `\s` and `(?i)` Unicode-aware, and `perf` (the lazy DFA, literal
+# search through aho-corasick and memchr) judges a 2 MiB staged file in under a second in
+# a debug build, where the bare PikeVM took about 20 seconds.
+regex = { version = "1.13", default-features = false, features = ["std", "unicode", "perf"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+thiserror = "2"
+# The harness checks' TOML reader (xtask only): parsing into `toml::Table` needs `parse`
+# and `serde`; `display` (writing TOML) goes unused.
+toml = { version = "1.1", default-features = false, features = ["std", "parse", "serde"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "ansi"] }
+# The harness checks' YAML reader (xtask only), through its event parser so each node
+# keeps its line; the default `encoding` feature (non-UTF-8 input) goes unused.
+yaml-rust2 = { version = "0.13", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+
+# The release profile lives here because Cargo ignores a `[profile]` table in a
+# workspace member's manifest.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

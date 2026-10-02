@@ -1,0 +1,16 @@
+[files]
+extend-exclude = [
+  # The generated lockfile: a typo in a package name is upstream's.
+  "Cargo.lock",
+  # Build output, matching .gitignore.
+  "target/",
+  "coverage/",
+  # Generated mirror of .agents/skills/ (`just agents-sync`); the real files are
+  # checked at their real path.
+  ".claude/skills/",
+]
+
+[default.extend-words]
+# The terminal UI crate's name, which typos otherwise reads as a misspelling of
+# "ratatouille".
+ratatui = "ratatui"

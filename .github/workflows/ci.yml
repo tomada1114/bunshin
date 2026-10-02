@@ -1,0 +1,243 @@
+name: CI
+
+on:
+  push:
+    # The one literal branch here is the default branch the ruleset's ~DEFAULT_BRANCH
+    # gates, as xtask/src/check_harness/ruleset_contexts.rs reads it: rename it with the branch.
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Superseding a pull request cancels its previous run. A push to main is keyed by
+  # commit instead, so two quick merges neither cancel one another nor leave main's
+  # tip without a finished run.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The runner's default `bash -e` hides a failure inside a pipeline and expands an unset
+# variable to the empty string; every step here fails closed instead.
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-core:
+    # Job names are the ruleset's required status contexts (.github/rulesets/main.json):
+    # rename both together.
+    name: Rust Core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Rust itself comes from rust-toolchain.toml through the runner's rustup.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: just github:taiki-e/cargo-llvm-cov aqua:nextest-rs/nextest/cargo-nextest github:EmbarkStudios/cargo-deny github:Boshen/cargo-shear
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      # The guard fails on a clippy.toml path clippy cannot resolve, which `-D warnings`
+      # lets pass; this job resolves core's unix-only bans on Linux.
+      - name: Clippy (whole workspace)
+        run: cargo xtask clippy-guard cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Core tests with coverage floors, doctests, and the Linux-buildable crates' tests
+        run: just test-core
+
+      - name: Platform tests (real adapters, the CLI) on Linux
+        run: just test-platform
+
+      - name: cargo deny
+        run: cargo deny --locked check
+
+      - name: cargo shear
+        run: cargo shear --locked
+
+  repo-lint:
+    name: Repo Lint & Harness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Rust comes from rust-toolchain.toml through the runner's rustup: `cargo xtask` runs
+      # the skills mirror and xtask's tests.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: just typos actionlint shellcheck lefthook github:taiki-e/cargo-llvm-cov aqua:nextest-rs/nextest/cargo-nextest
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Typos
+        run: typos
+
+      - name: Actionlint
+        run: actionlint
+
+      - name: Skills mirror
+        run: just agents-check
+
+      - name: Fetch crates (the core-boundary check reads cargo metadata offline)
+        run: cargo fetch --locked
+
+      # The skills' bundled Python suites run on the runner's own python3.
+      - name: Skill script tests
+        run: just test-scripts
+
+      # lefthook (installed above) runs the real pre-commit hook in xtask/tests/lefthook.rs.
+      - name: xtask tests with coverage floors
+        run: just test-xtask
+
+      - name: Harness self-checks
+        run: just check-harness
+
+  macos:
+    name: macOS
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: just aqua:nextest-rs/nextest/cargo-nextest
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Clippy (whole workspace)
+        run: cargo xtask clippy-guard cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Platform tests (real adapters, the CLI) on macOS
+        run: just test-platform
+
+  bootstrap-smoke:
+    # Template-only: `cargo xtask bootstrap` removes this job, and its required context in
+    # .github/rulesets/main.json, from every app it generates. A hyphenated
+    # multi-word slug exercises every spelling the rename writes: tide-pool-core,
+    # tide_pool, and TIDE_POOL. Nothing it runs needs macOS since the GUI left.
+    name: Template Bootstrap Smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history, so the local clone below is made from a non-shallow source.
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: just github:taiki-e/cargo-llvm-cov aqua:nextest-rs/nextest/cargo-nextest shellcheck typos actionlint lefthook
+
+      - name: Clone the checkout into a scratch directory
+        run: |
+          git clone --quiet --no-hardlinks . "$RUNNER_TEMP/bootstrap-smoke"
+          mise trust "$RUNNER_TEMP/bootstrap-smoke/mise.toml"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ${{ runner.temp }}/bootstrap-smoke -> target
+
+      - name: Verify the bootstrap on a scratch copy (fails on any leftover placeholder)
+        working-directory: ${{ runner.temp }}/bootstrap-smoke
+        # Before the bootstrap below, which removes this task. The bootstrap itself only
+        # warns about a placeholder outside its site list; this is the step that fails.
+        run: just verify-bootstrap
+
+      - name: Bootstrap the clone non-interactively
+        working-directory: ${{ runner.temp }}/bootstrap-smoke
+        run: |
+          cargo xtask bootstrap --yes \
+            --name "Tide Pool" --slug tide-pool --bundle-id com.example.tide-pool \
+            --repo example-owner/tide-pool --author "Template Smoke" --copyright "Template Smoke"
+
+      - name: The Product-section check fires on the unfilled app
+        working-directory: ${{ runner.temp }}/bootstrap-smoke
+        run: |
+          # An app nobody has described yet must fail the harness: AGENTS.md's Product
+          # section still holds the template's TODO skeleton.
+          if out="$(just check-harness 2>&1)"; then
+            printf '%s\n' "$out"
+            echo "::error::just check-harness passed on a bootstrapped app whose Product section is unfilled"
+            exit 1
+          fi
+          printf '%s\n' "$out"
+          if ! grep -q '^ERR_CHECK_PRODUCT_SECTION: ' <<<"$out"; then
+            echo "::error::just check-harness failed, but not with ERR_CHECK_PRODUCT_SECTION"
+            exit 1
+          fi
+
+      - name: Unit tests pass on the unfilled app
+        working-directory: ${{ runner.temp }}/bootstrap-smoke
+        # No test may read the real checkout's Product section: an app runs `just
+        # test-scripts` before anyone has described it.
+        run: just test-scripts
+
+      - name: Fill in only the Product section's four bullets
+        working-directory: ${{ runner.temp }}/bootstrap-smoke
+        run: |
+          # Each "- **Label** — TODO: …" bullet keeps its label and loses its indented
+          # continuation lines; every other line, the section's introduction included,
+          # stays as the bootstrap left it, so this proves filling the bullets is enough.
+          awk '
+            /^## / { inside = ($0 == "## Product"); bullet = 0; print; next }
+            inside && /^- \*\*/ {
+              sub(/\*\* — .*/, "** — a stand-in answer for the Template Bootstrap Smoke job.")
+              print
+              bullet = 1
+              next
+            }
+            inside && bullet && /^  / { next }
+            { bullet = 0; print }
+          ' AGENTS.md >"$RUNNER_TEMP/AGENTS.md"
+          mv "$RUNNER_TEMP/AGENTS.md" AGENTS.md
+
+      - name: just check in the bootstrapped app
+        working-directory: ${{ runner.temp }}/bootstrap-smoke
+        run: just check
+
+  zizmor:
+    name: Workflow Security Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # zizmor is pinned in mise.toml (Renovate bumps it), not taken from a third-party action.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: zizmor
+
+      - name: zizmor
+        env:
+          # Read-only: lets the online audits (known-vulnerable actions, impostor commits) run.
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --format github .

@@ -1,0 +1,36 @@
+# Rust build output
+target/
+
+# Coverage reports
+coverage/
+
+# Kept for checkouts made before the Node toolchain was removed: their install left it behind
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python bytecode, written when a skill's bundled tests run outside `just test-scripts`
+__pycache__/
+*.pyc
+
+# Claude Code: personal overrides and agent worktrees stay local
+.claude/settings.local.json
+.claude/worktrees/
+# Codex CLI: personal project rules stay local; the rest of .codex/ is shared config
+/.codex/rules/local.rules
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
