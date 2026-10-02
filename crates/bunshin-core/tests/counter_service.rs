@@ -86,7 +86,7 @@ fn each_change_takes_the_time_the_clock_reads_then() {
     let clock = Arc::new(FixedClock::default());
     let service = service_over(Arc::default(), clock.clone());
     assert_eq!(service.increment().map(|v| v.last_changed_at), Ok(Some(T0)));
-    clock.advance(1_000);
+    clock.advance(1_000).unwrap();
     assert_eq!(
         service.increment().map(|v| v.last_changed_at),
         Ok(Some(UnixMillis(T0.0 + 1_000)))

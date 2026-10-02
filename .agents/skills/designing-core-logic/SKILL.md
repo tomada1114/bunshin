@@ -3,7 +3,7 @@ name: designing-core-logic
 description: >
   Covers how logic in crates/bunshin-core is shaped so it stays deterministic and
   tested: time, randomness, the environment, files, and processes reached only through
-  ports or arguments (the Clock port and UnixMillis; core's clippy.toml bans on clock
+  ports or arguments (the Clock port, Now, and UnixMillis; core's clippy.toml bans on clock
   reads, env, std::fs and Path queries, sockets, standard streams, processes, exit,
   unscoped threads, sleep, and printing), when a new port is justified, tunable
   numbers in one Tuning struct, state transitions that take self and return a new
@@ -45,7 +45,7 @@ and `disallowed-types` (run by `just lint`). The judgment is what to do instead:
 
 | Core needs | It gets it as | Never |
 |---|---|---|
-| The current time | the `Clock` port (`crates/bunshin-core/src/time.rs`), read as `UnixMillis` | `SystemTime::now`, `Instant::now`, and either type's `elapsed` |
+| The current time | the `Clock` port (`crates/bunshin-core/src/time.rs`), read as `Now` with an instant and local civil time | `SystemTime::now`, `Instant::now`, either type's `elapsed`, `jiff::Timestamp::now`, `jiff::Zoned::now` |
 | To wait (a delay, a debounce, a periodic tick) | nothing: core decides "is it due at this instant?" from a `UnixMillis` it is handed, and the binary schedules the call (in the TUI, a tick the loop turns into an action) | `std::thread::sleep`, `std::thread::park_timeout`, a timer thread (`std::thread::spawn`, `std::thread::Builder::spawn`) |
 | Configuration | an argument or a field of a struct the binary builds (`designing-clis` › "Configuration and the environment") | `std::env::var`, `var_os`, `vars`, `vars_os`, `args`, `args_os` |
 | A directory (the working, temporary, or data directory) | a path argument the binary resolves | `std::env::current_dir`, `temp_dir`, `home_dir`, `current_exe` |
@@ -55,10 +55,10 @@ and `disallowed-types` (run by `just lint`). The judgment is what to do instead:
 | Another process | a port whose adapter runs it | `std::process::Command` |
 | To stop the process | an `Err` the binary turns into wording and an exit code | `std::process::exit`, `std::process::abort` |
 | Randomness | a seed or an already-drawn value as an argument, like time | a random-number crate in core (a new dependency) |
-| "Today", a formatted date or number, any sentence | nothing: core returns `UnixMillis`, numbers, and variants; the binary formats them for its stdout or its screen (`crates/bunshin/src/wording.rs`, `tui/view.rs`) | a formatted string from core |
+| "Today", a formatted date or number, any sentence | core computes `logical_date` from a supplied local time and boundary and returns civil dates, `UnixMillis`, numbers, and variants; the binary formats them for its stdout or its screen (`crates/bunshin/src/wording.rs`, `tui/view.rs`) | a formatted string from core |
 | To log | nothing: core has no `tracing` dependency, so it returns what happened and the binary logs it; adding one is a dependency decision (`managing-dependencies`) | `print!`, `println!`, `eprint!`, `eprintln!`, `dbg!`, `std::io::stdout`, `std::io::stderr` |
 
-clippy enforces the `std` paths and macros named in the last column in core's library
+clippy enforces the `std` and `jiff` paths and macros named in the last column in core's library
 and its unit and integration tests. It does not lint doctests, so a `///` example that
 calls one passes, and review is what catches it, as it does the rest of that column (a
 random-number crate, a formatted string). A `Path` or `PathBuf` is data in core:
@@ -71,7 +71,7 @@ returns and so cannot outlive the call; a core test that drives a service from s
 threads uses it.
 
 In the sample, `CounterService` is handed an `Arc<dyn Clock>` and stamps a change with
-`self.clock.now()`; a test hands it `FixedClock` and moves time with `advance`.
+`self.clock.now().instant`; a test hands it `FixedClock` and moves time with `advance`.
 
 A duration held in core is a `std::time::Duration` or a number of milliseconds; only
 reading the clock is banned, not representing time.

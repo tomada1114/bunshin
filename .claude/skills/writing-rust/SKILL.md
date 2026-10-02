@@ -134,7 +134,7 @@ formats. None of them opens a window or takes over a terminal.
 ## Traits as ports
 
 - A port is a synchronous trait with `Send + Sync` as supertraits and `&self` methods:
-  `pub trait Clock: Send + Sync { fn now(&self) -> UnixMillis; }` in
+  `pub trait Clock: Send + Sync { fn now(&self) -> Now; }` in
   `crates/bunshin-core/src/time.rs`. `Send + Sync` is what lets an `Arc<dyn Clock>` be
   shared with another thread; a type with an `Rc` or a `RefCell` inside is neither, and
   fails with E0277 where it is handed over
