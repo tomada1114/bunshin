@@ -46,8 +46,7 @@ Ports core declares (all synchronous `Send + Sync` traits):
 | `InstructionsSource` | `FileInstructions` | `InMemoryInstructions` | read the owner's text (absent, empty, or text), write the default the first time, report the file's path for display |
 | `LanguageModel` | `FmLanguageModel` (macOS), `UnavailableLanguageModel` (Linux) | `ScriptedLanguageModel` (queued answers and errors) | report availability; answer one `ModelRequest` (instructions text, prompt text, schema JSON, timeout) with the answer's JSON or a typed `ModelError`, stopping early when a shared cancel flag is set |
 
-The counter sample (`CounterStore`, `JsonFileCounterStore`, the `counter` module) is
-removed once the first real port lands.
+The template sample has been removed; the day model and clock remain as the domain foundation.
 
 ## Dependencies
 
@@ -92,8 +91,7 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   an older one is migrated on read. The `--json` output of `bunshin today` is its own
   versioned view, not the file.
 - **Writing:** the whole day on every change, to a temporary file in `days/`, flushed
-  and `fsync`ed, then renamed over the old file — the same pattern as the template's
-  `JsonFileCounterStore`. A reader such as `bunshin today` takes no lock and sees the
+  and `fsync`ed, then renamed over the old file. A reader such as `bunshin today` takes no lock and sees the
   old file or the new one, never half (§3.7). A day is a few tens of KB at most.
 - **Failure:** a failed save keeps the day in memory, shows 「保存できません」, and
   retries on the next change; an unreadable day file stops the TUI with a message and is

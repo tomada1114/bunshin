@@ -77,8 +77,10 @@ mod tests {
 
     #[test]
     fn logical_date_uses_the_boundary_passed_by_the_caller() {
-        let mut tuning = Tuning::default();
-        tuning.day_boundary = time(6, 0, 0, 0);
+        let tuning = Tuning {
+            day_boundary: time(6, 0, 0, 0),
+            ..Tuning::default()
+        };
         assert_eq!(
             logical_date(date(2026, 10, 2).at(5, 59, 59, 0), tuning.day_boundary),
             date(2026, 10, 1)
@@ -99,10 +101,5 @@ mod tests {
             logical_date(Date::MIN.at(0, 0, 0, 0), time(4, 0, 0, 0)),
             Date::MIN
         );
-    }
-
-    #[test]
-    fn a_custom_counter_range_keeps_the_default_day_boundary() {
-        assert_eq!(Tuning::new(0, 2).unwrap().day_boundary, time(4, 0, 0, 0));
     }
 }

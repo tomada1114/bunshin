@@ -160,9 +160,9 @@ why), and **Sources** where an external fact carried weight.
   process (`ModelManagerError 1008`, observed under Codex CLI's sandbox, 2026-10-02),
   does not exist on a CI runner, and is slow and nondeterministic.
 
-### 2026-10-02 — The counter sample goes with the first real port
+### 2026-10-02 — The template sample goes with the first real port
 
-- **Decided:** the template's counter (`CounterStore`, its adapter, fake, contract, and
+- **Decided:** the template's sample (its port, adapter, fake, contract, and
   subcommand) is removed by its own unit of work, before or with the first port.
 - **Rejected:** keeping it as a worked example — `design.md` and the real ports replace
   it, and a sample with no product meaning misleads the next reader.

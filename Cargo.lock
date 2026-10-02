@@ -62,7 +62,6 @@ version = "0.1.0"
 dependencies = [
  "bunshin-core",
  "bunshin-platform",
- "bunshin-test-support",
  "clap",
  "ratatui",
  "tempfile",
@@ -87,8 +86,6 @@ dependencies = [
  "bunshin-core",
  "bunshin-test-support",
  "jiff",
- "serde",
- "serde_json",
  "tempfile",
  "thiserror",
  "tracing",

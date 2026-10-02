@@ -1,7 +1,7 @@
 ## Summary
 
 <!-- What does this pull request do, and why? Link the issue it closes with "Closes #…". -->
-<!-- The title follows Conventional Commits, e.g. "fix: keep the counter at its maximum". -->
+<!-- The title follows Conventional Commits, e.g. "fix: preserve task numbers after undo". -->
 
 **Release impact:** <!-- none | PATCH | MINOR | MAJOR, and why: what a user of the tool depends on (the command line: subcommands, flags, stdout and stderr, exit codes; on-disk formats; the data and log locations; rust-version) that this changes. -->
 

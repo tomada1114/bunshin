@@ -184,7 +184,7 @@ pub enum DayFileError {
     /// App cannot understand this newer format and must not overwrite it.
     #[error("day format is newer than supported")]
     NewerFormat {
-        /// Version encountered, safe to report.
+        /// Version found, safe to report.
         found: u32,
     },
     /// No payload of this older version has ever shipped.

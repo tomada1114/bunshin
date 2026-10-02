@@ -19,7 +19,7 @@ The short, always-on version of the `writing-rust` and `designing-errors` skills
 - A subcommand's handler in `crates/bunshin/src/main.rs` is thin: call core, print the
   view to stdout, or map the error to its wording on stderr and an exit code
   (`designing-clis`). The TUI in `crates/bunshin/src/tui/` only enters and leaves the
-  terminal, translates keys into core's `ScreenKey`, and draws (`building-tuis`). No
+  terminal, translates keys into core's `ShellKey`, and draws (`building-tuis`). No
   `if` about the domain in either
 
 ## Errors
@@ -27,8 +27,8 @@ The short, always-on version of the `writing-rust` and `designing-errors` skills
 - NEVER `unwrap()` or `expect()` outside tests (`clippy::unwrap_used`/`expect_used`,
   allowed in tests by `clippy.toml`). Return a `Result` and propagate with `?`
 - One `thiserror` enum per port or core module, with a variant per failure the caller
-  can act on (`CounterError::{AtMaximum, AtMinimum, Storage { kind }}` is the worked
-  example). The binary owns the wording in `crates/bunshin/src/wording.rs`, matched
+  can act on (`day::DayError::{EmptyTitle, TaskNotFound}` are examples). The binary owns the
+  wording in `crates/bunshin/src/wording.rs`, matched
   without a wildcard arm, so core never builds a user-facing sentence; an error that
   leaves the process as data (a `--json` form) also serializes as a code
   (`#[serde(tag = "code")]`)
@@ -89,7 +89,7 @@ The short, always-on version of the `writing-rust` and `designing-errors` skills
 ## Constants
 
 - A number someone might tune (a bound, a limit, a delay) lives in core's one `Tuning`
-  struct (`crates/bunshin-core/src/counter/mod.rs`), passed in by the binary
+  struct (`crates/bunshin-core/src/tuning.rs`), passed in by the binary
 - A name other code must agree on is a `pub const` beside the one concern that owns it:
   the bundle identifier, the XDG directory name, and file names in
   `crates/bunshin-platform/src/paths.rs`, the log retention in
@@ -103,10 +103,9 @@ The short, always-on version of the `writing-rust` and `designing-errors` skills
   always lend, and an owned return needs no lifetime
 - A small value (an id, a view struct, a `Copy` type) is cheaper to `.clone()` or copy
   than to thread a lifetime through three functions; clone it and move on. Reach for
-  `Arc` only to share a port between owners (`CounterService` holds its store and clock
-  as `Arc<dyn …>`)
+  `Arc` only to share a port between owners (`Arc<dyn Clock>`)
 - A state transition takes `self` and returns a new value or a typed error
-  (`Counter::increment(self) -> Result<Self, CounterError>`), rather than mutating
+  (`ShellScreen::update(self, action) -> Self`), rather than mutating
   through `&mut` and returning nothing
 - When the compiler says "borrowed value does not live long enough" or "cannot borrow
   as mutable more than once", restructure (end the borrow before the next one, clone

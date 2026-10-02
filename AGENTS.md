@@ -94,7 +94,7 @@ just lint          # rustfmt check, clippy -D warnings
 just test          # test-core + test-xtask: every test that runs anywhere, with the coverage floors
 just test-core     # bunshin-core with its 80/80 floors, its doctests, and the Linux-buildable crates' tests
 just test-xtask    # The xtask crate's tests with its floors (85/90; the guard's rules 90/100)
-just test-fast increment  # One core test or a group of them, no floor (iteration only)
+just test-fast logical_date  # One core test or a group of them, no floor (iteration only)
 just test-platform # Platform adapter and CLI tests against the real OS, macOS or Linux (no human)
 just test-scripts  # The skills' bundled Python suites and shellcheck over their shell scripts (no floor)
 just check-harness # Re-assert the harness's claims about itself (cargo xtask check-harness)
@@ -160,7 +160,7 @@ crates/
 │                           #   no direct I/O; built and tested on Linux; coverage-gated
 │                           #   (lines 80, functions 80)
 ├── bunshin-platform/         # Adapters implementing core's ports against the real OS and
-│                           #   file system (JsonFileCounterStore, SystemClock, logging,
+│                           #   file system (SystemClock, logging,
 │                           #   paths) — translation only, outside the coverage floor
 ├── bunshin-test-support/     # One fake per port + one `<port>_contract` function per port.
 │                           #   A [dev-dependencies] entry only; never ships
@@ -184,8 +184,7 @@ xtask/                      # Repository automation in Rust, run as `cargo xtask
 - A port is a synchronous `Send + Sync` trait core declares; `bunshin-platform`
   implements it; the binary constructs the real adapter and hands it to core; a test
   hands core a fake from `bunshin-test-support`. Core never meets async.
-  The worked example is `CounterStore` / `JsonFileCounterStore` / `InMemoryCounterStore`
-  and `Clock` / `SystemClock` / `FixedClock`.
+  The worked example is `Clock` / `SystemClock` / `FixedClock`.
   A clock read returns `Now`: an instant for elapsed gaps and local civil time for
   the day's dates. `logical_date` applies `Tuning.day_boundary` in core.
 - The core boundary is enforced three times, so removing one layer leaves the others:
@@ -231,7 +230,7 @@ xtask/                      # Repository automation in Rust, run as `cargo xtask
   `$XDG_STATE_HOME/bunshin/logs`); `just logs` prints the newest. While `bunshin tui` owns
   the terminal, logging goes to the file only: a line on stdout or stderr would corrupt
   the frame.
-- Every value a front end shows is a core view type (`CounterView`), so a subcommand's
+- Every value a front end shows is a core view type (`day::TaskView`), so a subcommand's
   output and a TUI frame read the same model. A subcommand prints data to stdout and
   diagnostics to stderr (`designing-clis`); the TUI's state and key table live in core
   and its loop and view in `crates/bunshin/src/tui/` (`building-tuis`). Every string a
@@ -239,7 +238,7 @@ xtask/                      # Repository automation in Rust, run as `cargo xtask
 - Four things are contract rather than private — core's public API, the bundle
   identifier, the command line (subcommands, flags, output streams, and exit codes:
   0 success, 1 a runtime error, 2 a usage error), and on-disk file formats
-  (`counter.json` carries a format version) — and each changes only as
+  (`days/YYYY-MM-DD.json` carries a format version) — and each changes only as
   `docs/architecture.md` says.
 - `target/` and `coverage/` are build output: never edit or commit them.
 

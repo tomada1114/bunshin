@@ -51,8 +51,8 @@ of glue.
 ## Core: inline module or `tests/`
 
 - An inline `#[cfg(test)] mod tests` sees private items, so it is for a private detail
-  and for a pure value type's own rules. In the sample, `Counter`'s bounds are tested
-  there, in `crates/bunshin-core/src/counter/mod.rs`, and the key table in `screen.rs`.
+  and for a pure value type's own rules. Day model invariants are tested beside `day`; the shell
+  key table is tested in `shell.rs`.
 - Anything that uses `bunshin-test-support` goes in `crates/bunshin-core/tests/`. The
   support crate depends on core, so inside core's own unit-test build it links a
   second copy of core: a fake then implements the other copy's trait, and the compiler
@@ -60,12 +60,11 @@ of glue.
   right. An integration test sees only core's `pub` API, which is also what keeps it
   from pinning internals.
 - Each file under `tests/` is its own test binary; group by subject
-  (`counter_service.rs`, `counter_screen.rs`, `serialization.rs`, `contracts.rs`), not
+  (`day.rs`, `day_file.rs`, `contracts.rs`), not
   one file per test. The Book on this layout:
   https://doc.rust-lang.org/book/ch11-03-test-organization.html
 - A code example in a `///` comment on a core item is compiled and run as a doctest by
-  `just test-core`; keep one only if it is meant to run. In the sample, `Tuning`
-  carries one.
+  `just test-core`; keep one only if it is meant to run.
 
 ## Fakes and contracts: `bunshin-test-support`
 
@@ -76,9 +75,8 @@ of glue.
 - The crate is a `[dev-dependencies]` entry only, so test code never ships; a harness
   check fails on a normal dependency edge to it (`just check-harness`).
 - Never make one test crate depend on another's `tests/` files: shared test code
-  belongs in `bunshin-test-support`. The binary's tests use the same fakes (the
-  `TestBackend` tests in `view.rs` build a `CounterService` over
-  `InMemoryCounterStore` and `FailingCounterStore`).
+  belongs in `bunshin-test-support`. Views without ports need no fake: the `TestBackend` tests
+  build `ShellScreen::default()`.
 
 ## Platform and the human's machine
 
@@ -87,7 +85,7 @@ of glue.
   jobs all run it. Each test gets its own `tempfile::tempdir()`.
 - A test of macOS-only or Linux-only behavior carries the same `#[cfg(target_os = …)]`
   as the code it tests, so it runs on the CI job for that OS
-  (`macos_selects_the_macos_directories` in `paths.rs`; the XDG test in `cli.rs`).
+  (`macos_selects_the_macos_directories` in `paths.rs`; the XDG tests in `paths.rs`).
 - A test that needs a logged-in GUI session, a TCC grant, or the Keychain carries
   `#[ignore = "local machine: <what it needs>"]`. It is reported as ignored everywhere
   else, and only `just test-local` runs it — a human's recipe, because it may raise a

@@ -100,8 +100,8 @@ skill by name in backticks (never a path: the two trees differ), a `references/`
 relative link, or `AGENTS.md` › "Section name" (never a line number). A mention that only
 names an owner or credits a source stays bare.
 
-**Deletable illustrations.** Every app deletes the template's sample, the counter
-(`docs/getting-started.md` › "Removing the example code"). State each rule in a sentence
+**Deletable illustrations.** Every app deletes a template's sample domain
+(`docs/getting-started.md` › "The domain foundation"). State each rule in a sentence
 that does not mention the sample, then give the sample as the example in the next
 sentence or code block, so deleting the example leaves a rule that still reads. No build
 or test depends on a skill's code block.

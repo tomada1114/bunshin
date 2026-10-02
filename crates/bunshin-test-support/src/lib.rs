@@ -10,7 +10,5 @@
 //! compare `Result`s with `assert_eq!` instead of unwrapping.
 
 mod clock;
-mod counter_store;
 
 pub use clock::{FixedClock, clock_contract};
-pub use counter_store::{FailingCounterStore, InMemoryCounterStore, counter_store_contract};

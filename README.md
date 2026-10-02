@@ -6,8 +6,8 @@
 
 A personal Rust command-line tool: one binary, `bunshin`, whose clap
 subcommands do the work and whose `tui` subcommand opens a full-screen ratatui view over
-the same core, built and run on macOS and Linux. It ships as a working counter —
-persisted state, an injected clock, subcommands and a terminal view over one core — with
+the same core, built and run on macOS and Linux. It opens an empty-day terminal shell backed by a deterministic day model and an
+injected clock, with
 coverage floors, architecture boundaries that fail a build, and supply-chain-hardened
 CI, all from the first commit.
 
@@ -28,7 +28,7 @@ cd bunshin
 mise trust     # approve mise.toml once (mise asks before using an untrusted config)
 just install   # pinned tools via mise and lefthook's git hook
 just check     # everything the machine can run without a human; takes over no terminal
-cargo run --locked -p bunshin -- counter show   # the tool itself
+cargo run --locked -p bunshin -- --help   # the available command line
 ```
 
 rustup installs the Rust toolchain `rust-toolchain.toml` names the first time `cargo`
@@ -83,14 +83,6 @@ libraries a test links without a `main`. The binary only translates: arguments t
 a view to stdout, a typed error to wording on stderr and an exit code, with every
 sentence in `crates/bunshin/src/wording.rs`.
 
-### Why is the sample app a counter?
-
-Because it is small enough to delete and still exercises every frame the architecture
-claims: a port with a real adapter, a fake, and a contract suite (`CounterStore`,
-writing `counter.json` atomically under a lock); injected time (`Clock`); subcommands
-and a full-screen view over the same service, the screen's state and keys in core;
-logging; typed errors with their wording in one module; and a help line naming every
-key. Every part of it is an illustration to replace.
 ### Why tracing to daily files?
 
 `tracing` gives one logging API across every crate; only the binary installs a
@@ -230,7 +222,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 ```bash
 just install      # once per clone
 just check        # the full local gate; takes over no terminal
-just test-fast increment   # one core test or a group of them, while iterating
+just test-fast logical_date   # one core test or a group of them, while iterating
 just logs         # the newest app log's last lines
 just install-cli  # install the bunshin binary into ~/.cargo/bin (a human's step)
 ```
