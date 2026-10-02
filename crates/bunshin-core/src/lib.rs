@@ -9,12 +9,13 @@
 // error at every place that must decide what it means (`.claude/rules/testing.md`).
 #![deny(clippy::wildcard_enum_match_arm)]
 
+pub mod checkin;
 pub mod counter;
 pub mod day;
 pub mod screen;
 pub mod time;
 pub mod tuning;
-pub use tuning::DayTuning;
+pub use tuning::{CheckinTuning, DayTuning};
 
 pub use counter::{
     Counter, CounterError, CounterScreen, CounterService, CounterView, ScreenAction, ScreenKey,
