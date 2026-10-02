@@ -620,6 +620,7 @@ fn one_table_drives_help_rows_and_task_line_with_help_first() {
             ScreenAction::Help,
             ScreenAction::Quit,
             ScreenAction::Undo,
+            ScreenAction::MoveFocus,
             ScreenAction::Input,
             ScreenAction::Previous,
             ScreenAction::Next,
@@ -631,8 +632,26 @@ fn one_table_drives_help_rows_and_task_line_with_help_first() {
             ScreenAction::Mute
         ]
     );
+    let regions: Vec<_> = task_help().iter().map(|binding| binding.region).collect();
+    assert_eq!(
+        regions,
+        vec![
+            KeyRegion::Tasks,
+            KeyRegion::Tasks,
+            KeyRegion::Tasks,
+            KeyRegion::Main,
+            KeyRegion::Tasks,
+            KeyRegion::Tasks,
+            KeyRegion::Tasks,
+            KeyRegion::Tasks,
+            KeyRegion::Tasks,
+            KeyRegion::Tasks,
+            KeyRegion::Tasks,
+            KeyRegion::Tasks,
+            KeyRegion::Tasks,
+        ]
+    );
     for binding in task_help() {
-        assert_eq!(binding.region, KeyRegion::Tasks);
         assert!(KEY_TABLE.contains(binding));
     }
     let globals: Vec<_> = KEY_TABLE
@@ -768,4 +787,24 @@ fn full_width_form_title_is_preserved_before_and_after_save() {
     assert_eq!(effects, vec![Effect::Save]);
     assert_eq!(screen.day().tasks()[1].title, "Ａ社　資料");
     assert_eq!(screen.day().tasks()[1].kind, TaskKind::Untimed);
+}
+
+#[test]
+fn task_help_includes_main_focus_keys_that_dispatch_from_the_task_pane() {
+    let help = task_help();
+    let focus_keys: Vec<_> = help
+        .iter()
+        .filter(|binding| binding.action == ScreenAction::MoveFocus)
+        .flat_map(|binding| binding.keys.iter().copied())
+        .collect();
+    assert_eq!(focus_keys, vec![ScreenKey::Tab, ScreenKey::BackTab]);
+    assert_eq!(help[0].action, ScreenAction::Help);
+    for key in focus_keys {
+        let screen = pane(Tuning::default());
+        let original = screen.day().clone();
+        let (screen, effects) = screen.update(key, now());
+        assert_eq!(screen.focus(), Focus::Input);
+        assert_eq!(screen.day(), &original);
+        assert!(effects.is_empty());
+    }
 }

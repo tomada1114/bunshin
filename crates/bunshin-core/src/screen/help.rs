@@ -7,7 +7,7 @@ pub const fn help_rows() -> &'static [KeyBinding] {
     KEY_TABLE
 }
 
-/// The task-pane line starts with Help so it survives truncation on narrow terminals.
+/// The task-pane line includes base-screen focus keys and starts with Help for narrow terminals.
 #[must_use]
 pub fn task_help() -> Vec<&'static KeyBinding> {
     KEY_TABLE
@@ -16,7 +16,8 @@ pub fn task_help() -> Vec<&'static KeyBinding> {
             binding.region == KeyRegion::Tasks && binding.action == ScreenAction::Help
         })
         .chain(KEY_TABLE.iter().filter(|binding| {
-            binding.region == KeyRegion::Tasks && binding.action != ScreenAction::Help
+            matches!(binding.region, KeyRegion::Tasks | KeyRegion::Main)
+                && binding.action != ScreenAction::Help
         }))
         .collect()
 }
