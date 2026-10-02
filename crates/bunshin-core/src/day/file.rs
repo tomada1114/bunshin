@@ -95,7 +95,7 @@ impl DayFile {
     /// Validate stored task invariants and start a fresh session undo stack.
     /// # Errors
     /// Unsupported version, invalid task fields, duplicate identifiers or an invalid
-    /// high-water mark, task limit, or inconsistent closing status.
+    /// high-water mark, missing consumed numbers, task limit, or inconsistent closing status.
     pub fn into_day(self, tuning: Tuning) -> Result<Day, DayFileError> {
         FormatHeader {
             format: self.format,
@@ -126,6 +126,7 @@ impl DayFile {
                         super::Change::Task { before, after } => {
                             for task in before.iter().chain(after.iter()) {
                                 validate_stored_task(task, tuning, self.data.next_task_number)?;
+                                numbers.insert(task.number);
                             }
                         }
                         super::Change::Mute {
@@ -135,6 +136,13 @@ impl DayFile {
                     }
                 }
             }
+        }
+        // Every observed number has already been validated to lie in 1..next.
+        // Equal cardinality therefore proves the complete contiguous range was
+        // consumed, including deleted and undone tasks. The set grows only with
+        // actual snapshots, never with a possibly corrupt cursor's claimed range.
+        if u64::try_from(numbers.len()).ok() != Some(self.data.next_task_number - 1) {
+            return Err(DayFileError::InvalidNumbering);
         }
         let mut data = self.data;
         data.tasks.sort_by_key(|task| task.number);
@@ -185,7 +193,7 @@ pub enum DayFileError {
         /// Undefined older version.
         found: u32,
     },
-    /// Duplicate, zero or reused task number in stored data.
+    /// Duplicate live numbers, invalid bounds, or unaccounted consumed task numbers.
     #[error("invalid day task numbering")]
     InvalidNumbering,
     /// Task data violates core's invariants.

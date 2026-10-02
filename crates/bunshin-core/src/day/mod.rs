@@ -583,3 +583,30 @@ fn validate_task(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Day, DayError, TaskKind, TaskOrigin};
+    use crate::{Tuning, UnixMillis};
+    use jiff::civil::date;
+
+    #[test]
+    fn exhausted_identifiers_are_refused_without_wraparound() {
+        let mut tuning = Tuning::default();
+        tuning.day.tasks_per_day = usize::MAX;
+        let mut day = Day::new(date(2026, 10, 2), tuning);
+        // Reach numeric overflow privately without teaching the public loader to
+        // accept an impossible file lacking the consumed identifiers' history.
+        day.data.next_task_number = u64::MAX;
+        assert_eq!(
+            day.add(
+                "a".into(),
+                TaskKind::Untimed,
+                None,
+                TaskOrigin::Key,
+                UnixMillis(0)
+            ),
+            Err(DayError::NumberExhausted)
+        );
+    }
+}

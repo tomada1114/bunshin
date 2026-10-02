@@ -184,22 +184,12 @@ fn invalid_numbering_status_and_task_fields_are_refused() {
 }
 
 #[test]
-fn exhausted_identifiers_are_refused_without_wraparound() {
+fn loading_refuses_unaccounted_huge_cursor_without_allocating_a_range() {
     let mut file = DayFile::from(&Day::new(date(2026, 10, 2), Tuning::default()));
     file.data.next_task_number = u64::MAX;
     let mut tuning = Tuning::default();
     tuning.day.tasks_per_day = usize::MAX;
-    let day = file.into_day(tuning).unwrap();
-    assert_eq!(
-        day.add(
-            "a".into(),
-            TaskKind::Untimed,
-            None,
-            TaskOrigin::Key,
-            UnixMillis(0)
-        ),
-        Err(DayError::NumberExhausted)
-    );
+    assert_eq!(file.into_day(tuning), Err(DayFileError::InvalidNumbering));
 }
 
 #[test]
@@ -449,4 +439,111 @@ fn invalid_history_cases() -> Vec<InvalidHistoryCase> {
             DayError::InvalidStatus,
         ),
     ]
+}
+
+#[test]
+fn loading_refuses_inflated_creation_cursor_below_the_daily_cap() {
+    let (day, _) = Day::new(date(2026, 10, 2), Tuning::default())
+        .add(
+            "one".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            UnixMillis(0),
+        )
+        .unwrap();
+    let mut file = DayFile::from(&day);
+    file.data.next_task_number = 50;
+    assert_eq!(
+        file.into_day(Tuning::default()),
+        Err(DayFileError::InvalidNumbering)
+    );
+}
+
+#[test]
+fn loading_refuses_missing_middle_number_even_when_the_highest_number_matches() {
+    use bunshin_core::day::Change;
+    let mut day = Day::new(date(2026, 10, 2), Tuning::default());
+    for _ in 0..3 {
+        (day, _) = day
+            .add(
+                "task".into(),
+                TaskKind::Untimed,
+                None,
+                TaskOrigin::Key,
+                UnixMillis(0),
+            )
+            .unwrap();
+    }
+    let mut file = DayFile::from(&day);
+    file.data.tasks.retain(|task| task.number != 2);
+    file.data.messages.retain(|message| {
+        !message.change_set.as_ref().is_some_and(|set| {
+            set.changes.iter().any(|change| match change {
+                Change::Task { before, after } => before
+                    .iter()
+                    .chain(after.iter())
+                    .any(|task| task.number == 2),
+                Change::Mute {
+                    before: _,
+                    after: _,
+                } => false,
+            })
+        })
+    });
+    assert_eq!(file.data.next_task_number, 4);
+    assert_eq!(file.data.tasks.last().unwrap().number, 3);
+    assert_eq!(
+        file.into_day(Tuning::default()),
+        Err(DayFileError::InvalidNumbering)
+    );
+}
+
+#[test]
+fn loading_accounts_for_deleted_and_undone_numbers_from_append_only_history() {
+    let mut day = Day::new(date(2026, 10, 2), Tuning::default());
+    for _ in 0..3 {
+        (day, _) = day
+            .add(
+                "task".into(),
+                TaskKind::Untimed,
+                None,
+                TaskOrigin::Key,
+                UnixMillis(0),
+            )
+            .unwrap();
+    }
+    let (deleted, _) = day.delete(2, UnixMillis(1)).unwrap();
+    assert_eq!(
+        deleted
+            .tasks()
+            .iter()
+            .map(|task| task.number)
+            .collect::<Vec<_>>(),
+        vec![1, 3]
+    );
+    let restored = DayFile::from(&deleted).into_day(Tuning::default()).unwrap();
+    assert_eq!(restored.data(), deleted.data());
+    let (day, _) = deleted.undo(UnixMillis(2)).unwrap();
+    let (undone, _) = day.undo(UnixMillis(3)).unwrap();
+    assert_eq!(
+        undone
+            .tasks()
+            .iter()
+            .map(|task| task.number)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    let restored = DayFile::from(&undone).into_day(Tuning::default()).unwrap();
+    assert_eq!(restored.data(), undone.data());
+    let (day, _) = restored
+        .add(
+            "next".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            UnixMillis(4),
+        )
+        .unwrap();
+    assert_eq!(day.tasks().last().unwrap().number, 4);
 }

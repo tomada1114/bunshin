@@ -176,6 +176,8 @@ the planned look uses a civil datetime, and elapsed-gap timestamps use Unix mill
 The next task number survives deletion and undo; one less than it is the day's consumed
 creation budget. The default limit of fifty creations therefore also survives deletion,
 undo, and reload. Visible change and undo rows persist; the session's undo stack does not.
+Loading requires current or historical task snapshots to account for every consumed
+number from one through the high-water mark, so an inflated cursor cannot skip numbers.
 
 A reader first decodes `FormatHeader` and checks it before decoding the rest of the
 payload, so a newer format produces typed `NewerFormat` even when its shape has changed.
