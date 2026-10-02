@@ -2,13 +2,13 @@
 name: integrating-system-apis
 description: >
   Covers reaching the OS from crates/bunshin-platform on macOS and Linux: the port in
-  bunshin-core first, an adapter per OS behind cfg(target_os = "macos") or
-  cfg(target_os = "linux") with one contract suite, the data and log directories
-  (~/Library, XDG_DATA_HOME, XDG_STATE_HOME), choosing the mechanism (the standard
-  library, then a system command through std::process::Command such as launchctl,
-  plutil, or defaults, then a binding crate such as objc2), unsafe and the // SAFETY:
-  comment once an ADR lifts unsafe_code = "forbid" for bunshin-platform, MainThreadMarker,
-  C callbacks, TCC-gated APIs (Accessibility, Input Monitoring, Screen Recording,
+  bunshin-core first, an adapter per OS behind cfg(target_os = "macos") or cfg(target_os
+  = "linux") with one contract suite, the data and log directories (~/Library,
+  XDG_DATA_HOME, XDG_STATE_HOME), choosing the mechanism (the standard library, then a
+  system command through std::process::Command such as launchctl, plutil, or defaults,
+  then a binding crate such as objc2), unsafe and the // SAFETY: comment once a recorded
+  decision lifts unsafe_code = "forbid" for bunshin-platform, MainThreadMarker, C
+  callbacks, TCC-gated APIs (Accessibility, Input Monitoring, Screen Recording,
   AXIsProcessTrustedWithOptions) and the terminal as the responsible process, and what
   can be tested where. Use when adding or changing an adapter that reaches the OS, an
   OS-specific crate or code path, writing unsafe, spawning a system tool, porting an
@@ -21,8 +21,8 @@ description: >
 gets its adapter, how failures and threads stay inside the adapter, the `unsafe` policy,
 how a TCC grant behaves, and what can be tested where. **Does not own:** the decision
 the port serves and its test loop (`designing-core-logic`, `tdd`); the error enum's
-shape (`designing-errors`); adding the crate (`managing-dependencies`) or the ADR
-(`recording-architecture-decisions`); changing the lint that forbids `unsafe`
+shape (`designing-errors`); adding the crate (`managing-dependencies`) or the recorded
+decision (`deciding-architecture`); changing the lint that forbids `unsafe`
 (`changing-gates`); watching the running tool (`running-the-app`).
 
 ## The port comes first
@@ -40,10 +40,10 @@ Every integration is the same pieces, and the sample ships one of each to copy
 
 Write the port before the adapter. Its signature is where the OS type collapses into a
 value core owns; an adapter written first leaks one. A port is `Send + Sync` so the
-binary may call it from any thread, so it can hold no main-thread-only framework
-object, no raw pointer, and no `objc2` retained object: translate inside the adapter
-and return plain data. Every decision (when to ask for a grant, what a blocked state
-shows, what a result means) is core's, tested with the fake; a new port is an ADR.
+binary may call it from any thread, so it can hold no main-thread-only framework object,
+no raw pointer, and no `objc2` retained object: translate inside the adapter and return
+plain data. Every decision (when to ask for a grant, what a blocked state shows, what a
+result means) is core's, tested with the fake; a new port is a recorded decision.
 
 ## Each OS gets its adapter
 
@@ -153,7 +153,7 @@ the real tool are restricted to their OS in the same way.
 ## TCC: permissions macOS makes the user give
 
 Accessibility, Input Monitoring, Screen Recording, Full Disk Access and the rest are
-granted by the user in System Settings, and a TCC permission is an ADR decision
+granted by the user in System Settings, and a TCC permission is a recorded decision
 (`AGENTS.md` › "Before changing the architecture"). The property every decision rests
 on: TCC tells the program nothing. A refusal returns nothing or `false`, and a grant
 arrives with no callback. A tool run from a terminal adds a second trap: macOS may
@@ -186,8 +186,8 @@ no machine could have verified anyway.
       proves it for the other OS: on a Mac the macOS `cfg` is true, so `just lint` and
       `just test-core` pass with it misplaced. CI's `Rust Core` (Linux) and `macOS`
       jobs are the check; read both results on the pull request (`gh pr checks`).
-- [ ] Every `unsafe` block has a `// SAFETY:` comment, inside the one module the ADR
-      allows; no `unsafe impl Send`/`Sync`.
+- [ ] Every `unsafe` block has a `// SAFETY:` comment, inside the one module the
+      recorded decision allows; no `unsafe impl Send`/`Sync`.
 - [ ] The port's fake and contract function exist; the contract runs against the fake
       and against each OS's adapter.
 - [ ] A test needing a grant or changing the machine is `#[ignore = "local machine: …"]`,

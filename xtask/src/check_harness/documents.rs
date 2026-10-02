@@ -10,11 +10,9 @@ use super::yaml::{self, Keys, Node};
 use super::{finding, has_extension, list_dir, read_file};
 use crate::fail::FailureDetails;
 
-/// Documents neither check reads. The roadmap and the ADRs are an app's own planning and
-/// decision records: the roadmap links the issues behind each outcome, an ADR says where its
-/// follow-ups are tracked, and both may name a recipe that is still to be written.
-pub(super) const UNCHECKED_DOCUMENTS: &[&str] =
-    &["docs/architecture/roadmap.md", "docs/architecture/adr"];
+/// Documents neither check reads. The roadmap is the app's own planning record: it links
+/// the issues behind each outcome and may name a recipe that is still to be written.
+pub(super) const UNCHECKED_DOCUMENTS: &[&str] = &["docs/architecture/roadmap.md"];
 
 /// Every `*.md` file under `dir` (absent: none), recursively, as root-relative
 /// `/`-separated paths in byte order, leaving out each path in [`UNCHECKED_DOCUMENTS`]
@@ -167,10 +165,9 @@ mod tests {
             "docs/Z.md",
             "docs/a/z.md",
             "docs/notes.txt",
-            "docs/architecture/README.md",
-            // Named literally too, so dropping either from UNCHECKED_DOCUMENTS fails here.
+            "docs/architecture/overview.md",
+            // Named literally too, so dropping it from UNCHECKED_DOCUMENTS fails here.
             "docs/architecture/roadmap.md",
-            "docs/architecture/adr/0001-a-choice.md",
         ];
         files.extend(unchecked.iter().map(String::as_str));
         let dir = tree(&files);
@@ -179,7 +176,7 @@ mod tests {
             [
                 "docs/Z.md",
                 "docs/a/z.md",
-                "docs/architecture/README.md",
+                "docs/architecture/overview.md",
                 "docs/b.md"
             ]
         );

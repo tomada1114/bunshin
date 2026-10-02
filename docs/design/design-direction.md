@@ -5,9 +5,10 @@
   to choose — the terminal owns those. What the app decides is which of the terminal's
   own 16 colors and which text modifiers each role uses. Layout and states are in
   [`ux-flows.md`](../product/ux-flows.md); behavior rules in [`ux-guidelines.md`](ux-guidelines.md).
-- **The binding lock** — the role table as code (`const` styles beside the labels in the
-  view, per the `building-tuis` skill) — is written with the architecture. This
-  file is the research record and the decision it rests on.
+- **The binding lock** — the role table below, recorded as the color lock in the
+  `deciding-architecture` skill and carried into code as `const` styles beside the labels
+  in the view (`building-tuis`). This file is the research record and the table the lock
+  points to; changing a row is a recorded decision there.
 
 ## Direction: the terminal's palette, three text colors
 
@@ -101,8 +102,7 @@ cyan 2.96 on Terminal.app's white; bright black 1.91 on tokyonight's background.
 - A palette beyond the terminal's default foreground and background is, by the
   template's `AGENTS.md`, an architecture decision ("a TUI theme beyond the terminal's
   own colors"). This direction is that decision; the owner chose it on 2026-10-02, and it
-  is recorded with the other architecture decisions in the architecture skill (the owner
-  replaced ADR documents with skills).
+  is recorded as the color lock in the `deciding-architecture` skill.
 - The owner's terminal is Ghostty 1.3.1 with `tokyonight`, `copy-on-select = clipboard`,
   and `macos-option-as-alt = true`: no mouse capture keeps copy-on-select working, and
   Option-based keys arrive as Alt — the key table binds none.

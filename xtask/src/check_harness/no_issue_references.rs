@@ -356,7 +356,7 @@ contact_links:
             (".github/ISSUE_TEMPLATE/notes.txt", Some("Fixed in #12.\n")),
             ("docs/guide.md", Some(CLEAN)),
             ("docs/design/system.md", Some(CLEAN)),
-            ("docs/architecture/README.md", Some(CLEAN)),
+            ("docs/architecture/overview.md", Some(CLEAN)),
             ("README.md", Some("Fixed in #12.\n")),
         ];
         files.extend(
@@ -426,7 +426,7 @@ contact_links:
             ("CLAUDE.md", "The hook changed in #88.", "#88"),
             (".claude/rules/x.md", "Banned since #5.", "#5"),
             ("docs/x.md", "Decided in #31.", "#31"),
-            ("docs/architecture/README.md", "Indexed in #31.", "#31"),
+            ("docs/architecture/overview.md", "Indexed in #31.", "#31"),
             (".claude/agents/x.md", "see #12", "#12"),
             (
                 ".github/ISSUE_TEMPLATE/bug_report.yml",

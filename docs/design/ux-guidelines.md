@@ -191,8 +191,9 @@ runs `bunshin tui`).
 
 ## Open items
 
-- Open: the Japanese user-facing wording is an exception to AGENTS.md's English-only
-  rule for code and documents; it is recorded with the architecture decisions.
+- None. The Japanese user-facing wording, an exception to AGENTS.md's English-only rule
+  for code and documents, is recorded in the `deciding-architecture` skill (2026-10-02)
+  and stated in `AGENTS.md` › "Important Reminders".
 
 ## Decision log
 

@@ -77,8 +77,11 @@ this in scope?". The owner writes each bullet (the `starting-an-app` skill says 
   [`docs/product/requirements.md`](docs/product/requirements.md): the scope, each
   feature's values, and a decision log that keeps every rejected alternative and why;
   with the screens and flows in [`docs/product/ux-flows.md`](docs/product/ux-flows.md),
-  the app-wide UX rules in [`docs/design/ux-guidelines.md`](docs/design/ux-guidelines.md),
-  and the color roles in [`docs/design/design-direction.md`](docs/design/design-direction.md).
+  the app-wide UX rules in
+  [`docs/design/ux-guidelines.md`](docs/design/ux-guidelines.md), and the color roles in
+  [`docs/design/design-direction.md`](docs/design/design-direction.md). The architecture
+  and its decision log live in the `deciding-architecture` skill, and a feature request
+  goes through `managing-the-product` before any issue is filed.
 
 ## Quick Reference
 
@@ -239,11 +242,12 @@ xtask/                      # Repository automation in Rust, run as `cargo xtask
 
 ## Before changing the architecture
 
-An app cut from this template records its architecture decisions as ADRs under
-`docs/architecture/` — start at its `README.md`, the index, whose statuses say what is
-decided and what is only proposed. `docs/architecture.md` describes the layers every app
-starts with; the ADRs record what the app decided on top of them. A change to any of
-these owes an ADR, as `recording-architecture-decisions` sets out:
+Bunshin's architecture and design policy live in the `deciding-architecture` skill: the
+design as it stands, edited in place when a decision changes it, and a dated log of each
+decision with the options it rejected. There are no ADR files, numbers, or statuses.
+`docs/architecture.md` describes the layers every app cut from the template starts with;
+the skill records what Bunshin decided on top of them. A change to any of these owes a
+recorded decision, as `deciding-architecture` sets out:
 
 - a new crate in the workspace, or a new port in core;
 - persistence or configuration — where and in what format the tool keeps state, or a
@@ -262,13 +266,14 @@ these owes an ADR, as `recording-architecture-decisions` sets out:
 - a TUI theme beyond the terminal's own colors;
 - replacing clap or ratatui with another framework, a clap major, or ratatui 1.0 and
   its later majors (a pre-1.0 ratatui or crossterm minor is a migration
-  `merging-dependency-prs` lands on its own pull request, not an ADR).
+  `merging-dependency-prs` lands on its own pull request, not a recorded decision).
 
-An agent writes an ADR as Proposed; only a human accepts it. An ADR records reasoning and
-grants nothing: a release pipeline, a permission grant, or a new dependency still needs
-the sign-off "Security and human approval" asks for. The index starts empty: the reasoning
-behind the layers every app starts with lives in `README.md`'s Design Philosophy, and an
-ADR records only what an app decides on top of them.
+An agent proposes the decision, in the conversation or the pull request; only the owner
+accepts it, and the accepted decision lands in the skill in the same change as the code
+that follows it. A recorded decision explains and grants nothing: a release pipeline, a
+permission grant, or a new dependency still needs the sign-off "Security and human
+approval" asks for. The reasoning behind the layers every app starts with lives in
+`README.md`'s Design Philosophy.
 
 ## Skills
 
@@ -283,15 +288,16 @@ byte-for-byte into `.claude/skills/` (the only path Claude Code reads) by
 | `smart-commit` | Turning the working tree into Conventional Commits; a refused pre-commit hook |
 | `create-pr` | Opening or updating a pull request: title, body, Release impact, evidence |
 | `triaging-issues` | Filing or labelling an issue: type, priority, blocked, tracking |
+| `managing-the-product` | A feature request or a scope question, before any issue is filed: the feature map, the non-goals, amending the requirements |
 | `shipping-issues` | Taking ranked open issues to merged pull requests, with worktrees |
 | `steering-the-roadmap` | Changing `docs/architecture/roadmap.md` (Now / Next / Later) |
 | `merging-dependency-prs` | Landing open Dependabot and Renovate pull requests; a pre-1.0 ratatui minor lands alone |
 | `managing-dependencies` | Adding or changing a crate: the review record, features, licences |
 | `changing-gates` | Editing a file that enforces: lints, floors, hooks, harness checks, workflows, the ruleset |
 | `updating-docs` | Deciding which document a change must update |
-| `recording-architecture-decisions` | Writing an ADR under `docs/architecture/` |
+| `deciding-architecture` | Bunshin's architecture and design policy as they stand, the decision log, and proposing or changing a decision |
 | `writing-repo-scripts` | A `cargo xtask` task or a skill's bundled script, and its test |
-| `starting-an-app` | The app's first decisions: Product section, the tool's shape (subcommands only, or plus `bunshin tui`), first ADRs, removing the sample |
+| `starting-an-app` | The app's first decisions: Product section, the tool's shape (subcommands only, or plus `bunshin tui`), first recorded decisions, removing the sample |
 | `writing-rust` | Rust in `crates/*`: ownership, errors, clap and ratatui idioms, compiler messages, clippy |
 | `tdd` | Red-green-refactor with `just test-fast` |
 | `writing-tests` | The body of one Rust test: oracles, fakes, contracts, clocks, the built binary, `TestBackend` |
@@ -542,7 +548,7 @@ The rules in this file are enforced by these layers, from mechanical to procedur
 | `[workspace.lints]` in `Cargo.toml` | `just lint` and CI (`-D warnings`) | every author | `unsafe_code = "forbid"` in every crate; clippy `all` and `pedantic`; `unwrap_used`/`expect_used` outside tests; `missing_docs` on public items |
 | Coverage floors | `just test-core`, `just test-xtask`, `just check`, and CI | every author | `bunshin-core` lines 80 / functions 80; `xtask` with `xtask-guard` 85 / 90; `xtask/guard/` 90 / 100 |
 | The skills-mirror check (`just agents-check`; the hook runs `cargo xtask sync-agents --check --staged`) | `git commit` when a skill path is staged, and CI's `Repo Lint & Harness` job | every author | `.agents/skills/` and `.claude/skills/` stay byte-identical — at commit time as staged in the index, so a source staged without its synced mirror is refused |
-| `cargo xtask check-harness` (`xtask/src/check_harness/`; `just check-harness`, part of `just check`) | `just check-harness`, `just check`, and CI's `Repo Lint & Harness` job | every author | the harness's claims about itself stay true — this file exists, and every `just <recipe>` it, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, the pull request template, `.claude/rules/`, `.claude/agents/`, `docs/` (apart from the roadmap and the ADRs), the skills, and the issue forms name exists; workflow hygiene, in the workflows and the repository's composite actions (SHA pins with a `# vX.Y.Z` comment, `timeout-minutes`, least-privilege `permissions`, `persist-credentials: false`, `concurrency` — top-level or per job — that never cancels a `main` run, no `pull_request_target`, no `continue-on-error`, `set +e`, or `|| true`-style fallback, `--locked` on every lockfile-resolving cargo command and no `npm install` there and in every justfile recipe); no job holding a write scope or `id-token: write`, its own or inherited from the workflow's `permissions`, checks out the repository, runs `jdx/mise-action` or a local action, calls a remote reusable workflow, or runs `cargo` or `just`, apart from a reasoned exception list; the Dependabot and Renovate cooldowns agree; the bundle identifier is one value in `bunshin-platform`'s `BUNDLE_IDENTIFIER` and the justfile's `bundle_id`; no `clippy.toml` sets `allow-invalid` (the clippy row above); `osv-scanner.toml`'s GHSA ignores and Dependency Review's `allow-ghsas` list the same advisories; every required context in `.github/rulesets/main.json` names a job that runs on every pull request (no paths filter, no branch filter excluding a branch the ruleset gates — the default branch, read from `ci.yml`'s push branches or `origin/HEAD` only where a required job filters branches, or every branch under `~ALL` — default activity types, no `if:` that can be false); `just check` matches the steps CI runs unconditionally (no `if:`, `continue-on-error`, or `||` fallback) apart from a reasoned exception list; skills' frontmatter, size, and the Skills table; every applied label is declared once, and every label `.github/workflows/pr-label.yml`'s `TYPE_LABELS` map applies has a release-notes category and every PR-title type a key there; typos' ignore list excludes `.claude/skills/` and not `.agents/skills/`; the core boundary lists agree and `bunshin-test-support` is dev-only; no reference to this repository's issues or pull requests (`#` and digits, bare or after this repository's owner/repo — an upstream `owner/repo#N`, like its URL, is a source — an issue or pull-request URL on this repository or relative to it, the word issue, PR, pull request, or merge request before a number, `GH-` and digits, a `gh issue`/`gh pr` command given a number) in this file, `CLAUDE.md`, `.claude/rules/`, `.claude/agents/`, `docs/` (apart from the roadmap and the ADRs), a skill, or an issue form; a committed `.claude/settings.json`, if one is added, names only recipes the justfile defines, and its `allow` admits none of the recipes that need a human or write beyond the working tree (`test-local`, `logs-follow`, `install-cli`, `install`, `labels`, `ruleset`); and the `## Product` section holds no `TODO:` |
+| `cargo xtask check-harness` (`xtask/src/check_harness/`; `just check-harness`, part of `just check`) | `just check-harness`, `just check`, and CI's `Repo Lint & Harness` job | every author | the harness's claims about itself stay true — this file exists, and every `just <recipe>` it, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, the pull request template, `.claude/rules/`, `.claude/agents/`, `docs/` (apart from the roadmap), the skills, and the issue forms name exists; workflow hygiene, in the workflows and the repository's composite actions (SHA pins with a `# vX.Y.Z` comment, `timeout-minutes`, least-privilege `permissions`, `persist-credentials: false`, `concurrency` — top-level or per job — that never cancels a `main` run, no `pull_request_target`, no `continue-on-error`, `set +e`, or `|| true`-style fallback, `--locked` on every lockfile-resolving cargo command and no `npm install` there and in every justfile recipe); no job holding a write scope or `id-token: write`, its own or inherited from the workflow's `permissions`, checks out the repository, runs `jdx/mise-action` or a local action, calls a remote reusable workflow, or runs `cargo` or `just`, apart from a reasoned exception list; the Dependabot and Renovate cooldowns agree; the bundle identifier is one value in `bunshin-platform`'s `BUNDLE_IDENTIFIER` and the justfile's `bundle_id`; no `clippy.toml` sets `allow-invalid` (the clippy row above); `osv-scanner.toml`'s GHSA ignores and Dependency Review's `allow-ghsas` list the same advisories; every required context in `.github/rulesets/main.json` names a job that runs on every pull request (no paths filter, no branch filter excluding a branch the ruleset gates — the default branch, read from `ci.yml`'s push branches or `origin/HEAD` only where a required job filters branches, or every branch under `~ALL` — default activity types, no `if:` that can be false); `just check` matches the steps CI runs unconditionally (no `if:`, `continue-on-error`, or `||` fallback) apart from a reasoned exception list; skills' frontmatter, size, and the Skills table; every applied label is declared once, and every label `.github/workflows/pr-label.yml`'s `TYPE_LABELS` map applies has a release-notes category and every PR-title type a key there; typos' ignore list excludes `.claude/skills/` and not `.agents/skills/`; the core boundary lists agree and `bunshin-test-support` is dev-only; no reference to this repository's issues or pull requests (`#` and digits, bare or after this repository's owner/repo — an upstream `owner/repo#N`, like its URL, is a source — an issue or pull-request URL on this repository or relative to it, the word issue, PR, pull request, or merge request before a number, `GH-` and digits, a `gh issue`/`gh pr` command given a number) in this file, `CLAUDE.md`, `.claude/rules/`, `.claude/agents/`, `docs/` (apart from the roadmap), a skill, or an issue form; a committed `.claude/settings.json`, if one is added, names only recipes the justfile defines, and its `allow` admits none of the recipes that need a human or write beyond the working tree (`test-local`, `logs-follow`, `install-cli`, `install`, `labels`, `ruleset`); and the `## Product` section holds no `TODO:` |
 | CI (`.github/workflows/ci.yml` and the security workflows) | push to `main` and every pull request | everyone | the full gate: `Rust Core` (fmt, workspace clippy, core tests with floors, doctests, `just test-platform`, `cargo deny`, `cargo shear`), `Repo Lint & Harness` (typos, actionlint, the skills mirror, skill script tests, xtask tests with floors, harness checks), `macOS` (workspace clippy, `just test-platform`), `Workflow Security Lint` (zizmor), plus Dependency Review, the PR-title check, CodeQL, OSV-Scanner, Scorecard, and a weekly gitleaks scan |
 | This file | read at session start | every agent | everything else — the reasons behind the rules above |
 
@@ -641,7 +647,9 @@ Before submitting a PR:
 
 ## Important Reminders
 
-- All code, docs, commits, and PRs must be written in English
+- All code, docs, commits, and PRs must be written in English. The one exception is the
+  tool's user-facing wording — every sentence in `crates/bunshin/src/wording.rs`,
+  `--help` included — which is Japanese only (`deciding-architecture`)
 - Do what has been asked; nothing more, nothing less
 - NEVER create files unless absolutely necessary
 - ALWAYS prefer editing an existing file to creating a new one

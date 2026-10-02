@@ -190,8 +190,8 @@ A tool for its owner is built and installed from its own checkout with
 `cargo install --locked --path crates/bunshin` (`just install-cli`): no secret, no tag,
 and no CI involved. `CHANGELOG.md` and the workspace version still record what changed.
 A release workflow, signed or prebuilt binaries, a package-manager tap, or crates.io
-publishing is a decision an app records in an ADR when a tool needs to reach other
-people.
+publishing is a decision recorded in the `deciding-architecture` skill when a tool needs
+to reach other people.
 
 ### Why AGENTS.md and skills, but no committed agent permissions?
 
@@ -204,15 +204,13 @@ format-on-edit hook live in a user-level or gitignored local settings file, and 
 gates and `AGENTS.md`, not a permission list, are what bind every author. The app itself
 calls no LLM.
 
-### Why an ADR tree that ships empty?
+### Why decisions live in a skill
 
-The decisions in this section are the shared foundation's. Each app decides different
-things — where it keeps state, which platforms it targets, which permissions it asks
-for, whether it ever ships releases — and records each as an Architecture Decision Record
-under [docs/architecture/](docs/architecture/README.md), whose index ships empty.
-A replaced decision gets a new ADR rather than a rewrite, so the reasoning that held at
-the time stays readable. [docs/architecture/roadmap.md](docs/architecture/roadmap.md)
-ships as a skeleton for the app's direction.
+Bunshin records its architecture decisions in the `deciding-architecture` skill, edited in
+place with a dated decision log, rather than in a numbered tree of ADR files: an agent
+loads a skill when the work calls for it, and one living page is cheaper to keep true
+than a stack of records. The direction stays in
+[docs/architecture/roadmap.md](docs/architecture/roadmap.md).
 
 ### Why may nothing a check runs take over your machine or terminal?
 
@@ -247,8 +245,9 @@ just install-cli  # install the bunshin binary into ~/.cargo/bin (a human's step
 
 - [Getting Started](docs/getting-started.md)
 - [Architecture](docs/architecture.md)
-- [Architecture Decisions](docs/architecture/README.md) and the
-  [Roadmap](docs/architecture/roadmap.md)
+- [Roadmap](docs/architecture/roadmap.md)
+- Architecture decisions: the
+  [`deciding-architecture` skill](.agents/skills/deciding-architecture/SKILL.md)
 - [Contributing](CONTRIBUTING.md), [Security Policy](SECURITY.md),
   [Code of Conduct](CODE_OF_CONDUCT.md), [Changelog](CHANGELOG.md)
 

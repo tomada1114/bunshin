@@ -22,7 +22,7 @@ paths:
 
 - Every new crate — runtime or dev, for a shipped crate or for `xtask` — needs a
   written reason and a human's sign-off before it is added (`AGENTS.md` › Security and
-  human approval). It also owes an ADR (`recording-architecture-decisions`)
+  human approval). It also owes a recorded decision (`deciding-architecture`)
 - The pull request records why the dependency passes each of these (the
   `managing-dependencies` skill has the full review record):
   - **Need** — why the standard library, an existing dependency, or a small
@@ -45,8 +45,8 @@ paths:
   crossterm, which belong to the binary
 - ratatui and crossterm are pre-1.0, so their minor versions are breaking: such a bump
   is a migration reviewed on its own pull request (`merging-dependency-prs`), not an
-  ADR; replacing clap or ratatui, a clap major, or ratatui 1.0 and its later majors owes
-  an ADR
+  recorded decision; replacing clap or ratatui, a clap major, or ratatui 1.0 and its
+  later majors owes a recorded decision
 - `Cargo.lock` is committed with the manifest change that moved it, never hand-edited:
   `cargo add`/`cargo update -p <crate>` write it. Verify with `just deny`,
   `mise exec -- cargo shear`, and `just check`

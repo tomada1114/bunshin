@@ -69,10 +69,10 @@ The short, always-on version of the `writing-rust` and `designing-errors` skills
 - `unsafe_code = "forbid"` holds in every crate (`Cargo.toml`'s `[workspace.lints]`).
   `unsafe` is never the fix for a borrow-checker error
 - The one place `unsafe` may ever appear is `bunshin-platform`, for FFI that no system
-  command or safe binding covers — and only after an ADR lifts `forbid` for that crate
-  (the `integrating-system-apis` skill). Each block then carries a `// SAFETY:` comment
-  stating the invariant that makes it sound, and the same change turns on
-  `clippy::undocumented_unsafe_blocks` so a missing one fails `just lint`
+  command or safe binding covers — and only after a recorded decision lifts `forbid` for
+  that crate (the `integrating-system-apis` skill). Each block then carries a `//
+  SAFETY:` comment stating the invariant that makes it sound, and the same change turns
+  on `clippy::undocumented_unsafe_blocks` so a missing one fails `just lint`
 
 ## Matching
 

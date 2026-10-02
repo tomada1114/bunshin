@@ -539,16 +539,11 @@ body:
             };
             files.push((file, Some("A planned `just not-yet`.\n".to_owned())));
         }
-        // Named literally too, so dropping either from UNCHECKED_DOCUMENTS fails here.
-        for file in [
-            "docs/architecture/roadmap.md",
-            "docs/architecture/adr/0001-a-choice.md",
-        ] {
-            files.push((
-                file.to_owned(),
-                Some("A planned `just not-yet`.\n".to_owned()),
-            ));
-        }
+        // Named literally too, so dropping it from UNCHECKED_DOCUMENTS fails here.
+        files.push((
+            "docs/architecture/roadmap.md".to_owned(),
+            Some("A planned `just not-yet`.\n".to_owned()),
+        ));
         for (path, content) in overrides {
             files.retain(|(existing, _)| existing != path);
             files.push(((*path).to_owned(), content.map(str::to_owned)));

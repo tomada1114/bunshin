@@ -268,7 +268,7 @@ by using the app, because only the real model on a real day can settle them.
 |---|---|
 | What is kept | each day's tasks and chat, which triggers have fired, the secretary's planned next look, the mute |
 | When | written on every change, and written whole or not at all, so a quit, a crash, or a reader such as `bunshin today` never sees half a file |
-| Where | local files in the app's data directory, readable only by the owner (format and place: the architecture) |
+| Where | local files in the app's data directory, readable only by the owner (format and place: the `deciding-architecture` skill) |
 | How long | every day is kept; nothing is deleted automatically; removing the files is the owner's step |
 | One screen at a time | a second `bunshin tui` refuses to start while one is running, and says so |
 | Catch-up | when the screen opens after being closed, or the tick resumes after a gap of more than 5 min† (the Mac slept), triggers that came due meanwhile go to the model together as **one** message, not a burst |
@@ -373,8 +373,8 @@ is, and the README says where that is.
 ## 6. Open questions
 
 - None that change scope. Every † value is a starting value to tune in use; the data's
-  place and format, and the instructions file's place, are settled with the
-  architecture.
+  place and format, and the instructions file's place, are settled in the
+  `deciding-architecture` skill (2026-10-02).
 
 ## 7. Decision log
 

@@ -3,10 +3,10 @@ name: starting-an-app
 description: >
   Covers the first decisions of this app, cut from the template by its bootstrap:
   AGENTS.md's Product section and the roadmap; the tool's shape, subcommands only or
-  subcommands plus the bunshin tui screen; where it keeps state and the first ADRs;
-  removing the sample counter; installing it with just install-cli; just labels, just
-  ruleset, the GitHub security settings, and private-repository steps. Use when
-  starting the app's first feature, a name the rename missed turns up, just
+  subcommands plus the bunshin tui screen; where it keeps state and the first recorded
+  decisions; removing the sample counter; installing it with just install-cli; just
+  labels, just ruleset, the GitHub security settings, and private-repository steps. Use
+  when starting the app's first feature, a name the rename missed turns up, just
   check-harness fails on the Product section, or setting up the repository on GitHub.
 ---
 
@@ -14,10 +14,10 @@ description: >
 
 **Owns:** the order of work from "Use this template" to an app's first feature: the
 bootstrap, the Product section and roadmap as steps, the tool's shape, where it keeps
-state, the first ADRs, removing the sample, installing the tool, and the new
+state, the first recorded decisions, removing the sample, installing the tool, and the new
 repository's GitHub setup. **Does not own:** how a task or script is written
-(`writing-repo-scripts`); what the roadmap says (`steering-the-roadmap`); how an ADR is
-written (`recording-architecture-decisions`); a subcommand's shape (`designing-clis`);
+(`writing-repo-scripts`); what the roadmap says (`steering-the-roadmap`); how a decision is
+recorded (`deciding-architecture`); a subcommand's shape (`designing-clis`);
 the full-screen view (`building-tuis`); a system API or TCC permission
 (`integrating-system-apis`); what a gate may contain (`changing-gates`); README's prose
 (`updating-docs`).
@@ -54,7 +54,7 @@ the full-screen view (`building-tuis`); a system API or TCC permission
 8. **Security settings and the Renovate App**, turned on by the repository's admin:
    `AGENTS.md` › "GitHub settings a new repository must enable".
 9. **Replace the sample** with the app, in the order of the sections below: the tool's
-   shape, where it keeps state, the first ADRs, then removing the sample.
+   shape, where it keeps state, the first recorded decisions, then removing the sample.
 10. **Ruleset, last**: once the bootstrap commit is on `main`, a repository admin runs
     `just ruleset`, which applies `main.json` and the `release-tags` tag ruleset. From
     then on every change needs a pull request with the required checks green, so the
@@ -83,7 +83,7 @@ app needs, and write it into the Product section's core interaction:
 
 A configuration file, an environment variable the tool reads, or a `--json` form of its
 output is part of its command-line contract (`designing-clis`); a settings file is an
-ADR too (below).
+recorded decision too (below).
 
 ## Decide where it keeps state
 
@@ -93,14 +93,14 @@ The sample keeps `counter.json` where each system expects an app's data:
 beside them. The bundle identifier and the slug the bootstrap set key those
 directories, so they are fixed once the tool has run anywhere a user's data lives.
 Decide the app's own files — where, in what format, with what version field — as soon
-as it keeps state of its own, and record it as an ADR. A privacy (TCC) permission the
-tool will need on macOS is decided here too, each its own ADR
+as it keeps state of its own, and record it as a decision. A privacy (TCC) permission the
+tool will need on macOS is decided here too, each its own recorded decision
 (`integrating-system-apis`).
 
-## Record the first ADRs
+## Record the first decisions
 
-Write each as Proposed (only the owner accepts), in `docs/architecture/adr/` with its row
-in `docs/architecture/README.md`, per `recording-architecture-decisions`: persistence
+Propose each (only the owner accepts it) and log it in the `deciding-architecture`
+skill: persistence
 (where and in what format the tool keeps state) as soon as it keeps state of its own,
 each new crate the first features need, any TCC permission, and any platform the tool
 adds or drops beyond macOS and Linux. Every external claim in them carries its URL and
@@ -130,9 +130,9 @@ tool with a screen, the TUI's enter, leave, and panic-hook code.
 
 There is no release pipeline: the tool is built and installed from its checkout with
 `just install-cli` (`cargo install --locked --path crates/bunshin`), which writes to
-`~/.cargo/bin` outside the checkout, so it is a human's step. Reaching other people —
-a release workflow, prebuilt or signed binaries, a tap, crates.io — is an ADR and a
-sign-off change (`AGENTS.md` › "Security and human approval"), not a setup step.
+`~/.cargo/bin` outside the checkout, so it is a human's step. Reaching other people — a
+release workflow, prebuilt or signed binaries, a tap, crates.io — is a recorded decision
+and a sign-off change (`AGENTS.md` › "Security and human approval"), not a setup step.
 
 ## What the new app keeps
 

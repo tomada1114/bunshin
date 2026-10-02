@@ -18,8 +18,8 @@ description: >
 **Owns:** whether a change owes a documentation update, and which surface it lands on.
 **Does not own:** the wording rules for `docs/`, `README.md`, `CONTRIBUTING.md`, and
 `CHANGELOG.md` (`.claude/rules/docs.md`); how a skill is written and mirrored
-(`authoring-skills`); whether a change owes an ADR and how one is written
-(`recording-architecture-decisions`); the roadmap (`steering-the-roadmap`); what a `///`
+(`authoring-skills`); whether a change owes a recorded decision and how one is recorded
+(`deciding-architecture`); the roadmap (`steering-the-roadmap`); what a `///`
 comment says (`writing-rust`).
 
 ## Decide on what a reader can observe
@@ -63,7 +63,7 @@ another's content: a copy is the half that goes stale.
 | `CONTRIBUTING.md` | Prerequisites, the workflow and its commands without Just, where a change goes, the pull request process, commit messages, the changelog policy |
 | `CHANGELOG.md` | The human-curated record of user-visible changes (Keep a Changelog) |
 | `docs/architecture.md` | The layers every app starts with, the ports, the binary and its command line, and what is contract |
-| `docs/architecture/` | An app's ADRs and their index, and `roadmap.md` (owned by the two skills above) |
+| `docs/architecture/roadmap.md` | The app's Now / Next / Later direction (`steering-the-roadmap`); its architecture decisions live in the `deciding-architecture` skill |
 | `docs/getting-started.md` | First setup, everyday commands, seeing the tool, TCC, removing the example code |
 | a skill under `.agents/skills/` | The conventions of one kind of change, loaded on demand |
 | `///` on a `pub` item in core | That item's contract: why it exists and what it promises |
@@ -116,8 +116,7 @@ description.
   relative to it, the word issue, PR, pull request, or merge request before a number
   (`issue N`, `issue number N`, `PR-N`), `GH-` and digits, or a `gh issue`/`gh pr`
   command given a number. An upstream project's issue URL passes as a source. Neither
-  check reads the roadmap or the ADRs, which link
-  issues and plan recipes by design.
+  check reads the roadmap, which links issues and plan recipes by design.
 - `mise exec -- typos <file>` spell-checks Markdown (the hook and CI run it too).
 - Nothing formats Markdown; wrap prose at about 90 columns by hand.
 - No gate compiles or runs a fenced example in a Markdown file. The one exception is in

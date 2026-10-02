@@ -25,7 +25,7 @@ state transitions look like, what leaves it, and which patterns are not adopted.
 codes (`designing-errors`); how a subcommand prints a view (`designing-clis`); how a
 screen is drawn and its terminal run (`building-tuis`); an adapter that talks to the OS
 (`integrating-system-apis`); the test-first loop (`tdd`); recording a decision to change
-any of this (`recording-architecture-decisions`).
+any of this (`deciding-architecture`).
 
 ## Why this shape
 
@@ -86,7 +86,7 @@ reading the clock is banned, not representing time.
 - A port is a synchronous `Send + Sync` trait with `&self` methods, over types core
   owns. A new one comes with its adapter, its fake, and its `<port>_contract` function
   in the same change, and it is an architecture decision (`AGENTS.md` › "Before
-  changing the architecture"). **REQUIRED:** `recording-architecture-decisions`.
+  changing the architecture"). **REQUIRED:** `deciding-architecture`.
 - No `async` in core. Ports are plain calls, and the binary makes them on its own
   thread: a subcommand simply waits, and a call slow enough to freeze the TUI is the
   binary's to move onto a thread, its result fed back to the loop as an action. This
@@ -162,9 +162,9 @@ reading the clock is banned, not representing time.
 
 ## Deliberately not adopted
 
-Each is a pattern an implementer may reach for out of habit. Adopting one needs an ADR
-naming the problem the current shape cannot solve (**REQUIRED:**
-`recording-architecture-decisions`).
+Each is a pattern an implementer may reach for out of habit. Adopting one needs a
+recorded decision naming the problem the current shape cannot solve (**REQUIRED:**
+`deciding-architecture`).
 
 | Pattern | Why not |
 |---|---|

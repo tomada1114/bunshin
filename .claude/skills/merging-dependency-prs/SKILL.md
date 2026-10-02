@@ -34,11 +34,11 @@ Merging is a remote write, and this skill is not one of the standing exceptions 
 `AGENTS.md` › "Security and human approval", so invoking it is not the sign-off.
 
 1. Do the whole survey and review first, writing nothing remote.
-2. Present the plan: the exact PR numbers to merge, which go individually, which into
-   a combined branch, and which become a migration branch (and the failure mode
-   admitting each one not `CLEAN` and green, Step 3), which are held and why, every
-   major bump named, every `@dependabot rebase` comment and `gh run rerun` the plan
-   already needs (`references/failure-modes.md` F7-F9), and any ADR or issue the plan
+2. Present the plan: the exact PR numbers to merge, which go individually, which into a
+   combined branch, and which become a migration branch (and the failure mode admitting
+   each one not `CLEAN` and green, Step 3), which are held and why, every major bump
+   named, every `@dependabot rebase` comment and `gh run rerun` the plan already needs
+   (`references/failure-modes.md` F7-F9), and any recorded decision or issue the plan
    would propose (a migration, below).
 3. Get one explicit approval for the listed batch, then run it without asking per merge.
 
@@ -97,8 +97,8 @@ ratatui (`0.30` in the root `Cargo.toml`) and crossterm, reached only as
   in-memory backend and assert its cells, so an upstream rendering change fails a test.
   What none sees (raw mode, the alternate screen, key events, the terminal restore) goes
   in the report for the human to try with `bunshin tui`; an agent never runs it.
-- **A clap major, or ratatui 1.0, owes an ADR** (**REQUIRED:**
-  `recording-architecture-decisions`): hold the PR and propose the ADR, the upstream
+- **A clap major, or ratatui 1.0, owes a recorded decision** (**REQUIRED:**
+  `deciding-architecture`): hold the PR and propose the decision, the upstream
   migration guide linked; once a human accepts it, it lands alone as in Step 4c.
 - A migration needing more than mechanical edits (a widget the view relies on removed,
   a changed event model) is held, and the plan proposes an issue (**REQUIRED:**
@@ -202,7 +202,7 @@ gh pr close <number> --comment "Superseded by #<replacement-number>." --delete-b
 - A migration that goes green only by changing what a `TestBackend` test expects: show
   the old and new expected lines with the changelog entry behind them, and let the
   human decide.
-- A clap or ratatui major, before its ADR is accepted.
+- A clap or ratatui major, before the owner accepts its recorded decision.
 - Anything the review checklist marks as held for the human.
 
 Never `--admin`, `--no-verify`, a force push, or unpinning a SHA-pinned Action for a bump.
@@ -210,7 +210,7 @@ Never `--admin`, `--no-verify`, a force push, or unpinning a SHA-pinned Action f
 ## Report
 
 Merged PRs; the combined and migration PRs and what each superseded; held PRs with the
-reason each; any ADR proposed or issue filed; anything only a real terminal shows, for
+reason each; any decision proposed or issue filed; anything only a real terminal shows, for
 the human to check with `bunshin tui`; any CI failure with its real error line, not a
 summary. A partly completed run says so. An unrelated problem noticed on the way goes in
 the report, never into a combined or migration branch.

@@ -47,7 +47,7 @@ it never makes a release breaking.
 | A new version cannot read a file an earlier version wrote | MAJOR |
 | A subcommand, flag, or exit code is removed, renamed, or changes meaning | MAJOR |
 | Output a script may parse changes shape, or moves between stdout and stderr | MAJOR |
-| The data or log directory moves, leaving the user's data behind | MAJOR (and an ADR) |
+| The data or log directory moves, leaving the user's data behind | MAJOR (and a recorded decision) |
 | A user-visible feature, a new subcommand or flag, a new TUI key, or a new on-disk format version that still reads the old one | MINOR |
 | `rust-version` goes up | MINOR, and say so in the line |
 | A new privacy (TCC) permission the user will be asked for | MINOR, and say so in the line |
@@ -70,7 +70,7 @@ so a reviewer sees the break rather than a minor bump that hides one.
 The bundle identifier and the XDG directory name never change in a release: they name
 the directories the tool keeps its data and logs in, so a new name leaves the user's
 data behind under the old one. A pull request that changes either stops for a human and
-an ADR.
+a recorded decision.
 
 ## CHANGELOG.md
 
