@@ -5,7 +5,7 @@ description: >
   tracking labels declared in .github/labels.yml and synced by just labels, what
   priority: P0-P3, blocked: design, blocked: dependency, blocked: external, on hold,
   tracking, and security mean, and what an issue body must contain (a path:line such as
-  crates/myapp-platform/src/paths.rs:31, an observable close condition, a Depends on #N
+  crates/bunshin-platform/src/paths.rs:31, an observable close condition, a Depends on #N
   line). Use when filing a GitHub issue, triaging or re-prioritizing the backlog,
   choosing between bug, enhancement, documentation, chore, and security, marking a
   tracking issue, editing .github/labels.yml or an issue form under
@@ -93,8 +93,8 @@ Two things nothing else can recover later:
 
 - **What is wrong today, with a `path:line`.** A symptom without a location makes the
   next person re-find what the filer already knew. Point at the code, not the symptom:
-  `crates/myapp-platform/src/paths.rs:31`, `crates/myapp/src/wording.rs:40`,
-  `crates/myapp-core/src/counter/screen.rs:58`.
+  `crates/bunshin-platform/src/paths.rs:31`, `crates/bunshin/src/wording.rs:40`,
+  `crates/bunshin-core/src/counter/screen.rs:58`.
 - **What observable result closes it**, as a command or a test: `just test-core` passes
   with a new test named for the behavior, `just check-harness` passes, a `grep` prints
   nothing, `just logs` shows a line. Never a feeling of doneness ("works correctly", "is

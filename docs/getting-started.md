@@ -49,24 +49,24 @@ just logs        # the newest log file's last lines
 ```
 
 On macOS the tool keeps its data in
-`~/Library/Application Support/com.example.myapp/counter.json` and its logs in
-`~/Library/Logs/com.example.myapp/`; on Linux, in `$XDG_DATA_HOME/myapp/counter.json`
-(default `~/.local/share/myapp/`) and `$XDG_STATE_HOME/myapp/logs/` (default
-`~/.local/state/myapp/logs/`). Deleting `counter.json` starts the counter over.
+`~/Library/Application Support/io.github.tomada1114.bunshin/counter.json` and its logs in
+`~/Library/Logs/io.github.tomada1114.bunshin/`; on Linux, in `$XDG_DATA_HOME/bunshin/counter.json`
+(default `~/.local/share/bunshin/`) and `$XDG_STATE_HOME/bunshin/logs/` (default
+`~/.local/state/bunshin/logs/`). Deleting `counter.json` starts the counter over.
 
-The `myapp` binary reads and writes that file:
+The `bunshin` binary reads and writes that file:
 
 ```bash
-cargo run --locked -p myapp -- counter show
-cargo run --locked -p myapp -- counter increment
-cargo run --locked -p myapp -- tui   # full screen: +/Up, -/Down, r to reset, q to quit
+cargo run --locked -p bunshin -- counter show
+cargo run --locked -p bunshin -- counter increment
+cargo run --locked -p bunshin -- tui   # full screen: +/Up, -/Down, r to reset, q to quit
 ```
 
 `tui` takes over the terminal you run it from until you quit, and restores it on the
 way out. It is yours to run: no check and no agent starts it.
 
-To run `myapp` from any directory, `just install-cli` installs it into `~/.cargo/bin`
-(`cargo install --locked --path crates/myapp`). It writes outside the checkout, so it is
+To run `bunshin` from any directory, `just install-cli` installs it into `~/.cargo/bin`
+(`cargo install --locked --path crates/bunshin`). It writes outside the checkout, so it is
 a human's recipe that no check and no agent runs unasked. There is no other
 distribution: no release artifacts, no installer.
 
@@ -87,7 +87,7 @@ checklist below is every file that holds the sample. Work through it after the
 bootstrap has run (the paths then carry your app's name), in the pull request that adds
 your first real core module, so the coverage floor always has code to measure.
 
-**Core** (`crates/myapp-core`):
+**Core** (`crates/bunshin-core`):
 
 - [ ] `src/counter/` (`Counter`, `CounterService`, `CounterView`, `CounterError`,
       `StoredCounter`, `StorageError`, `Tuning`, the `CounterStore` port, and the
@@ -102,17 +102,17 @@ your first real core module, so the coverage floor always has code to measure.
 
 **Adapters and fakes**:
 
-- [ ] `crates/myapp-platform/src/counter_store.rs` (`JsonFileCounterStore`), its `mod`
+- [ ] `crates/bunshin-platform/src/counter_store.rs` (`JsonFileCounterStore`), its `mod`
       and re-export in `src/lib.rs`, `COUNTER_FILE_NAME` and `counter_file` in
       `src/paths.rs` (drop only the `counter_file` assertion from
       `macos_selects_the_macos_directories`, which also covers the data and log
       directories), `tests/json_file_counter_store.rs`, and the counter-store test in
       `tests/contracts.rs`
-- [ ] `crates/myapp-test-support/src/counter_store.rs` (`InMemoryCounterStore`,
+- [ ] `crates/bunshin-test-support/src/counter_store.rs` (`InMemoryCounterStore`,
       `FailingCounterStore`, `counter_store_contract`) and its `mod` and re-export in
       `src/lib.rs`
 
-**The binary** (`crates/myapp`):
+**The binary** (`crates/bunshin`):
 
 - [ ] `src/main.rs` — the `counter` subcommand and its handler (keep `--help`,
       `--version`, `compose`, and the exit-code convention), its wording in
@@ -131,7 +131,7 @@ your first real core module, so the coverage floor always has code to measure.
 - [ ] `AGENTS.md` — the `just test-fast increment` example, the counter examples in
       Architecture (`JsonFileCounterStore`, `CounterStore`, `CounterView`)
 - [ ] `CONTRIBUTING.md`, the `justfile`'s `test-fast` comment, and this page — the
-      `just test-fast increment` examples, "Seeing the app"'s `counter.json` and `myapp`
+      `just test-fast increment` examples, "Seeing the app"'s `counter.json` and `bunshin`
       commands, and this checklist
 - [ ] `.claude/rules/rust.md` and `.claude/rules/testing.md` — the sentences that give
       a counter type as the example (each is a parenthetical or its own sentence;

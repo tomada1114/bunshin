@@ -12,7 +12,6 @@
 //! Errors of its own: `ERR_XTASK_USAGE` (no task, or one it does not know).
 
 mod apply_ruleset;
-mod bootstrap;
 mod check_harness;
 mod check_staged;
 mod clippy_guard;
@@ -23,7 +22,6 @@ mod git_env;
 mod prune_temp;
 mod sync_agents;
 mod sync_labels;
-mod verify_bootstrap;
 mod verify_hooks;
 
 #[cfg(test)]
@@ -46,11 +44,6 @@ const TASKS: &[TaskEntry] = &[
         "apply-ruleset",
         "create or update every .github/rulesets/*.json ruleset by name (a GitHub write)",
         apply_ruleset::main,
-    ),
-    (
-        "bootstrap",
-        "turn the template into a new app: rename its placeholders, remove template-only material",
-        bootstrap::main,
     ),
     (
         "check-harness",
@@ -86,11 +79,6 @@ const TASKS: &[TaskEntry] = &[
         "sync-labels",
         "create or update the repository's labels from .github/labels.yml (a GitHub write)",
         sync_labels::main,
-    ),
-    (
-        "verify-bootstrap",
-        "bootstrap a scratch clone and fail on anything the bootstrap leaves behind",
-        verify_bootstrap::main,
     ),
     (
         "verify-hooks",

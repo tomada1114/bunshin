@@ -39,8 +39,8 @@ paths:
   - **Advisories** — `just deny` and OSV-Scanner report nothing against the version
     being added
 - A crate's version is written once, in the root `Cargo.toml`'s
-  `[workspace.dependencies]`; a member says `name = { workspace = true }`. `myapp-core`
-  takes only platform-neutral crates — never an OS binding crate or `myapp-platform`
+  `[workspace.dependencies]`; a member says `name = { workspace = true }`. `bunshin-core`
+  takes only platform-neutral crates — never an OS binding crate or `bunshin-platform`
   (`just deny` and `just check-harness` fail otherwise), and never clap, ratatui, or
   crossterm, which belong to the binary
 - ratatui and crossterm are pre-1.0, so their minor versions are breaking: such a bump

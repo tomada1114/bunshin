@@ -5,7 +5,7 @@
 **Do not open a public issue for a security vulnerability.**
 
 Report it privately through GitHub's private vulnerability reporting: open
-[a new security advisory](https://github.com/tomada1114/rust-template/security/advisories/new),
+[a new security advisory](https://github.com/tomada1114/bunshin/security/advisories/new),
 or use **Report a vulnerability** on the repository's **Security and quality** tab. How
 it works is described in GitHub's documentation,
 <https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability>
@@ -15,7 +15,7 @@ Please include:
 
 - a description of the vulnerability and its impact;
 - the steps to reproduce it;
-- the affected versions (the output of `myapp --version`, and the commit you built
+- the affected versions (the output of `bunshin --version`, and the commit you built
   from);
 - a suggested fix, if you have one.
 
@@ -30,7 +30,7 @@ replace this section with the commitments its own maintainers can keep.
 
 There are no release artifacts: the tool is built from a checkout. Only the latest
 commit on `main` is supported; update your checkout and reinstall
-(`cargo install --locked --path crates/myapp`) to pick up a fix.
+(`cargo install --locked --path crates/bunshin`) to pick up a fix.
 
 ## Supply-chain posture
 

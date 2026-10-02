@@ -9,16 +9,16 @@ The short, always-on version of the `writing-rust` and `designing-errors` skills
 ## Where code goes
 
 - A decision — anything that branches, clamps, formats, or remembers — goes in
-  `myapp-core`, where the coverage floor sees it. `myapp-platform` and the `myapp`
+  `bunshin-core`, where the coverage floor sees it. `bunshin-platform` and the `bunshin`
   binary translate between core and the outside world and decide nothing
-- Core never names an OS binding crate, `myapp-platform`, or the binary's clap,
+- Core never names an OS binding crate, `bunshin-platform`, or the binary's clap,
   ratatui, or crossterm, and reaches time, storage, the environment, and processes only
   through a port: a synchronous `Send + Sync` trait declared in core, implemented in
-  `myapp-platform`, faked in `myapp-test-support`. `crates/myapp-core/clippy.toml` bans
+  `bunshin-platform`, faked in `bunshin-test-support`. `crates/bunshin-core/clippy.toml` bans
   the direct calls
-- A subcommand's handler in `crates/myapp/src/main.rs` is thin: call core, print the
+- A subcommand's handler in `crates/bunshin/src/main.rs` is thin: call core, print the
   view to stdout, or map the error to its wording on stderr and an exit code
-  (`designing-clis`). The TUI in `crates/myapp/src/tui/` only enters and leaves the
+  (`designing-clis`). The TUI in `crates/bunshin/src/tui/` only enters and leaves the
   terminal, translates keys into core's `ScreenKey`, and draws (`building-tuis`). No
   `if` about the domain in either
 
@@ -28,7 +28,7 @@ The short, always-on version of the `writing-rust` and `designing-errors` skills
   allowed in tests by `clippy.toml`). Return a `Result` and propagate with `?`
 - One `thiserror` enum per port or core module, with a variant per failure the caller
   can act on (`CounterError::{AtMaximum, AtMinimum, Storage { kind }}` is the worked
-  example). The binary owns the wording in `crates/myapp/src/wording.rs`, matched
+  example). The binary owns the wording in `crates/bunshin/src/wording.rs`, matched
   without a wildcard arm, so core never builds a user-facing sentence; an error that
   leaves the process as data (a `--json` form) also serializes as a code
   (`#[serde(tag = "code")]`)
@@ -57,18 +57,18 @@ The short, always-on version of the `writing-rust` and `designing-errors` skills
 
 - `tracing` only: `tracing::info!`, `warn!`, `error!`, `debug!` with structured fields
   (`value = view.value`, `%error`). Never `println!`, `eprintln!`, or `dbg!` — banned in
-  core by `crates/myapp-core/clippy.toml`, and wrong everywhere else too: stdout is a
-  subcommand's data, which a script pipes, and while `myapp tui` owns the terminal any
+  core by `crates/bunshin-core/clippy.toml`, and wrong everywhere else too: stdout is a
+  subcommand's data, which a script pipes, and while `bunshin tui` owns the terminal any
   stray line corrupts the frame. The binary's own output to its user (`--help`, a
   printed value, `error:` wording on stderr) is the one exception
-- Only the binary installs a subscriber (`myapp_platform::init_logging`), writing to
+- Only the binary installs a subscriber (`bunshin_platform::init_logging`), writing to
   the file alone while the TUI runs; libraries only emit events
 
 ## Unsafe
 
 - `unsafe_code = "forbid"` holds in every crate (`Cargo.toml`'s `[workspace.lints]`).
   `unsafe` is never the fix for a borrow-checker error
-- The one place `unsafe` may ever appear is `myapp-platform`, for FFI that no system
+- The one place `unsafe` may ever appear is `bunshin-platform`, for FFI that no system
   command or safe binding covers — and only after an ADR lifts `forbid` for that crate
   (the `integrating-system-apis` skill). Each block then carries a `// SAFETY:` comment
   stating the invariant that makes it sound, and the same change turns on
@@ -89,11 +89,11 @@ The short, always-on version of the `writing-rust` and `designing-errors` skills
 ## Constants
 
 - A number someone might tune (a bound, a limit, a delay) lives in core's one `Tuning`
-  struct (`crates/myapp-core/src/counter/mod.rs`), passed in by the binary
+  struct (`crates/bunshin-core/src/counter/mod.rs`), passed in by the binary
 - A name other code must agree on is a `pub const` beside the one concern that owns it:
   the bundle identifier, the XDG directory name, and file names in
-  `crates/myapp-platform/src/paths.rs`, the log retention in
-  `crates/myapp-platform/src/logging.rs`
+  `crates/bunshin-platform/src/paths.rs`, the log retention in
+  `crates/bunshin-platform/src/logging.rs`
 - A private `const` at the top of the file that uses it for anything else. No
   `constants.rs` grab bag and no `static mut`
 

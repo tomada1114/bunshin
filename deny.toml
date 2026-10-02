@@ -39,7 +39,7 @@ wildcards = "deny"
 allow-wildcard-paths = true
 deny = [
   # Only the binary wires the real adapters; core never does.
-  { crate = "myapp-platform", wrappers = ["myapp"] },
+  { crate = "bunshin-platform", wrappers = ["bunshin"] },
 ]
 
 [sources]

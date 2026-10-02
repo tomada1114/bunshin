@@ -139,7 +139,7 @@ carries the merge that just landed.
 One kind of evidence the Review Checklist asks for can only come from the human,
 because producing it takes over the Mac (`AGENTS.md` › "Never taking over the
 developer's Mac"), and CI does not run it: `just test-local` output, for a change to an
-adapter under `crates/myapp-platform/` that has an `#[ignore = "local machine: ..."]`
+adapter under `crates/bunshin-platform/` that has an `#[ignore = "local machine: ..."]`
 test.
 
 Such a PR is opened and watched to green like any other, and then **not merged**. Leave

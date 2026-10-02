@@ -1,7 +1,7 @@
 ---
 name: designing-core-logic
 description: >
-  Covers how logic in crates/myapp-core is shaped so it stays deterministic and
+  Covers how logic in crates/bunshin-core is shaped so it stays deterministic and
   tested: time, randomness, the environment, files, and processes reached only through
   ports or arguments (the Clock port and UnixMillis; core's clippy.toml bans on clock
   reads, env, std::fs and Path queries, sockets, standard streams, processes, exit,
@@ -18,7 +18,7 @@ description: >
 
 # Designing Core Logic
 
-**Owns:** how code in `crates/myapp-core` is shaped — what it is handed rather than
+**Owns:** how code in `crates/bunshin-core` is shaped — what it is handed rather than
 reads, where a port is justified, where tunable numbers live, what its entry points and
 state transitions look like, what leaves it, and which patterns are not adopted.
 **Does not own:** the Rust idiom inside a function (`writing-rust`); error enums and
@@ -40,22 +40,22 @@ The dependency direction and the three layers that enforce the boundary are in
 
 ## What core is handed rather than reads
 
-Enforced by: `crates/myapp-core/clippy.toml` `disallowed-methods`, `disallowed-macros`,
+Enforced by: `crates/bunshin-core/clippy.toml` `disallowed-methods`, `disallowed-macros`,
 and `disallowed-types` (run by `just lint`). The judgment is what to do instead:
 
 | Core needs | It gets it as | Never |
 |---|---|---|
-| The current time | the `Clock` port (`crates/myapp-core/src/time.rs`), read as `UnixMillis` | `SystemTime::now`, `Instant::now`, and either type's `elapsed` |
+| The current time | the `Clock` port (`crates/bunshin-core/src/time.rs`), read as `UnixMillis` | `SystemTime::now`, `Instant::now`, and either type's `elapsed` |
 | To wait (a delay, a debounce, a periodic tick) | nothing: core decides "is it due at this instant?" from a `UnixMillis` it is handed, and the binary schedules the call (in the TUI, a tick the loop turns into an action) | `std::thread::sleep`, `std::thread::park_timeout`, a timer thread (`std::thread::spawn`, `std::thread::Builder::spawn`) |
 | Configuration | an argument or a field of a struct the binary builds (`designing-clis` › "Configuration and the environment") | `std::env::var`, `var_os`, `vars`, `vars_os`, `args`, `args_os` |
 | A directory (the working, temporary, or data directory) | a path argument the binary resolves | `std::env::current_dir`, `temp_dir`, `home_dir`, `current_exe` |
 | A fact about the process or the machine (its id, its parent's id, the CPU count) | an argument the binary reads | `std::process::id`, `std::os::unix::process::parent_id`, `std::thread::available_parallelism` |
 | To change the process's environment or working directory | nothing: that is the binary's decision | `std::env::set_var`, `remove_var`, `set_current_dir`, `std::os::unix::fs::chroot` |
-| Stored data, a file, standard input, the network | a port with a real adapter in `myapp-platform` | `std::fs::{File, OpenOptions, DirBuilder}`, every `std::fs` free function (`read`, `write`, `read_dir`, `metadata`, `copy`, …), `std::os::unix::fs::{symlink, chown, fchown, lchown}`, `Path`'s (and so `PathBuf`'s) `exists`, `try_exists`, `metadata`, `symlink_metadata`, `read_dir`, `read_link`, `canonicalize`, `is_file`, `is_dir`, `is_symlink`, `std::io::stdin`, `std::net::{TcpStream, TcpListener, UdpSocket}`, `std::os::unix::net::{UnixStream, UnixListener, UnixDatagram}`, `ToSocketAddrs::to_socket_addrs` (a DNS lookup) |
+| Stored data, a file, standard input, the network | a port with a real adapter in `bunshin-platform` | `std::fs::{File, OpenOptions, DirBuilder}`, every `std::fs` free function (`read`, `write`, `read_dir`, `metadata`, `copy`, …), `std::os::unix::fs::{symlink, chown, fchown, lchown}`, `Path`'s (and so `PathBuf`'s) `exists`, `try_exists`, `metadata`, `symlink_metadata`, `read_dir`, `read_link`, `canonicalize`, `is_file`, `is_dir`, `is_symlink`, `std::io::stdin`, `std::net::{TcpStream, TcpListener, UdpSocket}`, `std::os::unix::net::{UnixStream, UnixListener, UnixDatagram}`, `ToSocketAddrs::to_socket_addrs` (a DNS lookup) |
 | Another process | a port whose adapter runs it | `std::process::Command` |
 | To stop the process | an `Err` the binary turns into wording and an exit code | `std::process::exit`, `std::process::abort` |
 | Randomness | a seed or an already-drawn value as an argument, like time | a random-number crate in core (a new dependency) |
-| "Today", a formatted date or number, any sentence | nothing: core returns `UnixMillis`, numbers, and variants; the binary formats them for its stdout or its screen (`crates/myapp/src/wording.rs`, `tui/view.rs`) | a formatted string from core |
+| "Today", a formatted date or number, any sentence | nothing: core returns `UnixMillis`, numbers, and variants; the binary formats them for its stdout or its screen (`crates/bunshin/src/wording.rs`, `tui/view.rs`) | a formatted string from core |
 | To log | nothing: core has no `tracing` dependency, so it returns what happened and the binary logs it; adding one is a dependency decision (`managing-dependencies`) | `print!`, `println!`, `eprint!`, `eprintln!`, `dbg!`, `std::io::stdout`, `std::io::stderr` |
 
 clippy enforces the `std` paths and macros named in the last column in core's library
@@ -104,8 +104,8 @@ reading the clock is banned, not representing time.
   and each field's `///` says why it has that value.
 - The binary builds it and passes it in, so a test passes a tiny one to reach a
   boundary in one step. In the sample, `Tuning` lives in
-  `crates/myapp-core/src/counter/mod.rs`, `compose` in `crates/myapp/src/main.rs`
-  passes `Tuning::default()`, and `crates/myapp-core/tests/counter_service.rs` uses
+  `crates/bunshin-core/src/counter/mod.rs`, `compose` in `crates/bunshin/src/main.rs`
+  passes `Tuning::default()`, and `crates/bunshin-core/tests/counter_service.rs` uses
   `Tuning::new(0, 2)`.
 - When fields only make sense together, keep them private and let a constructor refuse
   an inconsistent set with a typed error. In the sample, `Tuning::new(min, max)`
@@ -132,7 +132,7 @@ reading the clock is banned, not representing time.
   discoverable, and tested on its own. It runs **load → decide → save**: load the
   state, call the pure decision, save only if the decision succeeded, return the view.
   In the sample, `CounterService::change` does this under one `Mutex` and one
-  `CounterStore::update`, so neither another thread nor another `myapp` process can
+  `CounterStore::update`, so neither another thread nor another `bunshin` process can
   slip a save in between; the clock is read only when there is a change to stamp.
 - Construction has no side effects: `new` stores what it is handed and reads nothing.
   The first load happens when a use case runs.
@@ -144,12 +144,12 @@ reading the clock is banned, not representing time.
   type. A subcommand prints it and a TUI frame draws it, so both front ends show the
   same facts from one value. In the sample, `CounterView { value, last_changed_at,
   revision }`; `Counter` itself never leaves core. `revision` counts the saves this
-  service has made and is not stored, so it means nothing across two runs of `myapp`.
+  service has made and is not stored, so it means nothing across two runs of `bunshin`.
 - A TUI's state is a core value too: a `…Screen` holding the last view, the last
   error, and whether the user asked to leave, with an `update(self, action, &service)`
   that returns the next one, and an action enum with its key table. In the sample,
   `CounterScreen`, `ScreenAction`, and `ScreenKey` in
-  `crates/myapp-core/src/counter/screen.rs`. **REQUIRED:** `building-tuis` before
+  `crates/bunshin-core/src/counter/screen.rs`. **REQUIRED:** `building-tuis` before
   adding one.
 - What goes to disk is its own type (in the sample, `StoredCounter`), separate from the
   view, so the file format and the output can change independently. A view that a
@@ -173,7 +173,7 @@ naming the problem the current shape cannot solve (**REQUIRED:**
 | A repository per entity, entity classes, per-layer DTO copies | one store port per persisted thing; the view is the one outward shape |
 | Use-case or interactor structs, one per action | a method on the service already is the use case |
 | A generic `dispatch(action)` on a service | named methods are typed and tested one at a time; only a screen's `update` takes an action, and it calls one named method per action |
-| A DI container or service locator | `compose` in `crates/myapp/src/main.rs` is the composition root; constructor arguments suffice |
+| A DI container or service locator | `compose` in `crates/bunshin/src/main.rs` is the composition root; constructor arguments suffice |
 | Global mutable state (`static mut`, a lazily built singleton) | state lives in the service the binary builds and the screen value the TUI loop holds |
 | An event bus or channels between core types | direct calls; the TUI loop redraws from the screen `update` returned |
 | A TUI framework over ratatui, or a component trait per widget | one `…Screen` value with its `update`, and one `draw` function per screen |
@@ -184,5 +184,5 @@ ports, synchronous ports, and the coverage floor).
 ## Testing the shape
 
 A value type's transitions get unit tests beside it; a use case runs against the fakes
-in `crates/myapp-core/tests/`; every port's fake and adapter run its contract.
+in `crates/bunshin-core/tests/`; every port's fake and adapter run its contract.
 **BACKGROUND:** `placing-tests` for where, `writing-tests` for how.

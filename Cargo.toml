@@ -11,9 +11,9 @@ publish = false
 
 # The only place a dependency version is written (managing-dependencies skill).
 [workspace.dependencies]
-myapp-core = { path = "crates/myapp-core" }
-myapp-platform = { path = "crates/myapp-platform" }
-myapp-test-support = { path = "crates/myapp-test-support" }
+bunshin-core = { path = "crates/bunshin-core" }
+bunshin-platform = { path = "crates/bunshin-platform" }
+bunshin-test-support = { path = "crates/bunshin-test-support" }
 clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 # Only the crossterm backend: the default widget set, macros, and layout cache go unused.
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }

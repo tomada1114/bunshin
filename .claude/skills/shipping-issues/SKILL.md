@@ -106,8 +106,8 @@ before step 3 ([dependency-triage.md](references/dependency-triage.md)).
 ## 2c. Confirm the proposed batch
 
 The plan proposes; this step decides. Look for what a script cannot see: two issues both
-editing `Cargo.toml`, a workflow, the subcommand enum in `crates/myapp/src/main.rs`, or
-core's re-exports in `crates/myapp-core/src/lib.rs` (a `CHANGELOG.md` entry is not a
+editing `Cargo.toml`, a workflow, the subcommand enum in `crates/bunshin/src/main.rs`, or
+core's re-exports in `crates/bunshin-core/src/lib.rs` (a `CHANGELOG.md` entry is not a
 collision). Take the narrower grouping on any disagreement; shrinking
 never needs asking ([dependency-triage.md](references/dependency-triage.md)).
 

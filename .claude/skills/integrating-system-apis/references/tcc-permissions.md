@@ -81,13 +81,13 @@ loop.
 A missing grant is a state the user can leave, so the tool stays usable and says what is
 missing and how to fix it: name the permission as System Settings names it, and say
 which program to grant it to (see "Which program holds the grant" below). The wording
-lives in `crates/myapp/src/wording.rs` like any other.
+lives in `crates/bunshin/src/wording.rs` like any other.
 
 ## Usage-description keys
 
 Some TCC-gated APIs require an `NS…UsageDescription` key in the program's `Info.plist`,
 and the system ends the process at the call when the key is missing, which is worse
-than a refusal. `myapp` is a bare binary with no bundle and no `Info.plist`, so an API
+than a refusal. `bunshin` is a bare binary with no bundle and no `Info.plist`, so an API
 that needs a key also needs a decision on how the binary carries one: an ADR, in the
 pull request that adds the API. Not every permission has a key: check the API's own
 Apple page rather than assuming either way.
@@ -97,8 +97,8 @@ Apple page rather than assuming either way.
 TCC judges a privacy request by its responsible code, and for a tool run from Terminal
 that is Terminal (<https://developer.apple.com/forums/thread/760964>, checked
 2026-09-29). So the entry the user flips in System Settings may be their terminal app
-rather than `myapp`. Say in the hand-off which entry to look for, and treat "it works
-from my terminal" as evidence about that terminal, not about `myapp` started some other
+rather than `bunshin`. Say in the hand-off which entry to look for, and treat "it works
+from my terminal" as evidence about that terminal, not about `bunshin` started some other
 way (a scheduled job, another terminal app).
 
 When the grant is held by a program's own signature, TCC identifies the program by its
@@ -121,7 +121,7 @@ Every TCC step needs a person: the prompt is a system window, and System Setting
 another app, which an agent never drives (`AGENTS.md` › "Never taking over the
 developer's Mac"). Ask once, in one message, before the loop starts:
 
-- which permission, and for which program: usually the terminal that runs `myapp` or
+- which permission, and for which program: usually the terminal that runs `bunshin` or
   `just test-local` (see "Which program holds the grant");
 - the order of the steps (build, run, grant, run again) and the recipe for each
   (`just test-local` is a human recipe);

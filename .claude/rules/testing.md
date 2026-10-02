@@ -1,7 +1,7 @@
 ---
 paths:
   - "crates/*/tests/**"
-  - "crates/myapp-test-support/**"
+  - "crates/bunshin-test-support/**"
 ---
 
 The short version of the `tdd`, `writing-tests`, and `placing-tests` skills.
@@ -12,27 +12,27 @@ Split by what is under test, and put each test in the cheapest place that can fa
 it:
 
 - **A decision → core, with a fake.** Anything that branches, clamps, formats, or
-  remembers lives in `myapp-core` and is tested there: a `#[cfg(test)] mod tests` beside
-  the code for a private detail, or `crates/myapp-core/tests/` for the public API and
-  for anything that uses `myapp-test-support` (an inline module would see a second copy
+  remembers lives in `bunshin-core` and is tested there: a `#[cfg(test)] mod tests` beside
+  the code for a private detail, or `crates/bunshin-core/tests/` for the public API and
+  for anything that uses `bunshin-test-support` (an inline module would see a second copy
   of core's types). These run on Linux in CI and are what the 80% line and 80% function
   floors measure (`just test-core`; `just test-fast <filter>` while iterating). This is
   the default: if an adapter or a command looks like it needs a test for a decision,
   move the decision into core instead.
 - **Translation to or from the OS → the adapter's contract test.** Whether the file
   system or a macOS API really behaves as an adapter assumes is checked against the
-  real thing in `crates/myapp-platform/tests/` (`just test-platform`, CI's `Rust Core` and macOS jobs). A
+  real thing in `crates/bunshin-platform/tests/` (`just test-platform`, CI's `Rust Core` and macOS jobs). A
   test that needs a logged-in GUI session, a TCC grant, or the Keychain carries
   `#[ignore = "local machine: <what it needs>"]` and runs only in `just test-local`,
   which a human starts; a pull request that changes such an adapter carries that
   output. Never an `#[ignore]` without the reason string, and never one on a test that
   merely fails.
-- **The `myapp` binary → `crates/myapp/tests/`**, running the built binary against a
+- **The `bunshin` binary → `crates/bunshin/tests/`**, running the built binary against a
   temporary `HOME` (`just test-platform`); the wording for each error variant is tested
-  per variant in `crates/myapp/src/wording.rs`.
+  per variant in `crates/bunshin/src/wording.rs`.
 - **The TUI → core for its state, the binary for its drawing.** What a key or an
   action does to the screen is core's and tested there with keys as values; how a
-  state is drawn is tested in `crates/myapp/src/tui/view.rs` against ratatui's
+  state is drawn is tested in `crates/bunshin/src/tui/view.rs` against ratatui's
   `TestBackend`. No test runs the real terminal loop or needs a TTY.
 - **A `cargo xtask` task → a `#[cfg(test)] mod tests` beside it** (end-to-end runs of
   the binary in `xtask/tests/`), calling the task with a faked `Context` and stubbed
@@ -53,19 +53,19 @@ maximum of 99, `assert_eq!(counter.value(), 99)` catches a bug that
 
 ## Fakes and the Contract Suite
 
-- A port is substituted in tests by a **fake** from `myapp-test-support`
+- A port is substituted in tests by a **fake** from `bunshin-test-support`
   (`InMemoryCounterStore`, `FailingCounterStore`, `FixedClock`), never a mocking
   framework. A fake is a real, working implementation that answers from data the test
   hands it and records what it was asked in a plain value the test reads afterwards.
   Every test of a port uses that one fake, so its test-time behavior is defined once.
-- Each port has one contract function in `myapp-test-support`,
+- Each port has one contract function in `bunshin-test-support`,
   `pub fn <port>_contract(make: impl FnMut() -> Box<dyn Port>)`, holding the behavior
   every implementation must have — every clause one the port's `///` states.
-  `crates/myapp-core/tests/contracts.rs` runs it against the fake and
-  `crates/myapp-platform/tests/contracts.rs` against the real adapter, so the fake
+  `crates/bunshin-core/tests/contracts.rs` runs it against the fake and
+  `crates/bunshin-platform/tests/contracts.rs` against the real adapter, so the fake
   cannot drift from the real thing. A new port gets its fake and its contract function
   in the same change.
-- `myapp-test-support` is a `[dev-dependencies]` entry only; a harness check fails if a
+- `bunshin-test-support` is a `[dev-dependencies]` entry only; a harness check fails if a
   normal dependency edge points at it.
 
 ## What to Test
@@ -102,7 +102,7 @@ maximum of 99, `assert_eq!(counter.value(), 99)` catches a bug that
 - Tests may `unwrap()`/`expect()` (a panic is how a Rust test fails) — inside a
   `#[test]` function or `#[cfg(test)]` code only: clippy's `allow-unwrap-in-tests` does
   not cover a plain helper function in a `tests/` file, so a helper matches and panics
-  with a message instead; library code in `myapp-test-support` compares `Result`s with
+  with a message instead; library code in `bunshin-test-support` compares `Result`s with
   `assert_eq!` instead
 - No `#[ignore]` or `unittest.skip` to get a red test out of the way
 - TDD: write the failing test first, then the minimum that makes it pass, then refactor

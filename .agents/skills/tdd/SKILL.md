@@ -1,9 +1,9 @@
 ---
 name: tdd
 description: >
-  Red-green-refactor for this repository: decide where the code lives (myapp-core by
-  default, then the subcommand or the TUI layer in crates/myapp), write a failing test
-  first, prove it fails with just test-fast <filter> (cargo nextest in myapp-core),
+  Red-green-refactor for this repository: decide where the code lives (bunshin-core by
+  default, then the subcommand or the TUI layer in crates/bunshin), write a failing test
+  first, prove it fails with just test-fast <filter> (cargo nextest in bunshin-core),
   implement the minimum in core, refactor, then re-check the coverage floor with just
   test-core, the binary and adapters with just test-platform, and just lint. Use
   PROACTIVELY when implementing a feature, changing behavior, fixing a bug (regression
@@ -28,24 +28,24 @@ should do.
 ## Step 0: decide where the code lives
 
 - **A decision** — anything that branches, clamps, formats, or remembers — goes in
-  `crates/myapp-core`. That is the default, because core's coverage floor is what keeps
+  `crates/bunshin-core`. That is the default, because core's coverage floor is what keeps
   it tested and it builds and tests on Linux with no terminal. This includes what a
   screen does with a key: a TUI's state and its `update` are core's.
   **BACKGROUND:** `designing-core-logic`.
-- **A subcommand or a flag** is a thin arm in `crates/myapp/src/main.rs` over a core
-  method; its red test is in `crates/myapp/tests/cli.rs`, after the core method has its
+- **A subcommand or a flag** is a thin arm in `crates/bunshin/src/main.rs` over a core
+  method; its red test is in `crates/bunshin/tests/cli.rs`, after the core method has its
   own (`designing-clis`).
 - **What a screen looks like, or how a terminal key is read**, is the binary's
-  `crates/myapp/src/tui/`; its red test is a `TestBackend` test in `view.rs` or a key
+  `crates/bunshin/src/tui/`; its red test is a `TestBackend` test in `view.rs` or a key
   translation test in `mod.rs`, after the core screen has its own (`building-tuis`).
 - **Talking to the OS or the file system** is a port in core plus an adapter in
-  `crates/myapp-platform`. The red test is a core test against the fake, and the
-  contract function in `crates/myapp-test-support`; the adapter only translates.
+  `crates/bunshin-platform`. The red test is a core test against the fake, and the
+  contract function in `crates/bunshin-test-support`; the adapter only translates.
   Whether the OS really behaves as the adapter assumes is checked afterwards by the
   contract against the real adapter (`just test-platform`), or, for a test marked
   `#[ignore = "local machine: …"]`, by `just test-local` — a human's recipe. It is
   evidence for the pull request, never the red test this loop starts from.
-- About to put a decision in `myapp-platform`, a subcommand's arm, the TUI loop, or a
+- About to put a decision in `bunshin-platform`, a subcommand's arm, the TUI loop, or a
   `draw` function? Stop and move it to core.
 
 ## Step 1: RED — write the failing test
@@ -59,8 +59,8 @@ the operation repeated at a bound; the state after an error (nothing changed); b
 sides of every conditional.
 
 In the sample, a new counter rule starts as a unit test beside `Counter` in
-`crates/myapp-core/src/counter/mod.rs`, and a new use case as a test of
-`CounterService` over the fakes in `crates/myapp-core/tests/counter_service.rs`:
+`crates/bunshin-core/src/counter/mod.rs`, and a new use case as a test of
+`CounterService` over the fakes in `crates/bunshin-core/tests/counter_service.rs`:
 
 ```rust
 #[test]
@@ -70,7 +70,7 @@ fn increment_by_stops_with_an_error_past_the_maximum() {
 ```
 
 The layers above core start the same way, each with its own red test once core's is
-green. In the sample, a `myapp counter decrement` subcommand would start in `cli.rs`:
+green. In the sample, a `bunshin counter decrement` subcommand would start in `cli.rs`:
 
 ```rust
 #[test]
@@ -83,7 +83,7 @@ fn decrement_at_the_minimum_fails_and_changes_nothing() {
 }
 ```
 
-and a new key or screen state as a `TestBackend` test in `crates/myapp/src/tui/view.rs`
+and a new key or screen state as a `TestBackend` test in `crates/bunshin/src/tui/view.rs`
 with the expected lines written out.
 
 ## Step 2: prove it fails
@@ -92,7 +92,7 @@ with the expected lines written out.
 just test-fast increment_by              # core: cargo nextest, filtered by test name
 ```
 
-For a test in `crates/myapp`, the narrowest recipe is `just test-platform`. Read the
+For a test in `crates/bunshin`, the narrowest recipe is `just test-platform`. Read the
 failure. For a Rust function that does not exist yet, the compile error naming it
 counts as red. For a change to existing behavior, the run must show the assertion
 itself failing — `assert_eq!` prints the `left` and `right` values; a clap usage error
@@ -117,9 +117,9 @@ the change can fail:
 | Changed | Run |
 |---|---|
 | core | `just test-core` (its floors, doctests, and the other crates' tests), then `just lint` (clippy, including core's banned calls) |
-| `crates/myapp-platform/` | `just test-platform` |
-| `crates/myapp/` (a subcommand, the wording, the TUI) | `just test-platform`, then `just lint` |
-| `crates/myapp-test-support/` | `just test-core` (core runs the contracts against the fakes), then `just test-platform` (platform runs them against the real adapters) |
+| `crates/bunshin-platform/` | `just test-platform` |
+| `crates/bunshin/` (a subcommand, the wording, the TUI) | `just test-platform`, then `just lint` |
+| `crates/bunshin-test-support/` | `just test-core` (core runs the contracts against the fakes), then `just test-platform` (platform runs them against the real adapters) |
 | `xtask/` | `just test-xtask` (**REQUIRED:** `writing-repo-scripts`) |
 | A skill's `scripts/` | `just test-scripts` (**REQUIRED:** `writing-repo-scripts`) |
 
@@ -137,7 +137,7 @@ The regression test comes first and reproduces the bug through the same interfac
 user or caller hit — usually the built binary in `cli.rs`, or the screen's `update` —
 so it fails for the reason the report describes, then passes with the fix. A bug that
 only a real terminal shows (the screen not restored after a crash, a resize drawing
-wrong) has no automated seam here; ask the human to reproduce it with `myapp tui`
+wrong) has no automated seam here; ask the human to reproduce it with `bunshin tui`
 (`running-the-app`), then write the tests for each side the fix touches.
 
 ## Step 5: commit
@@ -153,5 +153,5 @@ A red test is never committed alone.
 - Testing an implementation detail (a private helper's call count) instead of the
   behavior and the contract.
 - Waiting on real time (`std::thread::sleep`) instead of an injected clock.
-- Running `myapp tui` to see whether a change works, instead of a `TestBackend` test.
+- Running `bunshin tui` to see whether a change works, instead of a `TestBackend` test.
 - Skipping Step 2 because the failure "is obvious".

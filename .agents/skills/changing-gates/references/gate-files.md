@@ -19,7 +19,7 @@ current values.
 - Removing a lint or lowering its level is weakening a gate; adding one (a new clippy
   lint at warn) is routine, and fixes what it finds in the same pull request.
 
-## `clippy.toml` and `crates/myapp-core/clippy.toml`
+## `clippy.toml` and `crates/bunshin-core/clippy.toml`
 
 - The root file lets tests `unwrap` and `expect` (a panic is how a Rust test fails).
 - Core's file adds the bans that keep I/O, time, the environment, processes, and sleeping
@@ -70,8 +70,8 @@ does not pin. Changing an option reformats the whole tree: land the option and t
   which `cargo deny` would warn about as unused; a crate that needs one of them adds it
   to `deny.toml` in the same pull request. A per-crate exception (`exceptions`,
   `allow-dependencies-licenses`) goes into both files with its reason.
-- `[bans] deny` with `wrappers` says which crate may depend on `myapp-platform`
-  directly: only `myapp`, the binary. It changes together with `AGENTS.md`'s boundary
+- `[bans] deny` with `wrappers` says which crate may depend on `bunshin-platform`
+  directly: only `bunshin`, the binary. It changes together with `AGENTS.md`'s boundary
   list and the closure check, and `just check-harness` fails when they differ.
 - `[sources]` allows crates.io only. A git dependency is a new source: an ADR and a
   sign-off, never a quiet `allow-git` line.

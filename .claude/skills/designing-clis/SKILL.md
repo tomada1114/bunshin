@@ -1,15 +1,15 @@
 ---
 name: designing-clis
 description: >
-  Covers the myapp binary's command line in crates/myapp/src/main.rs: the clap derive
+  Covers the bunshin binary's command line in crates/bunshin/src/main.rs: the clap derive
   declaration (a Subcommand enum per noun, doc comments as --help text), the thin
   handler that composes the real adapters, calls one core method, and prints a view,
   stdout for data and stderr for error: and warning: lines, exit codes (0 success, 1 the
   action failed, 2 a clap usage error) through ExitCode, a closed stdout pipe, the
-  wording module crates/myapp/src/wording.rs, a --json form for output a script reads,
+  wording module crates/bunshin/src/wording.rs, a --json form for output a script reads,
   config and environment precedence (flag, environment variable, config file,
-  Tuning::default) with HOME and XDG_* read only in myapp-platform, and testing the
-  built binary against a temporary HOME in crates/myapp/tests/cli.rs. Use when adding,
+  Tuning::default) with HOME and XDG_* read only in bunshin-platform, and testing the
+  built binary against a temporary HOME in crates/bunshin/tests/cli.rs. Use when adding,
   renaming, or removing a subcommand, flag, or argument, changing what a command prints
   or its exit code, adding wording for an error variant, adding --json output, a
   setting, an environment variable, or a config file, or when a cli.rs test fails.
@@ -17,7 +17,7 @@ description: >
 
 # Designing CLIs
 
-**Owns:** the command line of the `myapp` binary: how subcommands are declared and
+**Owns:** the command line of the `bunshin` binary: how subcommands are declared and
 laid out, what a handler may do, which stream gets what, the exit codes, the wording
 module, machine-readable output, where configuration is resolved, and how the binary is
 tested. **Does not own:** the decision a subcommand runs (`designing-core-logic`); the
@@ -33,16 +33,16 @@ translates and decides nothing (`AGENTS.md` › "Architecture").
 
 ## The shape: parse, compose, call core, print
 
-- One binary, `myapp`, declared with clap's derive API in `crates/myapp/src/main.rs`
+- One binary, `bunshin`, declared with clap's derive API in `crates/bunshin/src/main.rs`
   (<https://docs.rs/clap/latest/clap/_derive/index.html>). A `Parser` struct holds one
   `Subcommand` enum; a noun with several verbs gets its own nested enum, so the line
-  reads `myapp <noun> <verb>`. In the sample: `Cli`, `Command::{Counter, Tui}`, and
-  `CounterAction::{Show, Increment}` give `myapp counter show`.
+  reads `bunshin <noun> <verb>`. In the sample: `Cli`, `Command::{Counter, Tui}`, and
+  `CounterAction::{Show, Increment}` give `bunshin counter show`.
 - The `///` comment on a variant is its line in `--help`, so it says what the command
   does for its user, in one sentence ending with a period. `#[command(version)]` takes
   the version from `[workspace.package]`, and with no `about` key clap uses the `///` on
-  the `Cli` struct as the first line of `myapp --help` (without its final period;
-  `help_opens_with_the_tools_about_line` in `crates/myapp/tests/cli.rs` pins it). A bare
+  the `Cli` struct as the first line of `bunshin --help` (without its final period;
+  `help_opens_with_the_tools_about_line` in `crates/bunshin/tests/cli.rs` pins it). A bare
   `about` would take the crate's `Cargo.toml` `description` instead, which is written
   for maintainers, not for the tool's user.
 - A handler is translation only: build the service, call one core method, print the
@@ -59,18 +59,18 @@ translates and decides nothing (`AGENTS.md` › "Architecture").
 
 Adding a subcommand, in order: the core method with its tests first (**REQUIRED:**
 `tdd`); the variant with its `///`; the arm in the handler; wording for any new error
-variant; the tests in `crates/myapp/tests/cli.rs`; then `docs/architecture.md` › "The
+variant; the tests in `crates/bunshin/tests/cli.rs`; then `docs/architecture.md` › "The
 binary" and a `CHANGELOG.md` entry, because a user can now type something new.
 
 ## stdout is data, stderr is everything else
 
 - **stdout** carries only the result, one value per line, nothing decorative, so
-  `myapp counter show | …` works and a script never parses around a banner.
+  `bunshin counter show | …` works and a script never parses around a banner.
 - **stderr** carries `error: <wording>` for a failed action, `warning: <wording>` for a
   degraded run, and, in a debug build only, a copy of each log line (`compose(true)`).
   A test reads the diagnostic as the last stderr line for that reason.
 - Write stdout with `writeln!(io::stdout().lock(), …)` and handle the `Err`. `println!`
-  panics when stdout is closed (`myapp counter show | true` once `true` has exited), and
+  panics when stdout is closed (`bunshin counter show | true` once `true` has exited), and
   under the release profile's `panic = "abort"` the process then prints only the panic
   message and aborts: no `error: …` line and no exit 1 for a script to read. The sample
   maps the failure to `wording::STDOUT_UNAVAILABLE` and exit 1.
@@ -98,7 +98,7 @@ binary" and a `CHANGELOG.md` entry, because a user can now type something new.
 
 ## The wording module
 
-`crates/myapp/src/wording.rs` holds every sentence `myapp` writes to stderr and the
+`crates/bunshin/src/wording.rs` holds every sentence `bunshin` writes to stderr and the
 error line the `tui` screen shows. Core returns a variant and never a sentence
 (`designing-errors`), so the words live in one place:
 
@@ -121,20 +121,20 @@ The sample has no `--json`; add one only when a tool's output is consumed by a p
   exit codes, and diagnostics still on stderr. A failure stays `error: <wording>` on
   stderr with exit 1; if a script must branch on why, print the core error's code too,
   since core's error enums already serialize as `{ "code": … }`
-  (`crates/myapp-core/tests/serialization.rs` pins the sample's).
+  (`crates/bunshin-core/tests/serialization.rs` pins the sample's).
 - Decide which fields are promised. A field that only means something inside one
   process stays out of the output (in the sample, `CounterView::revision` counts this
   process's saves), which may mean an output type of its own.
 - The JSON is contract from its first release: pin it with a literal `json!({ … })` or
   string test in `cli.rs`, and add a field rather than rename one.
-- `myapp` does not depend on `serde_json` today; adding it to `crates/myapp/Cargo.toml`
+- `bunshin` does not depend on `serde_json` today; adding it to `crates/bunshin/Cargo.toml`
   is a dependency change even though the workspace already pins a version.
   **REQUIRED:** `managing-dependencies`.
 
 ## Configuration and the environment
 
-- Core reads no environment (`crates/myapp-core/clippy.toml` bans it). The binary
-  reads `HOME` through `myapp_platform::home_dir`, and on Linux `XDG_DATA_HOME` and
+- Core reads no environment (`crates/bunshin-core/clippy.toml` bans it). The binary
+  reads `HOME` through `bunshin_platform::home_dir`, and on Linux `XDG_DATA_HOME` and
   `XDG_STATE_HOME` through `app_data_dir` and `log_dir`; every file location hangs off
   them, which is what lets a test redirect all of it with one variable.
 - When a tool grows a setting, resolve it once, in the composition root, highest first:
@@ -142,18 +142,18 @@ The sample has no `--json`; add one only when a tool's output is consumed by a p
   the shipped default (`Tuning::default()` in the sample). Hand core the result as a
   value, a `Tuning` field. The narrowest scope wins: a flag is this run, a variable this
   shell, a file this user.
-- Name a variable `MYAPP_<SETTING>`, so the bootstrap renames it with the app.
+- Name a variable `BUNSHIN_<SETTING>`, so the bootstrap renames it with the app.
 - clap's `#[arg(env = "…")]` needs clap's `env` feature
   (<https://docs.rs/clap/latest/clap/_features/index.html>, checked 2026-10-01), which
   the workspace does not enable; turning it on is a dependency change.
 - A config file is persistence: where it lives and its format are an ADR decision
   (`AGENTS.md` › "Before changing the architecture"), and reading it belongs in
-  `myapp-platform`. A value that does not parse fails the run with exit 1 and wording
+  `bunshin-platform`. A value that does not parse fails the run with exit 1 and wording
   that names the setting and where it came from, never silently falls back.
 
 ## Testing the binary
 
-`crates/myapp/tests/cli.rs` runs the built executable (`env!("CARGO_BIN_EXE_myapp")`)
+`crates/bunshin/tests/cli.rs` runs the built executable (`env!("CARGO_BIN_EXE_bunshin")`)
 with `HOME` set to a `tempfile::tempdir()` and the `XDG_*` variables removed, on the
 child process only, so nothing touches the developer's data or logs. Each test asserts
 the exit code, stdout exactly, and the last stderr line; failures use

@@ -8,7 +8,7 @@ from now — and assumes no context beyond the repository.
 Three places hold the reasoning, and each has one job:
 
 - [`../architecture.md`](../architecture.md) describes the layers every app starts with —
-  the core, platform, and test-support crates and the `myapp` binary with its
+  the core, platform, and test-support crates and the `bunshin` binary with its
   subcommands and full-screen view — how they talk, and what is contract. It is the
   ground the ADRs build on, not a record of choices.
 - The repository README's [Design Philosophy](../../README.md#design-philosophy) holds

@@ -3,7 +3,7 @@ name: recording-architecture-decisions
 description: >
   Covers the ADR tree under docs/architecture/: its README.md index and status legend,
   adr/template.md, and the numbered adr/NNNN-*.md records. Use when a change adds a
-  crate to the workspace or a port in myapp-core, changes persistence or configuration
+  crate to the workspace or a port in bunshin-core, changes persistence or configuration
   (where and in what format the tool keeps state, a settings file or environment
   variable it reads), adds a crate dependency, adds or drops a target platform, adds
   distribution (a release workflow, prebuilt or signed binaries, a package-manager tap,
@@ -36,7 +36,7 @@ permission (`integrating-system-apis`), a dependency (`managing-dependencies`), 
 - `docs/architecture/adr/NNNN-<kebab-case-title>.md` records one decision each.
 
 `docs/architecture.md` describes the layers every app starts with (core, platform,
-test-support, and the `myapp` binary with its subcommands and TUI). It is not an ADR and takes no status: when
+test-support, and the `bunshin` binary with its subcommands and TUI). It is not an ADR and takes no status: when
 an ADR moves a boundary it describes, the ADR records why, and `docs/architecture.md`
 and `AGENTS.md` › Architecture are updated to describe the result in the same pull
 request.
@@ -76,24 +76,24 @@ why each entry is expensive:
   and contract runs follow the target list, and dropping a target strands its users.
 - **Distribution.** A release workflow, prebuilt or signed binaries, a package-manager
   tap, crates.io publishing, an updater. Today the tool is installed from its checkout
-  with `cargo install --locked --path crates/myapp` and `publish = false`; each of these
+  with `cargo install --locked --path crates/bunshin` and `publish = false`; each of these
   adds a secret, a workflow that writes, and a promise to support what was shipped.
 - **`rust-version` in `Cargo.toml`.** Raising it narrows which crate releases resolve
   and who can build the tool; every later choice assumes the value.
 - **An OS privacy permission** (TCC on macOS: Accessibility, Input Monitoring, Full Disk
   Access, any other privacy grant). Each is a prompt the user must accept and a way the
   tool can half-work (`integrating-system-apis`).
-- **`unsafe` code**, which means lifting `unsafe_code = "forbid"` for `myapp-platform`.
+- **`unsafe` code**, which means lifting `unsafe_code = "forbid"` for `bunshin-platform`.
   `forbid` is the strongest lint level: code cannot opt back in with `#[allow]` (E0453,
   https://doc.rust-lang.org/error_codes/E0453.html), which is why lifting it is a
   decision and not an edit (`integrating-system-apis`).
-- **The bundle identifier or the XDG directory name** (`com.example.myapp` and `myapp`
+- **The bundle identifier or the XDG directory name** (`io.github.tomada1114.bunshin` and `bunshin`
   until the bootstrap renames them), once a build has left the machine: they name the
-  data and log directories (`~/Library/Application Support/com.example.myapp/` on macOS,
-  `$XDG_DATA_HOME/myapp` on Linux), so a new name leaves every user's data and logs
+  data and log directories (`~/Library/Application Support/io.github.tomada1114.bunshin/` on macOS,
+  `$XDG_DATA_HOME/bunshin` on Linux), so a new name leaves every user's data and logs
   behind under the old one.
 - **A second language for the tool's wording.** Every later sentence in
-  `crates/myapp/src/wording.rs` owes a translation and a reviewer, and the tool must
+  `crates/bunshin/src/wording.rs` owes a translation and a reviewer, and the tool must
   choose a language at startup.
 - **A TUI theme beyond the terminal's own colors.** The TUI draws in the terminal's own
   foreground and background, so it reads in a light, dark, or monochrome terminal

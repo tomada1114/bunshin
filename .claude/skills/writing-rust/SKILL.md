@@ -49,14 +49,14 @@ formats. None of them opens a window or takes over a terminal.
   struct a lifetime parameter that spreads to every type and function that holds it.
 - A closure that may run on another thread or after the current function returns must
   own what it uses (`move`); clone an `Arc` first when the caller still needs it. In
-  `install_panic_hook` (`crates/myapp/src/tui/mod.rs`), `panic::set_hook` needs a
+  `install_panic_hook` (`crates/bunshin/src/tui/mod.rs`), `panic::set_hook` needs a
   `Send + Sync + 'static` closure, so `move` hands the previous hook into it; borrowing
   a local there fails to compile, because the hook outlives the function.
 - Share a port or a service between threads with `Arc<T>`; change data behind `&self`
   with a `Mutex`. `Rc` and `RefCell` are for one thread only, and a port must be
   `Send + Sync` (below), so they fail there with E0277.
 - Take a lock with `.lock().unwrap_or_else(PoisonError::into_inner)`, as `FixedClock`
-  in `crates/myapp-test-support/src/clock.rs` does. A lock is "poisoned" when a thread
+  in `crates/bunshin-test-support/src/clock.rs` does. A lock is "poisoned" when a thread
   panicked while holding it; `unwrap` is banned, and when the data behind the lock is
   still valid (a clock reading, a `()` guard) taking it anyway is correct.
 - A small `Copy` type (a `derive(Clone, Copy)` struct of numbers) is passed by value;
@@ -74,10 +74,10 @@ formats. None of them opens a window or takes over a terminal.
 - Return `Result<T, E>` and propagate with `?`. Turn an `Option` into an error with
   `.ok_or(E)?` (`decided.ok_or(CounterError::Storage { … })` in
   `CounterService::change`), or leave early with `let … else`
-  (`let Some(home) = home_dir() else { … }` in `crates/myapp/src/main.rs`). Use
+  (`let Some(home) = home_dir() else { … }` in `crates/bunshin/src/main.rs`). Use
   `unwrap_or`, `unwrap_or_default`, or `map_or_else` only where the fallback is a
   correct answer, and say why in a comment (`SystemClock::now` in
-  `crates/myapp-platform/src/clock.rs`).
+  `crates/bunshin-platform/src/clock.rs`).
 - `?` converts the error through `From`. Where one error wraps another, an
   `impl From<Inner> for Outer` lets `?` do the conversion; without it the `?` fails with
   E0277. In the sample, `impl From<StorageError> for CounterError` is what lets
@@ -87,7 +87,7 @@ formats. None of them opens a window or takes over a terminal.
   changing a variant.
 - Never swallow an error. `let _ = fallible();` carries a comment saying why the failure
   does not matter. In the sample, `write_atomically` in
-  `crates/myapp-platform/src/counter_store.rs` ignores a failed temp-file cleanup and says
+  `crates/bunshin-platform/src/counter_store.rs` ignores a failed temp-file cleanup and says
   why.
 
 ## `Option`
@@ -104,29 +104,29 @@ formats. None of them opens a window or takes over a terminal.
 - A `match` on an enum core declares names every variant, with no `_ =>` arm; group
   variants with `A | B =>`. A new variant then fails to compile (E0004) at every place
   that must decide what it means, instead of falling silently into a default. Enforced
-  by: `#![deny(clippy::wildcard_enum_match_arm)]` in `crates/myapp-core/src/lib.rs`
-  and `crates/myapp/src/main.rs` (follow the same rule in the other crates). Where it
+  by: `#![deny(clippy::wildcard_enum_match_arm)]` in `crates/bunshin-core/src/lib.rs`
+  and `crates/bunshin/src/main.rs` (follow the same rule in the other crates). Where it
   is denied, the lint fires on an enum a foreign crate owns too, whenever a `_` stands for a variant the match could
   have named (observed on this Mac with `cargo clippy`, rustc 1.98.1, 2026-09-30). A
   `#[non_exhaustive]` foreign enum needs a `_` arm (E0004), which the lint accepts once
   every variant is named before it; `std::io::ErrorKind` has unstable variants no match
   can name (E0658), so test it with `==` or `matches!` instead. In a crate without the
   deny, a match on a `#[non_exhaustive]` foreign enum ends with `_ =>`. In the sample, `counter_error` in
-  `crates/myapp/src/wording.rs` matches every `CounterError` and every
+  `crates/bunshin/src/wording.rs` matches every `CounterError` and every
   `StorageErrorKind` inside it.
 
 ## Modules and visibility
 
 - Narrowest first: private, then `pub(crate)`, then `pub`. `pub` is for what another
   crate or a test under `tests/` needs; a helper shared between modules of one crate is
-  `pub(crate)`. Everything `crates/myapp-core/src/lib.rs` re-exports is contract
+  `pub(crate)`. Everything `crates/bunshin-core/src/lib.rs` re-exports is contract
   (`docs/architecture.md` › "What is contract and what is private").
 - Every `pub` item has a `///` comment saying why it exists and what it promises
   (`missing_docs`); a fallible `pub fn` has an `# Errors` section and one that can
   panic a `# Panics` section (clippy pedantic). Whether a change owes other
   documentation, and where, is `updating-docs`.
 - One module per concern: a directory with `mod.rs` when it has submodules. In the
-  sample, `crates/myapp-core/src/counter/mod.rs` has `store.rs` beside it. A constant
+  sample, `crates/bunshin-core/src/counter/mod.rs` has `store.rs` beside it. A constant
   sits beside the code that uses it; there is no `constants.rs` and no `static mut`. The
   Book on modules:
   https://doc.rust-lang.org/book/ch07-00-managing-growing-projects-with-packages-crates-and-modules.html
@@ -135,13 +135,13 @@ formats. None of them opens a window or takes over a terminal.
 
 - A port is a synchronous trait with `Send + Sync` as supertraits and `&self` methods:
   `pub trait Clock: Send + Sync { fn now(&self) -> UnixMillis; }` in
-  `crates/myapp-core/src/time.rs`. `Send + Sync` is what lets an `Arc<dyn Clock>` be
+  `crates/bunshin-core/src/time.rs`. `Send + Sync` is what lets an `Arc<dyn Clock>` be
   shared with another thread; a type with an `Rc` or a `RefCell` inside is neither, and
   fails with E0277 where it is handed over
   (https://doc.rust-lang.org/book/ch16-04-extensible-concurrency-sync-and-send.html).
 - A service stores a port as `Arc<dyn Port>`: one compiled copy and a readable type.
   A function that only calls something once takes `impl Trait`, as the contract
-  functions in `crates/myapp-test-support/` take `impl FnMut() -> Box<dyn …>`.
+  functions in `crates/bunshin-test-support/` take `impl FnMut() -> Box<dyn …>`.
 - Derive what callers and tests need: `Debug`, `Clone`, `PartialEq` and `Eq` (so a test
   can `assert_eq!` a value or a `Result`), `Copy` for small value types.
 - When a port is needed at all, and why ports never become `async`:
@@ -164,7 +164,7 @@ enum's derives, `ExitCode`, let chains, `Layout::areas`, `const` styles), are in
 
 - Log with the `tracing` macros and structured fields (`tracing::warn!(?action,
   %error, "…")`) rather than an ad-hoc `println!`, `eprintln!`, or `dbg!`: stdout is a
-  subcommand's data and, under `myapp tui`, the screen itself, so a stray line breaks a
+  subcommand's data and, under `bunshin tui`, the screen itself, so a stray line breaks a
   pipe or a frame, while the log file stays. The binary's own output to its user is
   the exception: its result is written with `writeln!` to a locked stdout so a closed
   pipe is an error rather than a panic, and its `error: …`/`warning: …` wording is

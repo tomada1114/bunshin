@@ -124,7 +124,7 @@ such command against three questions, in order:
 worked, `run` for anything not tied to one. It sits outside every checkout, so
 a moved-out directory never reads as untracked content (the reason
 `<runstate>` exists -- `run-record.md`). Keep the original's
-relative path under it (`holding/42/crates/myapp-core/src/legacy/`) so the report can
+relative path under it (`holding/42/crates/bunshin-core/src/legacy/`) so the report can
 name what came from where; on a name collision add a suffix rather than
 overwrite. A move across filesystems is a copy-then-delete -- fine for a
 fixture, slow for a `target/` or `node_modules/` tree; keep holding for what the run

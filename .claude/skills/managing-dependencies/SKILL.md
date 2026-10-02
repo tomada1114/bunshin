@@ -4,8 +4,8 @@ description: >
   Covers whether a crate may be added to this repository and how it is declared: the
   review record its pull request carries, [workspace.dependencies] as the one place a
   crate version is written, default features off for a new crate unless needed, and
-  only the features used, which crate may depend on what (myapp-core stays
-  platform-neutral, clap and ratatui stay in the myapp binary, xtask's crates never
+  only the features used, which crate may depend on what (bunshin-core stays
+  platform-neutral, clap and ratatui stay in the bunshin binary, xtask's crates never
   ship), cargo deny licences, bans, and sources, Dependency Review's licence list, the
   7-day cooldown applied by eye to a crate added by hand, and removing an unused crate
   with cargo shear. Use when adding, bumping, or removing a dependency by hand, editing
@@ -77,16 +77,16 @@ is a gate change for a human, never a quiet addition.
 
 ## Where a crate goes
 
-- `myapp-core` takes only platform-neutral crates: never an OS binding crate
-  (`objc2*`, `core-foundation*`, `security-framework*`) or `myapp-platform`. Core builds
+- `bunshin-core` takes only platform-neutral crates: never an OS binding crate
+  (`objc2*`, `core-foundation*`, `security-framework*`) or `bunshin-platform`. Core builds
   and tests on Linux in CI, and the boundary is enforced three times (core's manifest,
   `deny.toml`'s `wrappers`, and the closure check `just check-harness` runs), so a crate
   that pulls a macOS binding into core fails there even when it builds on the Mac.
-- An OS-facing crate belongs in `myapp-platform`, behind a port
+- An OS-facing crate belongs in `bunshin-platform`, behind a port
   (`integrating-system-apis`), gated by `cfg(target_os)` when only one target has it.
-- `myapp-platform` is a direct dependency of `myapp` only. Enforced by: `deny.toml`
+- `bunshin-platform` is a direct dependency of `bunshin` only. Enforced by: `deny.toml`
   `[bans]` "wrappers".
-- The binary's frameworks, `clap` and `ratatui`, are dependencies of `myapp` only: core
+- The binary's frameworks, `clap` and `ratatui`, are dependencies of `bunshin` only: core
   hands the binary a view and never parses arguments or draws (`designing-core-logic`).
   No check enforces this; review does. `crossterm` is reached only as
   `ratatui::crossterm` and never declared, so its version is always the one ratatui was
@@ -94,7 +94,7 @@ is a gate change for a human, never a quiet addition.
 - A crate only `xtask` or `xtask-guard` uses (`regex`, `toml`, `yaml-rust2` today) stays
   in their manifests: repository automation never ships in the tool, but it runs on
   every commit and in CI, so it is reviewed like any other.
-- A crate only tests use goes under `[dev-dependencies]`, and `myapp-test-support` is
+- A crate only tests use goes under `[dev-dependencies]`, and `bunshin-test-support` is
   reached only that way.
 
 ## Declaring a crate

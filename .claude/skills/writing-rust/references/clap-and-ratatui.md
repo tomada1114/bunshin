@@ -1,6 +1,6 @@
 # clap and ratatui, as the binary uses them
 
-The idioms `crates/myapp` uses from its two front-end crates, and the traps a reader new
+The idioms `crates/bunshin` uses from its two front-end crates, and the traps a reader new
 to Rust meets in them. Both crates are linked, not taught: clap's derive tutorial
 (https://docs.rs/clap/latest/clap/_derive/_tutorial/index.html) and ratatui's
 documentation (https://docs.rs/ratatui/latest/ratatui/). Where code goes and what it may

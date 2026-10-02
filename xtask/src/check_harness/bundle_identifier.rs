@@ -1,5 +1,5 @@
 //! The bundle identifier is one value in two places: `BUNDLE_IDENTIFIER` in
-//! `crates/myapp-platform/src/paths.rs` (which names the app's data and log directories)
+//! `crates/bunshin-platform/src/paths.rs` (which names the app's data and log directories)
 //! and the justfile's `bundle_id` variable (which `just logs` uses). A rename that misses
 //! one leaves the app writing where the tools never look.
 //!
@@ -14,7 +14,7 @@ use regex::Regex;
 use super::{Input, finding, pattern, read_file};
 use crate::fail::FailureDetails;
 
-const PATHS: &str = "crates/myapp-platform/src/paths.rs";
+const PATHS: &str = "crates/bunshin-platform/src/paths.rs";
 const JUSTFILE: &str = "justfile";
 
 /// The justfile's `bundle_id := "…"` (either quote, an optional trailing comment), as
@@ -112,7 +112,7 @@ mod tests {
     use crate::fail::FailureDetails;
     use crate::test_support::{temp_dir, write};
 
-    const ID: &str = "com.example.myapp";
+    const ID: &str = "io.github.tomada1114.bunshin";
 
     fn paths_rs(id: &str) -> String {
         format!(

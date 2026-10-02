@@ -1,10 +1,10 @@
 ---
 name: building-tuis
 description: >
-  Covers the full-screen terminal UI behind myapp tui: the screen's model and update in
-  myapp-core (a ...Screen value, a ScreenAction per user intent, a ScreenKey that names
+  Covers the full-screen terminal UI behind bunshin tui: the screen's model and update in
+  bunshin-core (a ...Screen value, a ScreenAction per user intent, a ScreenKey that names
   no terminal library, update(self, action, service) returning the next screen), the
-  binary's crates/myapp/src/tui/ (mod.rs enters raw mode and the alternate screen, runs
+  binary's crates/bunshin/src/tui/ (mod.rs enters raw mode and the alternate screen, runs
   the event loop, translates crossterm KeyEvent into ScreenKey, and restores the
   terminal on exit, on an error, and from a panic hook; view.rs draws with ratatui
   widgets and Style, words from wording.rs, a help line built from core's key table),
@@ -12,7 +12,7 @@ description: >
   styles), keys as values, and never taking over the developer's terminal in a check.
   Use when adding or changing a screen, a key binding, a widget, a style, or the event
   loop, when touching ratatui, crossterm, raw mode, the alternate screen, or the panic
-  hook, when a TestBackend test fails, or when asked to run or look at myapp tui.
+  hook, when a TestBackend test fails, or when asked to run or look at bunshin tui.
 ---
 
 # Building TUIs
@@ -33,11 +33,11 @@ test reaches, because the one part no check runs is the loop that owns a real te
 
 | Piece | Where | In the sample |
 |---|---|---|
-| The screen's state, and what an action does to it | core, a `…Screen` type | `CounterScreen` in `crates/myapp-core/src/counter/screen.rs` |
+| The screen's state, and what an action does to it | core, a `…Screen` type | `CounterScreen` in `crates/bunshin-core/src/counter/screen.rs` |
 | The user's intents, and the keys bound to each | core, an action enum with its key table | `ScreenAction` with `keys()`, `for_key`, and `ALL` |
 | A key as the screen sees it | core, an enum that names no terminal library | `ScreenKey::{Char, Up, Down, Esc, Interrupt}` |
-| Entering, reading events, translating keys, leaving | the binary, `crates/myapp/src/tui/mod.rs` | `run`, `enter`, `leave`, `install_panic_hook`, `event_loop`, `screen_key` |
-| Drawing one state | the binary, `crates/myapp/src/tui/view.rs` | `draw(frame, &screen)` |
+| Entering, reading events, translating keys, leaving | the binary, `crates/bunshin/src/tui/mod.rs` | `run`, `enter`, `leave`, `install_panic_hook`, `event_loop`, `screen_key` |
+| Drawing one state | the binary, `crates/bunshin/src/tui/view.rs` | `draw(frame, &screen)` |
 
 - Core never names ratatui or crossterm. No gate stops it (the core boundary's lists
   in `AGENTS.md` › "Architecture" name OS and GUI crates, not these), so review holds
@@ -106,7 +106,7 @@ handed to core as a value; core still never sleeps or reads the clock
 
 | Question | Test | In the sample |
 |---|---|---|
-| What an action does to the screen | core tests over the fakes, keys and actions as values | `crates/myapp-core/tests/counter_screen.rs`, `screen.rs`'s unit tests |
+| What an action does to the screen | core tests over the fakes, keys and actions as values | `crates/bunshin-core/tests/counter_screen.rs`, `screen.rs`'s unit tests |
 | Which key event becomes which `ScreenKey` | unit tests of the translation, `KeyEvent` built with `KeyEvent::new_with_kind` | `tui/mod.rs`'s tests |
 | What a state looks like | `draw` into ratatui's `TestBackend` and compare the buffer | `tui/view.rs`'s tests |
 
@@ -121,13 +121,13 @@ handed to core as a value; core still never sleeps or reads the clock
   be read, the error cleared by the next success, and a terminal too small. The expected
   lines are written out by hand, border included.
 - No test calls `run`, `enter`, or `event::read`: the loop is the gap, kept small for
-  that reason, and a human running `myapp tui` is its check.
+  that reason, and a human running `bunshin tui` is its check.
 
 ## Never taking over the developer's terminal
 
 `AGENTS.md` › "Never taking over the developer's Mac" holds for terminals too. No check,
 hook, or step an agent runs on its own enables raw mode, enters the alternate screen,
-reads a key from a real terminal, or runs `myapp tui`. Running the screen is a human's
+reads a key from a real terminal, or runs `bunshin tui`. Running the screen is a human's
 step: when a change shows only in a real terminal (the restore after a crash, a resize,
 how it looks), ask the human once to run it and say what to press and what to look for
 (**REQUIRED:** `running-the-app`). The real-terminal loop has no automated test, not

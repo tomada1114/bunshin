@@ -20,8 +20,8 @@ an issue number).
 ## Descriptions
 
 Write: "Covers adding a subcommand end to end: the clap declaration, the thin handler
-that calls core and prints the view, the wording in crates/myapp/src/wording.rs, and the
-test in crates/myapp/tests/cli.rs. Use when adding, renaming, or removing a subcommand
+that calls core and prints the view, the wording in crates/bunshin/src/wording.rs, and the
+test in crates/bunshin/tests/cli.rs. Use when adding, renaming, or removing a subcommand
 or a flag, changing what goes to stdout or stderr, or choosing an exit code."
 
 Avoid: "This skill first reads the core module, then writes the handler, then adds the
@@ -41,8 +41,7 @@ Write:
 Avoid: a path into `.claude/skills/` or `.agents/skills/` (the reader may be in the other
 tree, and the path breaks if the skill is renamed); "`AGENTS.md`, line 300" (stale after
 the first edit above it); a third marker such as `**NOTE:**` or `**SEE ALSO:**` (the two
-markers exist so a reader can tell "must load" from "may skip" at a glance); a link to
-`docs/template/` (gone after the bootstrap).
+markers exist so a reader can tell "must load" from "may skip" at a glance).
 
 ## Deletable illustrations
 
@@ -82,7 +81,7 @@ Write:
 - "Codex CLI scans `.agents/skills` from the working directory up to the repository root
   (https://learn.chatgpt.com/docs/build-skills, checked 2026-09-29)."
 - "A debug build echoes each log line to stderr with the binary crate's name as its
-  target: observed on this Mac with `cargo run --locked -p myapp -- counter show`,
+  target: observed on this Mac with `cargo run --locked -p bunshin -- counter show`,
   2026-10-01."
 - "E0382 is a use of a moved value (https://doc.rust-lang.org/error_codes/E0382.html)."
   (a concept link: no date needed)
@@ -119,7 +118,7 @@ request."
 
 Avoid: "Run `just test-local` to check the Keychain adapter." An unattended agent
 following that raises a prompt on top of the owner's work and takes focus. Likewise
-"Run `myapp tui` and check the screen": it takes over the terminal the agent runs in,
+"Run `bunshin tui` and check the screen": it takes over the terminal the agent runs in,
 and the human's beside it; the view's `TestBackend` tests are the agent's evidence, and
 a look at the real terminal is the human's to give.
 

@@ -1,13 +1,13 @@
 ---
 name: integrating-system-apis
 description: >
-  Covers reaching the OS from crates/myapp-platform on macOS and Linux: the port in
-  myapp-core first, an adapter per OS behind cfg(target_os = "macos") or
+  Covers reaching the OS from crates/bunshin-platform on macOS and Linux: the port in
+  bunshin-core first, an adapter per OS behind cfg(target_os = "macos") or
   cfg(target_os = "linux") with one contract suite, the data and log directories
   (~/Library, XDG_DATA_HOME, XDG_STATE_HOME), choosing the mechanism (the standard
   library, then a system command through std::process::Command such as launchctl,
   plutil, or defaults, then a binding crate such as objc2), unsafe and the // SAFETY:
-  comment once an ADR lifts unsafe_code = "forbid" for myapp-platform, MainThreadMarker,
+  comment once an ADR lifts unsafe_code = "forbid" for bunshin-platform, MainThreadMarker,
   C callbacks, TCC-gated APIs (Accessibility, Input Monitoring, Screen Recording,
   AXIsProcessTrustedWithOptions) and the terminal as the responsible process, and what
   can be tested where. Use when adding or changing an adapter that reaches the OS, an
@@ -17,7 +17,7 @@ description: >
 
 # Integrating System APIs
 
-**Owns:** reaching macOS and Linux from `myapp-platform`: which mechanism, how each OS
+**Owns:** reaching macOS and Linux from `bunshin-platform`: which mechanism, how each OS
 gets its adapter, how failures and threads stay inside the adapter, the `unsafe` policy,
 how a TCC grant behaves, and what can be tested where. **Does not own:** the decision
 the port serves and its test loop (`designing-core-logic`, `tdd`); the error enum's
@@ -32,11 +32,11 @@ Every integration is the same pieces, and the sample ships one of each to copy
 
 | Piece | Where | In the sample |
 |---|---|---|
-| Port: a synchronous `Send + Sync` trait over core's own types | `crates/myapp-core` | `CounterStore`, `Clock` |
-| Adapter: the OS call, translation only | `crates/myapp-platform` | `JsonFileCounterStore`, `SystemClock` |
-| Fake: a real implementation answering from test data | `crates/myapp-test-support` | `InMemoryCounterStore`, `FixedClock` |
-| Contract: the port's promises, run against both | `crates/myapp-test-support` | `counter_store_contract`, `clock_contract` |
-| Local-machine test: the adapter against a real, granted machine | `crates/myapp-platform/tests/` | none (the sample needs no grant) |
+| Port: a synchronous `Send + Sync` trait over core's own types | `crates/bunshin-core` | `CounterStore`, `Clock` |
+| Adapter: the OS call, translation only | `crates/bunshin-platform` | `JsonFileCounterStore`, `SystemClock` |
+| Fake: a real implementation answering from test data | `crates/bunshin-test-support` | `InMemoryCounterStore`, `FixedClock` |
+| Contract: the port's promises, run against both | `crates/bunshin-test-support` | `counter_store_contract`, `clock_contract` |
+| Local-machine test: the adapter against a real, granted machine | `crates/bunshin-platform/tests/` | none (the sample needs no grant) |
 
 Write the port before the adapter. Its signature is where the OS type collapses into a
 value core owns; an adapter written first leaks one. A port is `Send + Sync` so the
@@ -47,14 +47,14 @@ shows, what a result means) is core's, tested with the fake; a new port is an AD
 
 ## Each OS gets its adapter
 
-`myapp-platform` builds and runs its tests on macOS and Linux: `just test-platform` runs
+`bunshin-platform` builds and runs its tests on macOS and Linux: `just test-platform` runs
 in CI's `Rust Core` (Linux) and `macOS` jobs.
 
 | Adapter or function | macOS | Linux |
 |---|---|---|
 | `JsonFileCounterStore`, `SystemClock`, `init_logging` | yes | yes |
-| `app_data_dir`, `counter_file` | `~/Library/Application Support/<bundle id>` | `$XDG_DATA_HOME/myapp`, default `~/.local/share/myapp` |
-| `log_dir` | `~/Library/Logs/<bundle id>` | `$XDG_STATE_HOME/myapp/logs`, default `~/.local/state/myapp/logs` |
+| `app_data_dir`, `counter_file` | `~/Library/Application Support/<bundle id>` | `$XDG_DATA_HOME/bunshin`, default `~/.local/share/bunshin` |
+| `log_dir` | `~/Library/Logs/<bundle id>` | `$XDG_STATE_HOME/bunshin/logs`, default `~/.local/state/bunshin/logs` |
 
 The Linux paths follow the XDG Base Directory Specification
 (<https://specifications.freedesktop.org/basedir-spec/latest/>, checked 2026-10-01): an
@@ -85,7 +85,7 @@ Take the first that answers the question. Each step down costs more: a binding c
    launchd jobs, `plutil` to read or convert a property list, `defaults` for
    preferences; on Linux, the distribution's own tool. No `unsafe`, no new crate, and
    the tool's behavior is in its man page. Core cannot do this
-   (`crates/myapp-core/clippy.toml` bans `std::process::Command` there), so it lives in
+   (`crates/bunshin-core/clippy.toml` bans `std::process::Command` there), so it lives in
    the adapter. The rules are below.
 3. **A binding crate**, when no command answers: on macOS the `objc2` runtime and its
    per-framework `objc2-*` crates for an AppKit or ApplicationServices call
@@ -132,7 +132,7 @@ grant is a prompt the user may refuse, and each one is support work (see "TCC" b
 
 Anything that names a macOS framework or a Linux-only interface, or a crate that only
 builds there, sits behind `#[cfg(target_os = "…")]`, with the crate under
-`[target.'cfg(target_os = "…")'.dependencies]` in `myapp-platform`'s `Cargo.toml`
+`[target.'cfg(target_os = "…")'.dependencies]` in `bunshin-platform`'s `Cargo.toml`
 (the version still written once in the root's `[workspace.dependencies]`). Its tests
 carry the same `cfg`. A system-command adapter compiles everywhere; its tests that call
 the real tool are restricted to their OS in the same way.
@@ -157,7 +157,7 @@ granted by the user in System Settings, and a TCC permission is an ADR decision
 (`AGENTS.md` › "Before changing the architecture"). The property every decision rests
 on: TCC tells the program nothing. A refusal returns nothing or `false`, and a grant
 arrives with no callback. A tool run from a terminal adds a second trap: macOS may
-attribute the request to the terminal rather than to `myapp`. **REQUIRED:**
+attribute the request to the terminal rather than to `bunshin`. **REQUIRED:**
 [references/tcc-permissions.md](references/tcc-permissions.md) when the API is
 TCC-gated. Linux has no TCC; a refused permission there surfaces as an ordinary error
 (`io::ErrorKind::PermissionDenied`), mapped to a core kind like any other.

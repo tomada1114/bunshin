@@ -98,15 +98,13 @@ carries `**REQUIRED:**` (the task cannot be finished correctly without it) or
 `**BACKGROUND:**` (it only explains why), and no other marker. Its target is a sibling
 skill by name in backticks (never a path: the two trees differ), a `references/` file by
 relative link, or `AGENTS.md` › "Section name" (never a line number). A mention that only
-names an owner or credits a source stays bare. Never point at `docs/template/`: the
-bootstrap deletes it.
+names an owner or credits a source stays bare.
 
 **Deletable illustrations.** Every app deletes the template's sample, the counter
 (`docs/getting-started.md` › "Removing the example code"). State each rule in a sentence
 that does not mention the sample, then give the sample as the example in the next
 sentence or code block, so deleting the example leaves a rule that still reads. No build
-or test depends on a skill's code block. Write placeholder names exactly (`myapp-core`,
-`myapp_core`, `MyApp`, `com.example.myapp`) so the bootstrap's rename finds them.
+or test depends on a skill's code block.
 
 **Platform-skill scope.** On a surface someone else documents (Rust, cargo, clap,
 ratatui, another crate, macOS and Apple APIs, Linux, Python, GitHub Actions), a skill
@@ -133,7 +131,7 @@ follows `AGENTS.md` › "Never taking over the developer's Mac": on its own an a
 only what shows no window, takes no focus, raises no prompt, and takes over no terminal,
 with the tests, `just test-platform`, and `just logs` as its evidence. A human's recipe
 (`just test-local`, `just logs-follow`, `just install-cli`) is marked as one wherever a
-skill names it. A skill never has an agent run `myapp tui`, script another app, or
+skill names it. A skill never has an agent run `bunshin tui`, script another app, or
 start an installer or `sudo`; it hands the human the command instead.
 
 **For a reader new to Rust.** The human reviewing the pull requests a skill shapes may

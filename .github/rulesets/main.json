@@ -34,7 +34,6 @@
           { "context": "Rust Core", "integration_id": 15368 },
           { "context": "Repo Lint & Harness", "integration_id": 15368 },
           { "context": "macOS", "integration_id": 15368 },
-          { "context": "Template Bootstrap Smoke", "integration_id": 15368 },
           { "context": "Workflow Security Lint", "integration_id": 15368 },
           { "context": "Dependency Review", "integration_id": 15368 },
           { "context": "Validate PR title", "integration_id": 15368 }

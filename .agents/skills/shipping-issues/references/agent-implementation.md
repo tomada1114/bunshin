@@ -76,7 +76,7 @@ Do:
    MEASURE. Never run a recipe that needs a human: `just test-local`,
    `just logs-follow`. `just test-platform` and `just logs` are your evidence that
    the change works. When the change is to an adapter under
-   crates/myapp-platform/ that has an `#[ignore = "local machine: ..."]` test,
+   crates/bunshin-platform/ that has an `#[ignore = "local machine: ..."]` test,
    say so under VERIFY: that evidence is the human's to produce.
 5. If the change is user-facing, add an entry to CHANGELOG.md under
    [Unreleased], in the section (Added / Changed / Fixed / ...) that fits.

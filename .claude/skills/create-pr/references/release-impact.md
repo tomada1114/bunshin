@@ -17,11 +17,11 @@ Summary; replace the comment after it with one of these two forms, literally:
 
 A missing value is not `none`; ask for it before approving.
 
-**none** fits a change that leaves the `myapp` binary a user installs untouched (it is
-built from the checkout with `cargo install --locked --path crates/myapp`): CI
+**none** fits a change that leaves the `bunshin` binary a user installs untouched (it is
+built from the checkout with `cargo install --locked --path crates/bunshin`): CI
 workflows, docs, tests, `xtask`, skills, harness checks, a dev-only dependency. A level
 fits everything that changes that binary or what it reads and writes: Rust in
-`myapp-core`, `myapp-platform`, or `myapp`, a runtime dependency, the release profile.
+`bunshin-core`, `bunshin-platform`, or `bunshin`, a runtime dependency, the release profile.
 
 ## Choosing the level
 

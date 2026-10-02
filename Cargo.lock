@@ -51,6 +51,51 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
 
 [[package]]
+name = "bunshin"
+version = "0.1.0"
+dependencies = [
+ "bunshin-core",
+ "bunshin-platform",
+ "bunshin-test-support",
+ "clap",
+ "ratatui",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "bunshin-core"
+version = "0.1.0"
+dependencies = [
+ "bunshin-test-support",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "bunshin-platform"
+version = "0.1.0"
+dependencies = [
+ "bunshin-core",
+ "bunshin-test-support",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "bunshin-test-support"
+version = "0.1.0"
+dependencies = [
+ "bunshin-core",
+]
+
+[[package]]
 name = "by_address"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -471,51 +516,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys",
-]
-
-[[package]]
-name = "myapp"
-version = "0.1.0"
-dependencies = [
- "clap",
- "myapp-core",
- "myapp-platform",
- "myapp-test-support",
- "ratatui",
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "myapp-core"
-version = "0.1.0"
-dependencies = [
- "myapp-test-support",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "myapp-platform"
-version = "0.1.0"
-dependencies = [
- "myapp-core",
- "myapp-test-support",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "myapp-test-support"
-version = "0.1.0"
-dependencies = [
- "myapp-core",
 ]
 
 [[package]]

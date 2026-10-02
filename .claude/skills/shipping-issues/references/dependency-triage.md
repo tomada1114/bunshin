@@ -62,9 +62,9 @@ edges only appear on reading:
   issues that implement it.
 - **Config-before-feature** -- a settings/validation issue precedes features
   that read those settings.
-- **Port-before-adapter** -- a port in `myapp-core` (a trait such as `Clock`) lands
-  before the `myapp-platform` adapter, the fake in `myapp-test-support`, and the
-  wiring in the `myapp` binary (`crates/myapp/src/main.rs`) that use it.
+- **Port-before-adapter** -- a port in `bunshin-core` (a trait such as `Clock`) lands
+  before the `bunshin-platform` adapter, the fake in `bunshin-test-support`, and the
+  wiring in the `bunshin` binary (`crates/bunshin/src/main.rs`) that use it.
 - **Append-target collision** -- a changelog, release-notes file, decision log,
   or generated index that every PR appends to conflicts both-added even when
   the code paths are disjoint. Find such files once, before grouping (what did
@@ -105,7 +105,7 @@ at the same time; the PR, CI watch and merge stay serialized regardless.
 **Every parallel batch passes through step 2c** -- the plan proposes, that step
 decides. A script can tell you two issues declare no overlapping paths and no
 dependency edge; it cannot tell you both will end up editing `Cargo.toml` or the
-subcommand enum in `crates/myapp/src/main.rs`, that one is a refactor whose blast radius is
+subcommand enum in `crates/bunshin/src/main.rs`, that one is a refactor whose blast radius is
 wider than its `touches=` admits, or that a generated file makes any two concurrent
 branches conflict. Thoroughness scales with the grouping verdict: `MECHANICAL` means
 read each issue's real reach against its declared `touches=`; `PARTIAL` means

@@ -40,7 +40,7 @@ points at, typically a reference to a local stored in something that lives longe
 - In a test, keep the owner alive in a binding for the whole test: a
   `tempfile::TempDir` deletes its directory when it is dropped, so
   `let dir = tempfile::tempdir().unwrap();` stays in scope while `dir.path()` is used.
-  `crates/myapp-platform/tests/contracts.rs` pushes each `TempDir` into a `Vec` for the
+  `crates/bunshin-platform/tests/contracts.rs` pushes each `TempDir` into a `Vec` for the
   same reason.
 - Never add a lifetime parameter to a struct to get past this; see `SKILL.md` ›
   "Ownership and borrowing".
@@ -69,10 +69,10 @@ written and the type produced differ. Two cases worth recognising here:
 - A function ends with `Ok(value);` — the trailing semicolon turns the result into
   `()`. Remove it.
 - The message names the same type through two paths (for example
-  `myapp_core::Counter` and `crate::Counter`), or an E0277 says a fake does not
+  `bunshin_core::Counter` and `crate::Counter`), or an E0277 says a fake does not
   implement a core trait it plainly implements: an inline `#[cfg(test)]` module in core
-  used a fake from `myapp-test-support`, which links a second copy of core. Move that
-  test to `crates/myapp-core/tests/` (the `placing-tests` skill).
+  used a fake from `bunshin-test-support`, which links a second copy of core. Move that
+  test to `crates/bunshin-core/tests/` (the `placing-tests` skill).
 
 **E0004, non-exhaustive patterns** (https://doc.rust-lang.org/error_codes/E0004.html).
 A `match` does not cover a variant, usually because one was added a moment ago. Add an
@@ -95,8 +95,8 @@ look it up in the lint list (https://rust-lang.github.io/rust-clippy/master/inde
 
 | Lint | What it wants | The fix here |
 |---|---|---|
-| `unwrap_used`, `expect_used` | no panic on `None` or `Err` in non-test code | `?`, `ok_or`, `let … else`, or a fallback that is a correct answer. In a helper function under `tests/` that is not itself a `#[test]`, clippy does not count the code as test code (`allow-unwrap-in-tests` covers test functions and `#[cfg(test)]`, https://doc.rust-lang.org/clippy/lint_configuration.html#allow-unwrap-in-tests, checked 2026-09-29), so match and panic with context instead, as `output` in `crates/myapp/tests/cli.rs` does |
-| `disallowed_methods`, `disallowed_macros`, `disallowed_types` | core does not read the clock, the environment, or the file system, print, sleep, or start a process (`crates/myapp-core/clippy.toml`) | take the value as an argument or through a port (`designing-core-logic`); never move the call into core behind an `#[allow]` |
+| `unwrap_used`, `expect_used` | no panic on `None` or `Err` in non-test code | `?`, `ok_or`, `let … else`, or a fallback that is a correct answer. In a helper function under `tests/` that is not itself a `#[test]`, clippy does not count the code as test code (`allow-unwrap-in-tests` covers test functions and `#[cfg(test)]`, https://doc.rust-lang.org/clippy/lint_configuration.html#allow-unwrap-in-tests, checked 2026-09-29), so match and panic with context instead, as `output` in `crates/bunshin/tests/cli.rs` does |
+| `disallowed_methods`, `disallowed_macros`, `disallowed_types` | core does not read the clock, the environment, or the file system, print, sleep, or start a process (`crates/bunshin-core/clippy.toml`) | take the value as an argument or through a port (`designing-core-logic`); never move the call into core behind an `#[allow]` |
 | `wildcard_enum_match_arm` | no `_` in core that stands for a nameable variant, on any enum | name every variant; group with `A \| B =>`; a `#[non_exhaustive]` foreign enum names them all before its `_`, or is tested with `==` or `matches!` |
 | `missing_errors_doc`, `missing_panics_doc` | a `# Errors` / `# Panics` section on a public function that can fail or panic | write the section: which variant, and when |
 | `must_use_candidate` | `#[must_use]` on a pure public function whose result would be a bug to ignore | add `#[must_use]`, as core's constructors and getters have |

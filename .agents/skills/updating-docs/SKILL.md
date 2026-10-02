@@ -2,14 +2,14 @@
 name: updating-docs
 description: >
   Decides whether a change owes a documentation update and which surface it lands on:
-  README.md (Quickstart, Design Philosophy, Using This Template), AGENTS.md,
+  README.md (Quickstart, Design Philosophy), AGENTS.md,
   CONTRIBUTING.md, CHANGELOG.md, docs/architecture.md, docs/getting-started.md, a
-  skill under .agents/skills/, or a /// rustdoc comment on a pub item in myapp-core.
+  skill under .agents/skills/, or a /// rustdoc comment on a pub item in bunshin-core.
   Use when triaging whether a pull request needs a document changed or a CHANGELOG
   [Unreleased] entry, when a justfile recipe, a gate, a subcommand or flag, an on-disk
   format, or an architecture boundary moved and it is unclear which file owns it, when
   the setup
-  steps drifted, when a template-only block is involved, or when deciding that an
+  steps drifted, or when deciding that an
   internal refactor needs no documentation change.
 ---
 
@@ -31,12 +31,12 @@ is a legitimate outcome of this skill, not a step skipped.
 
 A reader here can observe: what the tool does when run, the `just` recipes and what
 they run, the setup steps and pinned tools, what a gate accepts or rejects, how the
-template becomes an app (`just bootstrap`), how the tool is installed, and
+tool is installed, and
 everything `docs/architecture.md` › "What is contract and what is private" lists. That
 table is the one list of what is contract; read it there rather than from a copy.
 
-- `README.md` changes when the first ten minutes with a checkout change (the Quickstart,
-  what "Using This Template" asks), or when a decision its Design Philosophy records
+- `README.md` changes when the first ten minutes with a checkout change (the Quickstart),
+  or when a decision its Design Philosophy records
   changes (`.claude/rules/docs.md` keeps the two in sync).
 - `CONTRIBUTING.md` changes when setup, the toolchain, the commands behind a recipe
   ("Without Just"), or the pull request process changes.
@@ -58,7 +58,7 @@ another's content: a copy is the half that goes stale.
 
 | Surface | Its one job |
 |---|---|
-| `README.md` | The tour: what the template is, Quickstart, Design Philosophy (a "Why" per decision), Using This Template, links onward |
+| `README.md` | The tour: what the app is, Quickstart, Design Philosophy (a "Why" per decision), links onward |
 | `AGENTS.md` | The agent-facing guide: Quick Reference, "Validating a change", Architecture, Skills and Rules tables, "Security and human approval", "Repository scripts", "Enforcement layers", Review Checklist |
 | `CONTRIBUTING.md` | Prerequisites, the workflow and its commands without Just, where a change goes, the pull request process, commit messages, the changelog policy |
 | `CHANGELOG.md` | The human-curated record of user-visible changes (Keep a Changelog) |
@@ -106,26 +106,6 @@ description.
 - A subcommand's and a flag's `///` is also its `--help` text (clap's derive reads it),
   so it is written for the person running the tool (`designing-clis`).
 
-## Template-only material
-
-The bootstrap removes every `<!-- template-only -->` … `<!-- /template-only -->` block
-and the template's own design notes, so an app never inherits text about the template.
-Text only a template reader needs (why the bootstrap exists, how to use the template)
-goes inside a block; text an app keeps (the Design Philosophy of a kept decision, the
-install steps) goes outside. A standing document outside a block never links into
-the template's design notes: that link dangles in every app. A sentence outside a block
-is worded to hold in an app too ("the index starts empty", not "the template ships the
-index empty"), or, where it cannot, rewritten for the app by an entry in `TEXT_EDITS`
-in `xtask/src/bootstrap.rs`, in the same change.
-
-Only the files `MARKER_FILES` in `xtask/src/bootstrap.rs` lists have their blocks
-removed. A block in any other file adds that file to the list in the same change, or its
-marker lines survive into the app and `just verify-bootstrap` (CI's Template Bootstrap
-Smoke job) fails with `ERR_VERIFY_BOOTSTRAP_MARKER`. It fails with
-`ERR_VERIFY_BOOTSTRAP_TEMPLATE_TEXT` when the app still names the template's design
-record or README's template-only section, a decision by its number in that record, or
-what the template itself ships or its own reasoning.
-
 ## What checks a document, and what does not
 
 - `just check-harness` fails when `AGENTS.md`, `CLAUDE.md`, `README.md`,
@@ -136,7 +116,7 @@ what the template itself ships or its own reasoning.
   relative to it, the word issue, PR, pull request, or merge request before a number
   (`issue N`, `issue number N`, `PR-N`), `GH-` and digits, or a `gh issue`/`gh pr`
   command given a number. An upstream project's issue URL passes as a source. Neither
-  check reads the template's own design record, the roadmap, or the ADRs, which link
+  check reads the roadmap or the ADRs, which link
   issues and plan recipes by design.
 - `mise exec -- typos <file>` spell-checks Markdown (the hook and CI run it too).
 - Nothing formats Markdown; wrap prose at about 90 columns by hand.

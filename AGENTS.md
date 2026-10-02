@@ -10,7 +10,7 @@ the one guide Claude Code and Codex CLI share, and it leaves three things to oth
   [Rules](#rules) lists them.
 - **A value a gate enforces** — a lint level, a banned call, a format option, a coverage
   floor, a tool pin — belongs to its config (`Cargo.toml`'s `[workspace.lints]`,
-  `clippy.toml` and `crates/myapp-core/clippy.toml`, `rustfmt.toml`, `deny.toml`,
+  `clippy.toml` and `crates/bunshin-core/clippy.toml`, `rustfmt.toml`, `deny.toml`,
   `typos.toml`, the `test-core` and `test-xtask` recipes in the `justfile`, `mise.toml`,
   `rust-toolchain.toml`); running the gate is how you learn it.
 
@@ -19,29 +19,27 @@ keeping a second copy that goes stale.
 
 ## Overview
 
-This is a Rust command-line tool built from a strict template: one binary, `myapp`,
-whose clap subcommands do the work and whose `myapp tui` subcommand opens a full-screen
+This is a Rust command-line tool built from a strict template: one binary, `bunshin`,
+whose clap subcommands do the work and whose `bunshin tui` subcommand opens a full-screen
 ratatui view over the same core. It builds and runs on macOS and Linux, and it is
 installed from its checkout with `cargo install --path`; there is no release pipeline.
-The code is a Cargo workspace — the logic in `crates/myapp-core`, the OS adapters in
-`crates/myapp-platform`, fakes and contract suites in `crates/myapp-test-support`, and the
-`myapp` binary itself in `crates/myapp` — and repository automation is Rust in the
+The code is a Cargo workspace — the logic in `crates/bunshin-core`, the OS adapters in
+`crates/bunshin-platform`, fakes and contract suites in `crates/bunshin-test-support`, and the
+`bunshin` binary itself in `crates/bunshin` — and repository automation is Rust in the
 `xtask/` crate (`cargo xtask <task>`), apart from the Python and shell scripts a skill
 bundles.
 Quality gates are on from day one: rustfmt, clippy `all` + `pedantic` with warnings as
 errors, `unsafe_code = "forbid"` in every crate, an 80% line and 80% function coverage
-floor on `myapp-core`, and llvm-cov floors on `xtask` (85/90) and the staged guard's
+floor on `bunshin-core`, and llvm-cov floors on `xtask` (85/90) and the staged guard's
 rules in `xtask/guard/` (90/100); skills' bundled Python and shell suites run with no
 floor.
 
 ## Product
 
-**TODO: in the template this section is a placeholder.** It is the one part of this
-file about the application rather than the harness, so every repository cut from the
-template writes its own: without it an agent implementing an issue here has no in-repo
-answer to "is this in scope?". Fill in every `TODO:` below right after the rename
-(`README.md`'s "Using This Template") — once `cargo xtask bootstrap` has run,
-`just check-harness` fails while one is left.
+This section is the one part of this file about the application rather than the
+harness: without it, an agent implementing an issue here has no in-repo answer to "is
+this in scope?". The owner writes each bullet (the `starting-an-app` skill says how);
+`just check-harness` fails while one still holds its `TODO` marker.
 
 - **What it is, and who it is for** — TODO: one paragraph. The problem it solves, and
   whose problem that is.
@@ -65,7 +63,7 @@ just fmt           # Format every Rust file (cargo fmt)
 just fix           # Apply the automatic fixes there are: rustfmt's (clippy's findings are fixed by hand)
 just lint          # rustfmt check, clippy -D warnings
 just test          # test-core + test-xtask: every test that runs anywhere, with the coverage floors
-just test-core     # myapp-core with its 80/80 floors, its doctests, and the Linux-buildable crates' tests
+just test-core     # bunshin-core with its 80/80 floors, its doctests, and the Linux-buildable crates' tests
 just test-xtask    # The xtask crate's tests with its floors (85/90; the guard's rules 90/100)
 just test-fast increment  # One core test or a group of them, no floor (iteration only)
 just test-platform # Platform adapter and CLI tests against the real OS, macOS or Linux (no human)
@@ -78,17 +76,15 @@ just agents-sync   # Regenerate the .claude/skills/ mirror from .agents/skills/
 just agents-check  # Fail if .claude/skills/ differs from .agents/skills/
 just clean         # Remove build output (target/, coverage/)
 just prune-temp    # Remove temp dirs a bootstrap check left behind (verify-bootstrap-*) and idle Claude Code scratchpads (--dry-run to list)
-just verify-bootstrap    # Bootstrap a scratch clone in a temp directory; fail on anything it leaves behind (template only)
 
 # A human's recipes — they need a logged-in Mac, never end, or write outside the checkout; an agent runs them only when asked
 just test-local        # The #[ignore]d tests that need a logged-in Mac, a TCC grant, or the Keychain
 just logs-follow       # Follow the newest app log (never ends)
-just install-cli       # Install the myapp binary into ~/.cargo/bin (cargo install --locked --path crates/myapp)
+just install-cli       # Install the bunshin binary into ~/.cargo/bin (cargo install --locked --path crates/bunshin)
 
 # Writes to GitHub or rewrites the repository — a human's step
 just labels     # Create/update labels from .github/labels.yml (never deletes)
 just ruleset    # Create/update every .github/rulesets/*.json ruleset by name (admin-only)
-just bootstrap  # Turn the template into a new app (renames, removes template-only files)
 ```
 
 Without Just: run the underlying commands listed in each `justfile` recipe
@@ -102,13 +98,13 @@ developer's Mac").
 
 | What you changed | The narrowest check that can fail |
 |---|---|
-| Rust under `crates/myapp-core/src/` | `just test-fast <filter>` while iterating, then `just test-core` (the floors) and `just lint` (clippy, including core's banned calls) |
-| A test under `crates/myapp-core/tests/`, or a `#[cfg(test)]` module in core | `just test-core` |
-| An adapter under `crates/myapp-platform/` | `just test-platform` (its contract tests against the real adapter); an `#[ignore]`d test there is human-run — ask for `just test-local` output for the PR |
-| A fake or a contract function under `crates/myapp-test-support/` | `just test-core` (core runs the contracts against the fakes), then `just test-platform` (platform runs them against the real adapters) |
-| The binary under `crates/myapp/`, or its error wording in `crates/myapp/src/wording.rs` | `just test-core` (it runs the binary's tests), then `just test-platform` |
+| Rust under `crates/bunshin-core/src/` | `just test-fast <filter>` while iterating, then `just test-core` (the floors) and `just lint` (clippy, including core's banned calls) |
+| A test under `crates/bunshin-core/tests/`, or a `#[cfg(test)]` module in core | `just test-core` |
+| An adapter under `crates/bunshin-platform/` | `just test-platform` (its contract tests against the real adapter); an `#[ignore]`d test there is human-run — ask for `just test-local` output for the PR |
+| A fake or a contract function under `crates/bunshin-test-support/` | `just test-core` (core runs the contracts against the fakes), then `just test-platform` (platform runs them against the real adapters) |
+| The binary under `crates/bunshin/`, or its error wording in `crates/bunshin/src/wording.rs` | `just test-core` (it runs the binary's tests), then `just test-platform` |
 | Formatting of any Rust file | `just fmt`, or `just lint` to only check |
-| The TUI under `crates/myapp/src/tui/`, or a screen's state in core | `just test-core` (the screen's tests in core and the view's `TestBackend` tests), then `just test-platform`; a change to the terminal loop itself carries the human's `myapp tui` run as evidence — an agent never runs it (the `building-tuis` skill) |
+| The TUI under `crates/bunshin/src/tui/`, or a screen's state in core | `just test-core` (the screen's tests in core and the view's `TestBackend` tests), then `just test-platform`; a change to the terminal loop itself carries the human's `bunshin tui` run as evidence — an agent never runs it (the `building-tuis` skill) |
 | Behavior only the running tool shows (a log line) | `just test-platform` and `just logs` — no gate asserts it, so the PR carries the evidence (the `running-the-app` skill) |
 | A task under `xtask/` (including the guard's rules in `xtask/guard/`) | `cargo nextest run -p xtask -p xtask-guard` while iterating, then `just test-xtask` (the floors) and `just lint` |
 | `lefthook.yml` or `xtask/src/verify_hooks.rs` | `just test-xtask` (`xtask/tests/lefthook.rs` runs the real hook), then `just verify-hooks` |
@@ -121,7 +117,6 @@ developer's Mac").
 | `mise.toml` or `rust-toolchain.toml` | `mise install` for `mise.toml` (rustup installs a new `rust-toolchain.toml` channel on the next `cargo` call: `.claude/rules/project.md` › Tool Pinning), then `just check` |
 | `.github/labels.yml`, or an issue form under `.github/ISSUE_TEMPLATE/` | `mise exec -- typos <file>`, then `just check-harness` (every applied label declared, once) |
 | `.github/rulesets/main.json`, or `xtask/src/apply_ruleset.rs` | `cargo nextest run -p xtask apply_ruleset`; `just check-harness` for `main.json` (every required context names a job that runs on every pull request) |
-| A new file, or a new spelling of a placeholder (`MyApp`, `myapp`, `myapp-core`, `myapp_core`, `com.example.myapp`, the template's owner/repo) — template only: the bootstrap removes this row | `just verify-bootstrap` (it bootstraps a scratch clone in a temporary directory and fails on a placeholder the rename misses, template-only text, or a dangling reference) |
 
 ## Architecture
 
@@ -131,48 +126,48 @@ Cargo.toml                  # Virtual workspace: members, resolver = "3", [works
                             #   [workspace.lints]
 rust-toolchain.toml         # The one Rust pin
 crates/
-├── myapp-core/             # Domain logic, state, and the ports (traits) everything outside
+├── bunshin-core/             # Domain logic, state, and the ports (traits) everything outside
 │                           #   the process is reached through. No OS APIs, no terminal,
 │                           #   no direct I/O; built and tested on Linux; coverage-gated
 │                           #   (lines 80, functions 80)
-├── myapp-platform/         # Adapters implementing core's ports against the real OS and
+├── bunshin-platform/         # Adapters implementing core's ports against the real OS and
 │                           #   file system (JsonFileCounterStore, SystemClock, logging,
 │                           #   paths) — translation only, outside the coverage floor
-├── myapp-test-support/     # One fake per port + one `<port>_contract` function per port.
+├── bunshin-test-support/     # One fake per port + one `<port>_contract` function per port.
 │                           #   A [dev-dependencies] entry only; never ships
-└── myapp/                  # The `myapp` binary: the tool itself and the composition root.
+└── bunshin/                  # The `bunshin` binary: the tool itself and the composition root.
                             #   Builds the real adapters, hands them to core, and translates
                             #   arguments to calls and results to stdout, stderr, and an exit
                             #   code. Decides nothing; src/wording.rs holds every stderr sentence,
-                            #   and src/tui/ the ratatui terminal loop and view for `myapp tui`
+                            #   and src/tui/ the ratatui terminal loop and view for `bunshin tui`
 xtask/                      # Repository automation in Rust, run as `cargo xtask <task>` (the
                             #   alias is in .cargo/config.toml); never shipped
 └── guard/                  # Crate `xtask-guard`: the staged guard's path and credential rules
 ```
 
-- New logic goes in `myapp-core` with tests. The adapters and the binary translate; a
+- New logic goes in `bunshin-core` with tests. The adapters and the binary translate; a
   decision found in either belongs in core, where the coverage floor sees it.
-- The dependency direction is one-way: `myapp-platform` → `myapp-core`, and both ←
-  `myapp` (the binary). Core never depends on platform or an OS binding crate, and
+- The dependency direction is one-way: `bunshin-platform` → `bunshin-core`, and both ←
+  `bunshin` (the binary). Core never depends on platform or an OS binding crate, and
   never names the binary's front-end crates (clap, ratatui, crossterm), so a screen's
-  state machine is tested inside the floor with plain values; `myapp-test-support` is
+  state machine is tested inside the floor with plain values; `bunshin-test-support` is
   reached only through `[dev-dependencies]`.
-- A port is a synchronous `Send + Sync` trait core declares; `myapp-platform`
+- A port is a synchronous `Send + Sync` trait core declares; `bunshin-platform`
   implements it; the binary constructs the real adapter and hands it to core; a test
-  hands core a fake from `myapp-test-support`. Core never meets async.
+  hands core a fake from `bunshin-test-support`. Core never meets async.
   The worked example is `CounterStore` / `JsonFileCounterStore` / `InMemoryCounterStore`
   and `Clock` / `SystemClock` / `FixedClock`.
 - The core boundary is enforced three times, so removing one layer leaves the others:
   core's `Cargo.toml` lists no OS or platform crate; `deny.toml`'s `[bans]`
-  `wrappers` let only `myapp` depend on `myapp-platform`; and a harness check fails
+  `wrappers` let only `bunshin` depend on `bunshin-platform`; and a harness check fails
   when core's normal and build dependency closure reaches `tauri*`, `wry`, `tao`,
-  `objc2*`, `core-foundation*`, `security-framework*`, or `myapp-platform`. The first
+  `objc2*`, `core-foundation*`, `security-framework*`, or `bunshin-platform`. The first
   three are the desktop-GUI crates the template no longer uses, kept forbidden so core
   cannot gain a GUI; dropping any name is a gate change a human signs off. Those lists
   change together, and `just check-harness` fails when they differ.
 - I/O, time, the environment, and processes reach core only through ports or arguments,
   and core never sleeps or starts a thread that outlives the call:
-  `crates/myapp-core/clippy.toml` bans `print!`/`println!`/`eprint!`/`eprintln!`/`dbg!`,
+  `crates/bunshin-core/clippy.toml` bans `print!`/`println!`/`eprint!`/`eprintln!`/`dbg!`,
   `std::io::{stdin, stdout, stderr}`, `std::fs::{File, OpenOptions, DirBuilder}` and
   every `std::fs` free function, `std::os::unix::fs::{symlink, chown, fchown, lchown,
   chroot}`, `std::path::Path`'s file-system queries (`exists`, `try_exists`,
@@ -192,23 +187,23 @@ xtask/                      # Repository automation in Rust, run as `cargo xtask
   every variant.
 - Errors are one `thiserror` enum per port or core module, with a variant per failure
   the caller can act on; the binary maps each variant to wording in
-  `crates/myapp/src/wording.rs`, matched without a wildcard arm, and to exit code 1, and
-  `myapp tui` shows the same wording on its error line. An error that leaves the process
+  `crates/bunshin/src/wording.rs`, matched without a wildcard arm, and to exit code 1, and
+  `bunshin tui` shows the same wording on its error line. An error that leaves the process
   as data (a `--json` form) also serializes as a typed code (`#[serde(tag = "code")]`).
   Core never builds a user-facing sentence, and no error or log line carries user data
   (`designing-errors`).
-- The binary and `myapp-platform` log through the `tracing` macros; `myapp-core` has no
+- The binary and `bunshin-platform` log through the `tracing` macros; `bunshin-core` has no
   `tracing` dependency and logs nothing. Only the binary installs a subscriber
-  (`myapp_platform::init_logging`). Files go to `~/Library/Logs/com.example.myapp/` as
-  `myapp.YYYY-MM-DD.log`, rotated daily, the last 14 kept (on Linux, under
-  `$XDG_STATE_HOME/myapp/logs`); `just logs` prints the newest. While `myapp tui` owns
+  (`bunshin_platform::init_logging`). Files go to `~/Library/Logs/io.github.tomada1114.bunshin/` as
+  `bunshin.YYYY-MM-DD.log`, rotated daily, the last 14 kept (on Linux, under
+  `$XDG_STATE_HOME/bunshin/logs`); `just logs` prints the newest. While `bunshin tui` owns
   the terminal, logging goes to the file only: a line on stdout or stderr would corrupt
   the frame.
 - Every value a front end shows is a core view type (`CounterView`), so a subcommand's
   output and a TUI frame read the same model. A subcommand prints data to stdout and
   diagnostics to stderr (`designing-clis`); the TUI's state and key table live in core
-  and its loop and view in `crates/myapp/src/tui/` (`building-tuis`). Every string a
-  user reads comes from `crates/myapp/src/wording.rs`.
+  and its loop and view in `crates/bunshin/src/tui/` (`building-tuis`). Every string a
+  user reads comes from `crates/bunshin/src/wording.rs`.
 - Four things are contract rather than private — core's public API, the bundle
   identifier, the command line (subcommands, flags, output streams, and exit codes:
   0 success, 1 a runtime error, 2 a usage error), and on-disk file formats
@@ -234,9 +229,9 @@ these owes an ADR, as `recording-architecture-decisions` sets out:
 - `rust-version` in `Cargo.toml`;
 - an OS privacy permission — on macOS a TCC grant such as Accessibility, Input
   Monitoring, or Full Disk Access;
-- `unsafe` code, which means lifting `unsafe_code = "forbid"` for `myapp-platform`;
-- the bundle identifier (`com.example.myapp` until the bootstrap renames it) or the XDG
-  directory name (`myapp`), which key the tool's data and log directories;
+- `unsafe` code, which means lifting `unsafe_code = "forbid"` for `bunshin-platform`;
+- the bundle identifier (`io.github.tomada1114.bunshin`) or the XDG
+  directory name (`bunshin`), which key the tool's data and log directories;
 - a second language for the tool's wording;
 - a TUI theme beyond the terminal's own colors;
 - replacing clap or ratatui with another framework, a clap major, or ratatui 1.0 and
@@ -270,17 +265,17 @@ byte-for-byte into `.claude/skills/` (the only path Claude Code reads) by
 | `updating-docs` | Deciding which document a change must update |
 | `recording-architecture-decisions` | Writing an ADR under `docs/architecture/` |
 | `writing-repo-scripts` | A `cargo xtask` task or a skill's bundled script, and its test |
-| `starting-an-app` | Turning the template into a new app: bootstrap, Product section, the tool's shape (subcommands only, or plus `myapp tui`), first ADRs |
+| `starting-an-app` | The app's first decisions: Product section, the tool's shape (subcommands only, or plus `bunshin tui`), first ADRs, removing the sample |
 | `writing-rust` | Rust in `crates/*`: ownership, errors, clap and ratatui idioms, compiler messages, clippy |
 | `tdd` | Red-green-refactor with `just test-fast` |
 | `writing-tests` | The body of one Rust test: oracles, fakes, contracts, clocks, the built binary, `TestBackend` |
 | `placing-tests` | Where a new test goes and which floor measures it |
-| `designing-core-logic` | Shaping logic in `myapp-core`: ports, `Tuning`, transitions, views, a TUI screen's state |
+| `designing-core-logic` | Shaping logic in `bunshin-core`: ports, `Tuning`, transitions, views, a TUI screen's state |
 | `designing-clis` | A subcommand, its flags and output: stdout and stderr, exit codes, `wording.rs`, `--json`, configuration |
-| `building-tuis` | The `myapp tui` screen: model and update in core, the loop and view in `crates/myapp/src/tui/`, `TestBackend` |
+| `building-tuis` | The `bunshin tui` screen: model and update in core, the loop and view in `crates/bunshin/src/tui/`, `TestBackend` |
 | `designing-errors` | Error enums, wording and exit codes in the binary, adapter mapping, `ERR_*` script codes |
-| `integrating-system-apis` | Calling macOS and Linux from `myapp-platform`: `cfg`, commands, `objc2`, TCC |
-| `running-the-app` | Seeing a change work: `cargo run -p myapp`, `just test-platform`, and `just logs`; `myapp tui` run by the human, never by an agent |
+| `integrating-system-apis` | Calling macOS and Linux from `bunshin-platform`: `cfg`, commands, `objc2`, TCC |
+| `running-the-app` | Seeing a change work: `cargo run -p bunshin`, `just test-platform`, and `just logs`; `bunshin tui` run by the human, never by an agent |
 
 ### Rules
 
@@ -291,7 +286,7 @@ Codex CLI, read the one that matches the file you are changing.
 | Rule | Loads when you touch |
 |---|---|
 | `.claude/rules/rust.md` | `crates/**/*.rs` |
-| `.claude/rules/testing.md` | Rust tests (`crates/*/tests/**`, `crates/myapp-test-support/**`) |
+| `.claude/rules/testing.md` | Rust tests (`crates/*/tests/**`, `crates/bunshin-test-support/**`) |
 | `.claude/rules/project.md` | manifests, lockfiles, and gate configs: `Cargo.toml` files, `Cargo.lock`, `mise.toml`, `rust-toolchain.toml`, `deny.toml`, `clippy.toml` files, `rustfmt.toml`, `lefthook.yml`, `typos.toml`, `osv-scanner.toml`, `.github/dependabot.yml`, `.github/renovate.json` |
 | `.claude/rules/docs.md` | `docs/**/*.md`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md` |
 
@@ -402,7 +397,7 @@ any step an agent runs to verify its own work — may show a window, take keyboa
 move the pointer, or raise a permission, Keychain, or Gatekeeper prompt; and none may
 take over a terminal.
 
-- Never run `myapp tui` (`cargo run -p myapp -- tui` included). No check enables raw
+- Never run `bunshin tui` (`cargo run -p bunshin -- tui` included). No check enables raw
   mode, enters the alternate screen, reads a key from a real terminal, or needs a TTY:
   the TUI is tested by drawing into ratatui's `TestBackend` and feeding keys as values.
   When a change only the real terminal shows needs eyes on it, ask the human to run it
@@ -414,7 +409,7 @@ take over a terminal.
   purpose.
 - A test that needs a GUI session, a TCC grant, or the Keychain is
   `#[ignore = "local machine: <what it needs>"]` and runs only in `just test-local`. No
-  test needs a real terminal: nextest gives a test none, and a human running `myapp tui`
+  test needs a real terminal: nextest gives a test none, and a human running `bunshin tui`
   is the only route to one.
 - Never trigger an installer or a `sudo` prompt; report the command for the human to
   run instead (`just install` does this for the Xcode Command Line Tools).
@@ -516,13 +511,13 @@ The rules in this file are enforced by these layers, from mechanical to procedur
 | lefthook's pre-commit hook (`lefthook.yml`) | `git commit` | anyone who ran `just install` | check-only and fast, on the staged files: `rustfmt --check`, `typos`, and the staged guard. No clippy or test step — `just check` and CI run those (`cargo xtask` compiles the xtask crate on its first run and after `xtask/` changes, into `target/xtask`, so a commit never waits on a workspace build's lock). On the commit that concludes a conflicted merge, or one made at a rebase stop, the two style jobs skip (CI reruns them over the whole tree) and the staged guard and the skills mirror still run |
 | `cargo xtask check-staged` (the hook's staged guard, `xtask/src/check_staged.rs`; rules in `xtask/guard/`) | `git commit`, whatever is staged, including the commit that concludes a conflicted merge | anyone who ran `just install` | no secret-shaped path (`.env*`, `.envrc.*`, `secrets/`, signing material, SSH keys, `.claude/settings.local.json`) or credential-shaped content (private-key header, GitHub token, AWS keys, Anthropic or OpenAI API key, Slack token, Google API key, Stripe live key, and the rest `credentials.rs` lists) lands in a commit; judged from the index, so a partly staged file is judged as committed; staged deletions are never inspected |
 | `cargo xtask verify-hooks` (`just install`'s last step, `just check`'s first) | `just install`, `just verify-hooks`, and `just check` | anyone who runs one | lefthook's pre-commit hook is installed in this checkout — skips under CI or the `ALLOW_MISSING_GIT_HOOKS` opt-out |
-| The core boundary: core's `Cargo.toml`, `deny.toml`'s `[bans]` `wrappers`, and the dependency-closure harness check | compile, `just deny`, `just check-harness`, and CI's `Rust Core` and `Repo Lint & Harness` jobs | every author | core cannot name an OS binding crate, a desktop-GUI crate, or `myapp-platform`; only `myapp` depends on `myapp-platform`; `myapp-test-support` is dev-only — three mechanisms, so removing one leaves the others |
-| `crates/myapp-core/clippy.toml`, core's `#![deny(clippy::wildcard_enum_match_arm)]`, `cargo xtask clippy-guard` (every clippy run in `just lint` and CI goes through it), and `cargo xtask check-harness`'s `clippy-allow-invalid` check | `just lint`, `just check`, and CI's clippy steps; the check in `just check-harness` and CI's `Repo Lint & Harness` job | every author | in core, none of the calls `clippy.toml` lists: the print macros and standard streams, `std::fs`'s types and free functions, `Path`'s file-system queries, `std::os::unix::fs`'s `symlink`, `chown`, `fchown`, `lchown`, and `chroot`, `std::net`'s and `std::os::unix::net`'s sockets and address lookups, clock reads (`now`, `elapsed`), `std::env`'s argument, variable, and directory functions, `Command`, `exit`, `abort`, the process and parent-process ids, `thread::available_parallelism`, `thread::spawn`, `thread::Builder::spawn`, `thread::sleep`, or `thread::park_timeout` (`thread::scope` is allowed, since it cannot outlive the call); every `match` on a core enum is exhaustive; and every `path` in a `clippy.toml` names an item clippy resolves on that job's target — clippy only warns about one that does not, and `-D warnings` lets that pass, so the guard fails with `ERR_CLIPPY_BAN_UNRESOLVED` instead of letting the ban silently do nothing, and with `ERR_CLIPPY_CONFIG_INVALID` on any other diagnostic in a `clippy.toml` (a deprecated or unknown key); and no `clippy.toml` sets `allow-invalid`, which would hide that warning from the guard, so the check fails with `ERR_CHECK_CLIPPY_ALLOW_INVALID` apart from its human-approved exception list (empty) |
+| The core boundary: core's `Cargo.toml`, `deny.toml`'s `[bans]` `wrappers`, and the dependency-closure harness check | compile, `just deny`, `just check-harness`, and CI's `Rust Core` and `Repo Lint & Harness` jobs | every author | core cannot name an OS binding crate, a desktop-GUI crate, or `bunshin-platform`; only `bunshin` depends on `bunshin-platform`; `bunshin-test-support` is dev-only — three mechanisms, so removing one leaves the others |
+| `crates/bunshin-core/clippy.toml`, core's `#![deny(clippy::wildcard_enum_match_arm)]`, `cargo xtask clippy-guard` (every clippy run in `just lint` and CI goes through it), and `cargo xtask check-harness`'s `clippy-allow-invalid` check | `just lint`, `just check`, and CI's clippy steps; the check in `just check-harness` and CI's `Repo Lint & Harness` job | every author | in core, none of the calls `clippy.toml` lists: the print macros and standard streams, `std::fs`'s types and free functions, `Path`'s file-system queries, `std::os::unix::fs`'s `symlink`, `chown`, `fchown`, `lchown`, and `chroot`, `std::net`'s and `std::os::unix::net`'s sockets and address lookups, clock reads (`now`, `elapsed`), `std::env`'s argument, variable, and directory functions, `Command`, `exit`, `abort`, the process and parent-process ids, `thread::available_parallelism`, `thread::spawn`, `thread::Builder::spawn`, `thread::sleep`, or `thread::park_timeout` (`thread::scope` is allowed, since it cannot outlive the call); every `match` on a core enum is exhaustive; and every `path` in a `clippy.toml` names an item clippy resolves on that job's target — clippy only warns about one that does not, and `-D warnings` lets that pass, so the guard fails with `ERR_CLIPPY_BAN_UNRESOLVED` instead of letting the ban silently do nothing, and with `ERR_CLIPPY_CONFIG_INVALID` on any other diagnostic in a `clippy.toml` (a deprecated or unknown key); and no `clippy.toml` sets `allow-invalid`, which would hide that warning from the guard, so the check fails with `ERR_CHECK_CLIPPY_ALLOW_INVALID` apart from its human-approved exception list (empty) |
 | `[workspace.lints]` in `Cargo.toml` | `just lint` and CI (`-D warnings`) | every author | `unsafe_code = "forbid"` in every crate; clippy `all` and `pedantic`; `unwrap_used`/`expect_used` outside tests; `missing_docs` on public items |
-| Coverage floors | `just test-core`, `just test-xtask`, `just check`, and CI | every author | `myapp-core` lines 80 / functions 80; `xtask` with `xtask-guard` 85 / 90; `xtask/guard/` 90 / 100 |
+| Coverage floors | `just test-core`, `just test-xtask`, `just check`, and CI | every author | `bunshin-core` lines 80 / functions 80; `xtask` with `xtask-guard` 85 / 90; `xtask/guard/` 90 / 100 |
 | The skills-mirror check (`just agents-check`; the hook runs `cargo xtask sync-agents --check --staged`) | `git commit` when a skill path is staged, and CI's `Repo Lint & Harness` job | every author | `.agents/skills/` and `.claude/skills/` stay byte-identical — at commit time as staged in the index, so a source staged without its synced mirror is refused |
-| `cargo xtask check-harness` (`xtask/src/check_harness/`; `just check-harness`, part of `just check`) | `just check-harness`, `just check`, and CI's `Repo Lint & Harness` job | every author | the harness's claims about itself stay true — this file exists, and every `just <recipe>` it, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, the pull request template, `.claude/rules/`, `.claude/agents/`, `docs/` (apart from the template's own design record, the roadmap, and the ADRs), the skills, and the issue forms name exists; workflow hygiene, in the workflows and the repository's composite actions (SHA pins with a `# vX.Y.Z` comment, `timeout-minutes`, least-privilege `permissions`, `persist-credentials: false`, `concurrency` — top-level or per job — that never cancels a `main` run, no `pull_request_target`, no `continue-on-error`, `set +e`, or `|| true`-style fallback, `--locked` on every lockfile-resolving cargo command and no `npm install` there and in every justfile recipe); no job holding a write scope or `id-token: write`, its own or inherited from the workflow's `permissions`, checks out the repository, runs `jdx/mise-action` or a local action, calls a remote reusable workflow, or runs `cargo` or `just`, apart from a reasoned exception list; the Dependabot and Renovate cooldowns agree; the bundle identifier is one value in `myapp-platform`'s `BUNDLE_IDENTIFIER` and the justfile's `bundle_id`; no `clippy.toml` sets `allow-invalid` (the clippy row above); `osv-scanner.toml`'s GHSA ignores and Dependency Review's `allow-ghsas` list the same advisories; every required context in `.github/rulesets/main.json` names a job that runs on every pull request (no paths filter, no branch filter excluding a branch the ruleset gates — the default branch, read from `ci.yml`'s push branches or `origin/HEAD` only where a required job filters branches, or every branch under `~ALL` — default activity types, no `if:` that can be false); `just check` matches the steps CI runs unconditionally (no `if:`, `continue-on-error`, or `||` fallback) apart from a reasoned exception list; skills' frontmatter, size, and the Skills table; every applied label is declared once, and every label `.github/workflows/pr-label.yml`'s `TYPE_LABELS` map applies has a release-notes category and every PR-title type a key there; typos' ignore list excludes `.claude/skills/` and not `.agents/skills/`; the core boundary lists agree and `myapp-test-support` is dev-only; no reference to this repository's issues or pull requests (`#` and digits, bare or after this repository's owner/repo — an upstream `owner/repo#N`, like its URL, is a source — an issue or pull-request URL on this repository or relative to it, the word issue, PR, pull request, or merge request before a number, `GH-` and digits, a `gh issue`/`gh pr` command given a number) in this file, `CLAUDE.md`, `.claude/rules/`, `.claude/agents/`, `docs/` (apart from the template's own design record, the roadmap, and the ADRs), a skill, or an issue form; a committed `.claude/settings.json`, if one is added, names only recipes the justfile defines, and its `allow` admits none of the recipes that need a human or write beyond the working tree (`test-local`, `logs-follow`, `install-cli`, `install`, `labels`, `ruleset`, `bootstrap`); and the `## Product` section stays a `TODO:` skeleton in the template and holds no `TODO:` once `cargo xtask bootstrap` has run |
-| CI (`.github/workflows/ci.yml` and the security workflows) | push to `main` and every pull request | everyone | the full gate: `Rust Core` (fmt, workspace clippy, core tests with floors, doctests, `just test-platform`, `cargo deny`, `cargo shear`), `Repo Lint & Harness` (typos, actionlint, the skills mirror, skill script tests, xtask tests with floors, harness checks), `macOS` (workspace clippy, `just test-platform`), `Template Bootstrap Smoke` (the bootstrap run on a throwaway copy, then `just check` there), `Workflow Security Lint` (zizmor), plus Dependency Review, the PR-title check, CodeQL, OSV-Scanner, Scorecard, and a weekly gitleaks scan |
+| `cargo xtask check-harness` (`xtask/src/check_harness/`; `just check-harness`, part of `just check`) | `just check-harness`, `just check`, and CI's `Repo Lint & Harness` job | every author | the harness's claims about itself stay true — this file exists, and every `just <recipe>` it, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, the pull request template, `.claude/rules/`, `.claude/agents/`, `docs/` (apart from the roadmap and the ADRs), the skills, and the issue forms name exists; workflow hygiene, in the workflows and the repository's composite actions (SHA pins with a `# vX.Y.Z` comment, `timeout-minutes`, least-privilege `permissions`, `persist-credentials: false`, `concurrency` — top-level or per job — that never cancels a `main` run, no `pull_request_target`, no `continue-on-error`, `set +e`, or `|| true`-style fallback, `--locked` on every lockfile-resolving cargo command and no `npm install` there and in every justfile recipe); no job holding a write scope or `id-token: write`, its own or inherited from the workflow's `permissions`, checks out the repository, runs `jdx/mise-action` or a local action, calls a remote reusable workflow, or runs `cargo` or `just`, apart from a reasoned exception list; the Dependabot and Renovate cooldowns agree; the bundle identifier is one value in `bunshin-platform`'s `BUNDLE_IDENTIFIER` and the justfile's `bundle_id`; no `clippy.toml` sets `allow-invalid` (the clippy row above); `osv-scanner.toml`'s GHSA ignores and Dependency Review's `allow-ghsas` list the same advisories; every required context in `.github/rulesets/main.json` names a job that runs on every pull request (no paths filter, no branch filter excluding a branch the ruleset gates — the default branch, read from `ci.yml`'s push branches or `origin/HEAD` only where a required job filters branches, or every branch under `~ALL` — default activity types, no `if:` that can be false); `just check` matches the steps CI runs unconditionally (no `if:`, `continue-on-error`, or `||` fallback) apart from a reasoned exception list; skills' frontmatter, size, and the Skills table; every applied label is declared once, and every label `.github/workflows/pr-label.yml`'s `TYPE_LABELS` map applies has a release-notes category and every PR-title type a key there; typos' ignore list excludes `.claude/skills/` and not `.agents/skills/`; the core boundary lists agree and `bunshin-test-support` is dev-only; no reference to this repository's issues or pull requests (`#` and digits, bare or after this repository's owner/repo — an upstream `owner/repo#N`, like its URL, is a source — an issue or pull-request URL on this repository or relative to it, the word issue, PR, pull request, or merge request before a number, `GH-` and digits, a `gh issue`/`gh pr` command given a number) in this file, `CLAUDE.md`, `.claude/rules/`, `.claude/agents/`, `docs/` (apart from the roadmap and the ADRs), a skill, or an issue form; a committed `.claude/settings.json`, if one is added, names only recipes the justfile defines, and its `allow` admits none of the recipes that need a human or write beyond the working tree (`test-local`, `logs-follow`, `install-cli`, `install`, `labels`, `ruleset`); and the `## Product` section holds no `TODO:` |
+| CI (`.github/workflows/ci.yml` and the security workflows) | push to `main` and every pull request | everyone | the full gate: `Rust Core` (fmt, workspace clippy, core tests with floors, doctests, `just test-platform`, `cargo deny`, `cargo shear`), `Repo Lint & Harness` (typos, actionlint, the skills mirror, skill script tests, xtask tests with floors, harness checks), `macOS` (workspace clippy, `just test-platform`), `Workflow Security Lint` (zizmor), plus Dependency Review, the PR-title check, CodeQL, OSV-Scanner, Scorecard, and a weekly gitleaks scan |
 | This file | read at session start | every agent | everything else — the reasons behind the rules above |
 
 These gaps are deliberate. Closing one means adding a mechanism that enforces it —
@@ -572,7 +567,7 @@ removing or narrowing its bullet here:
   consulted rather than what is possible. A personal file should keep at `ask` the
   recipes that need a human or write outside the checkout (`test-local`, `logs-follow`,
   `install-cli`) and those that write to GitHub or rewrite the repository
-  (`bootstrap`, `labels`, `ruleset`). The same file is where to register
+  (`labels`, `ruleset`). The same file is where to register
   `cargo xtask format-edited-file` (`xtask/src/format_edited_file.rs`) as a
   `PostToolUse` hook on `Edit|Write|MultiEdit`
   (`cd "$CLAUDE_PROJECT_DIR" && CARGO_TARGET_DIR=target/xtask mise exec -- cargo xtask format-edited-file`;
@@ -597,9 +592,9 @@ removing or narrowing its bullet here:
   prompt is decided in each person's own permission file, which no gate here reads. A
   new recipe or test that shows a window, takes focus, raises a prompt, or takes over a
   terminal is caught only by review.
-- **No gate runs the real terminal loop.** `myapp tui`'s loop — raw mode, the alternate
+- **No gate runs the real terminal loop.** `bunshin tui`'s loop — raw mode, the alternate
   screen, resize, and restoring the terminal on every way out — runs only when a human
-  starts it. Keeping `crates/myapp/src/tui/mod.rs` thin is the mitigation: the screen's
+  starts it. Keeping `crates/bunshin/src/tui/mod.rs` thin is the mitigation: the screen's
   state and keys are core's, and its drawing is `TestBackend`-tested, so a pull request
   that changes the loop itself carries the human's run as evidence.
 

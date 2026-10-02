@@ -32,8 +32,8 @@
 //!
 //! An exception that no longer applies (a `local_only` recipe `just check` stopped running
 //! or CI now runs; a CI-only recipe or command CI stopped running or a gate now runs) is
-//! reported as stale, so the list cannot outlive its reasons. `ci_only_jobs` is not: the
-//! bootstrap removes that job from an app cut from the template.
+//! reported as stale, so the list cannot outlive its reasons. `ci_only_jobs` is not
+//! reported as stale; it lists no job in this app.
 //!
 //! Errors: `ERR_CHECK_JUST_CI_INPUT` (the justfile or ci.yml is missing, or ci.yml has no
 //! jobs mapping), `ERR_CHECK_JUST_CI_NO_CHECK` (the justfile defines no `check` recipe),
@@ -102,10 +102,7 @@ const EXCEPTIONS: Exceptions = Exceptions {
             "workflow security audit in GitHub's annotation format, with a read-only token for its online audits; AGENTS.md › Validating a change runs `mise exec -- zizmor` locally when a workflow changes",
         ),
     ],
-    ci_only_jobs: &[(
-        "Template Bootstrap Smoke",
-        "template-only (the bootstrap removes the job and the `verify-bootstrap` recipe): it runs `cargo xtask verify-bootstrap`, which fails when this tree holds a placeholder spelling, template-only text, or a dangling reference the bootstrap would leave behind, then bootstraps a throwaway copy and runs `just check` there. `just check` leaves it out because it clones the tree, needs cargo's registry, and would run a second `just check`; `just verify-bootstrap` runs the verification locally, and AGENTS.md › Validating a change says when",
-    )],
+    ci_only_jobs: &[],
 };
 
 /// One justfile recipe.

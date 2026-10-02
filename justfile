@@ -7,12 +7,12 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-bundle_id := "com.example.myapp"
-log_prefix := "myapp"
-# Must match myapp-platform's paths.rs: ~/Library/Logs/<bundle_id> on macOS, and on Linux
-# $XDG_STATE_HOME/myapp/logs, an unset, empty, or relative XDG_STATE_HOME meaning ~/.local/state.
+bundle_id := "io.github.tomada1114.bunshin"
+log_prefix := "bunshin"
+# Must match bunshin-platform's paths.rs: ~/Library/Logs/<bundle_id> on macOS, and on Linux
+# $XDG_STATE_HOME/bunshin/logs, an unset, empty, or relative XDG_STATE_HOME meaning ~/.local/state.
 xdg_state_home := env("XDG_STATE_HOME", "")
-log_dir := if os() == "macos" { env("HOME", "") / "Library/Logs" / bundle_id } else if xdg_state_home =~ '^/' { xdg_state_home / "myapp/logs" } else { env("HOME", "") / ".local/state/myapp/logs" }
+log_dir := if os() == "macos" { env("HOME", "") / "Library/Logs" / bundle_id } else if xdg_state_home =~ '^/' { xdg_state_home / "bunshin/logs" } else { env("HOME", "") / ".local/state/bunshin/logs" }
 
 # List the recipes
 default:
@@ -67,9 +67,9 @@ test: test-core test-xtask
 
 # The Rust core with its coverage floors (lines 80, functions 80), its doctests, and the Linux-buildable crates' tests
 test-core:
-    cargo llvm-cov nextest --locked -p myapp-core --fail-under-lines 80 --fail-under-functions 80
-    cargo test --doc --locked -p myapp-core
-    cargo nextest run --locked -p myapp-test-support -p myapp-platform -p myapp
+    cargo llvm-cov nextest --locked -p bunshin-core --fail-under-lines 80 --fail-under-functions 80
+    cargo test --doc --locked -p bunshin-core
+    cargo nextest run --locked -p bunshin-test-support -p bunshin-platform -p bunshin
 
 # The xtask crate with its coverage floors: lines 85, functions 90 over xtask and its guard; the guard's rules alone (xtask/guard/) lines 90, functions 100
 test-xtask:
@@ -79,19 +79,19 @@ test-xtask:
 
 # One core test or a group of them, fast: `just test-fast increment`
 test-fast filter:
-    cargo nextest run --locked -p myapp-core {{ filter }}
+    cargo nextest run --locked -p bunshin-core {{ filter }}
 
 # Platform adapter and binary tests against the real OS (macOS or Linux), needing no human
 test-platform:
-    cargo nextest run --locked -p myapp-platform -p myapp
+    cargo nextest run --locked -p bunshin-platform -p bunshin
 
 # The #[ignore]d tests that need a logged-in Mac, a TCC grant, or the Keychain (a human's recipe)
 test-local:
     cargo nextest run --locked --workspace --run-ignored ignored-only --no-tests=pass
 
-# Install the myapp binary into ~/.cargo/bin from this checkout (writes outside the working tree: a human's recipe)
+# Install the bunshin binary into ~/.cargo/bin from this checkout (writes outside the working tree: a human's recipe)
 install-cli:
-    cargo install --locked --path crates/myapp
+    cargo install --locked --path crates/bunshin
 
 # Print the end of the newest app log and exit
 logs:
@@ -144,12 +144,3 @@ labels:
 # Create or update every ruleset in .github/rulesets/ (main, release-tags) by name; never deletes (repository admin; a human's step)
 ruleset:
     cargo xtask apply-ruleset
-
-# Turn the template into a new app: rename its placeholders and remove the template-only material (a human's step, run once)
-[positional-arguments]
-bootstrap *args:
-    cargo xtask bootstrap "$@"
-
-# Bootstrap a scratch clone in a temp directory and fail on any placeholder, template-only text, or dangling reference left behind (`--keep` keeps the clone)
-verify-bootstrap *args:
-    cargo xtask verify-bootstrap {{ args }}

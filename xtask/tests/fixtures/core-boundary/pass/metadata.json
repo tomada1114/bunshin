@@ -1,9 +1,9 @@
 {
   "packages": [
     {
-      "name": "myapp-core",
+      "name": "bunshin-core",
       "version": "0.1.0",
-      "id": "path+file:///ws/crates/myapp-core#0.1.0",
+      "id": "path+file:///ws/crates/bunshin-core#0.1.0",
       "source": null,
       "dependencies": [
         {
@@ -19,7 +19,7 @@
           "target": null
         },
         {
-          "name": "myapp-test-support",
+          "name": "bunshin-test-support",
           "kind": "dev",
           "optional": false,
           "target": null
@@ -27,13 +27,13 @@
       ]
     },
     {
-      "name": "myapp-platform",
+      "name": "bunshin-platform",
       "version": "0.1.0",
-      "id": "path+file:///ws/crates/myapp-platform#0.1.0",
+      "id": "path+file:///ws/crates/bunshin-platform#0.1.0",
       "source": null,
       "dependencies": [
         {
-          "name": "myapp-core",
+          "name": "bunshin-core",
           "kind": null,
           "optional": false,
           "target": null
@@ -51,7 +51,7 @@
           "target": "cfg(target_os = \"macos\")"
         },
         {
-          "name": "myapp-test-support",
+          "name": "bunshin-test-support",
           "kind": "dev",
           "optional": false,
           "target": null
@@ -59,13 +59,13 @@
       ]
     },
     {
-      "name": "myapp-test-support",
+      "name": "bunshin-test-support",
       "version": "0.1.0",
-      "id": "path+file:///ws/crates/myapp-test-support#0.1.0",
+      "id": "path+file:///ws/crates/bunshin-test-support#0.1.0",
       "source": null,
       "dependencies": [
         {
-          "name": "myapp-core",
+          "name": "bunshin-core",
           "kind": null,
           "optional": false,
           "target": null
@@ -73,19 +73,19 @@
       ]
     },
     {
-      "name": "myapp",
+      "name": "bunshin",
       "version": "0.1.0",
-      "id": "path+file:///ws/crates/myapp#0.1.0",
+      "id": "path+file:///ws/crates/bunshin#0.1.0",
       "source": null,
       "dependencies": [
         {
-          "name": "myapp-core",
+          "name": "bunshin-core",
           "kind": null,
           "optional": false,
           "target": null
         },
         {
-          "name": "myapp-platform",
+          "name": "bunshin-platform",
           "kind": null,
           "optional": false,
           "target": null
@@ -196,21 +196,21 @@
     }
   ],
   "workspace_members": [
-    "path+file:///ws/crates/myapp-core#0.1.0",
-    "path+file:///ws/crates/myapp-platform#0.1.0",
-    "path+file:///ws/crates/myapp-test-support#0.1.0",
-    "path+file:///ws/crates/myapp#0.1.0"
+    "path+file:///ws/crates/bunshin-core#0.1.0",
+    "path+file:///ws/crates/bunshin-platform#0.1.0",
+    "path+file:///ws/crates/bunshin-test-support#0.1.0",
+    "path+file:///ws/crates/bunshin#0.1.0"
   ],
   "workspace_default_members": [
-    "path+file:///ws/crates/myapp-core#0.1.0",
-    "path+file:///ws/crates/myapp-platform#0.1.0",
-    "path+file:///ws/crates/myapp-test-support#0.1.0",
-    "path+file:///ws/crates/myapp#0.1.0"
+    "path+file:///ws/crates/bunshin-core#0.1.0",
+    "path+file:///ws/crates/bunshin-platform#0.1.0",
+    "path+file:///ws/crates/bunshin-test-support#0.1.0",
+    "path+file:///ws/crates/bunshin#0.1.0"
   ],
   "resolve": {
     "nodes": [
       {
-        "id": "path+file:///ws/crates/myapp-core#0.1.0",
+        "id": "path+file:///ws/crates/bunshin-core#0.1.0",
         "deps": [
           {
             "name": "serde",
@@ -233,8 +233,8 @@
             ]
           },
           {
-            "name": "myapp_test_support",
-            "pkg": "path+file:///ws/crates/myapp-test-support#0.1.0",
+            "name": "bunshin_test_support",
+            "pkg": "path+file:///ws/crates/bunshin-test-support#0.1.0",
             "dep_kinds": [
               {
                 "kind": "dev",
@@ -245,11 +245,11 @@
         ]
       },
       {
-        "id": "path+file:///ws/crates/myapp-platform#0.1.0",
+        "id": "path+file:///ws/crates/bunshin-platform#0.1.0",
         "deps": [
           {
-            "name": "myapp_core",
-            "pkg": "path+file:///ws/crates/myapp-core#0.1.0",
+            "name": "bunshin_core",
+            "pkg": "path+file:///ws/crates/bunshin-core#0.1.0",
             "dep_kinds": [
               {
                 "kind": null,
@@ -278,8 +278,8 @@
             ]
           },
           {
-            "name": "myapp_test_support",
-            "pkg": "path+file:///ws/crates/myapp-test-support#0.1.0",
+            "name": "bunshin_test_support",
+            "pkg": "path+file:///ws/crates/bunshin-test-support#0.1.0",
             "dep_kinds": [
               {
                 "kind": "dev",
@@ -290,11 +290,11 @@
         ]
       },
       {
-        "id": "path+file:///ws/crates/myapp-test-support#0.1.0",
+        "id": "path+file:///ws/crates/bunshin-test-support#0.1.0",
         "deps": [
           {
-            "name": "myapp_core",
-            "pkg": "path+file:///ws/crates/myapp-core#0.1.0",
+            "name": "bunshin_core",
+            "pkg": "path+file:///ws/crates/bunshin-core#0.1.0",
             "dep_kinds": [
               {
                 "kind": null,
@@ -305,11 +305,11 @@
         ]
       },
       {
-        "id": "path+file:///ws/crates/myapp#0.1.0",
+        "id": "path+file:///ws/crates/bunshin#0.1.0",
         "deps": [
           {
-            "name": "myapp_core",
-            "pkg": "path+file:///ws/crates/myapp-core#0.1.0",
+            "name": "bunshin_core",
+            "pkg": "path+file:///ws/crates/bunshin-core#0.1.0",
             "dep_kinds": [
               {
                 "kind": null,
@@ -318,8 +318,8 @@
             ]
           },
           {
-            "name": "myapp_platform",
-            "pkg": "path+file:///ws/crates/myapp-platform#0.1.0",
+            "name": "bunshin_platform",
+            "pkg": "path+file:///ws/crates/bunshin-platform#0.1.0",
             "dep_kinds": [
               {
                 "kind": null,

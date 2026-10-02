@@ -1,4 +1,4 @@
-# `unsafe` and framework bindings in `myapp-platform`
+# `unsafe` and framework bindings in `bunshin-platform`
 
 What this repository decided about `unsafe`, `objc2`, and C callbacks, and why. How
 each binding behaves is its crate's and Apple's documentation, linked rather than
@@ -23,7 +23,7 @@ safe crate covers. Then, in one pull request:
 2. **The dependency review** for each `objc2-*` crate (`managing-dependencies`), with
    `default-features = false` and only the framework features the calls need, and the
    crate declared for macOS only.
-3. **The gate change** (`changing-gates`): lifting `forbid` for `myapp-platform` only,
+3. **The gate change** (`changing-gates`): lifting `forbid` for `bunshin-platform` only,
    and turning on `clippy::undocumented_unsafe_blocks` there in the same change, so a
    block without a `// SAFETY:` comment fails `just lint`. It is more than one line: an
    `#[allow(unsafe_code)]` cannot lower a `forbid`
@@ -74,14 +74,14 @@ Much of AppKit may only be touched on the main thread. `objc2` encodes that:
 `!Send`, so it cannot be smuggled to another thread
 (<https://docs.rs/objc2/latest/objc2/struct.MainThreadMarker.html>, checked 2026-09-29).
 
-`myapp` runs each subcommand and the TUI loop on the process's main thread, so a call
+`bunshin` runs each subcommand and the TUI loop on the process's main thread, so a call
 an adapter makes from a handler is on it, and a call from a thread the binary started
 (to keep the TUI responsive, say) is not. The decisions:
 
 - **The adapter checks, and fails softly.** It takes a `MainThreadMarker` from
   `MainThreadMarker::new()` and turns `None` into a core error kind rather than a
   panic, because a panic in a release build aborts the tool (`designing-errors`).
-- **The binary decides the thread.** `myapp-platform` cannot see which thread the
+- **The binary decides the thread.** `bunshin-platform` cannot see which thread the
   binary will call it from, so a port whose adapter needs the main thread says so in
   its `///`, and the binary calls it from the handler or the loop, never from a thread
   it spawned.

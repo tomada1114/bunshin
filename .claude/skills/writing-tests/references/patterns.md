@@ -9,7 +9,7 @@ and its own tests become the examples.
 Build the service from fakes, act once, assert the returned value and the state the
 fake recorded. Expected values are literals.
 
-In the sample, `crates/myapp-core/tests/counter_service.rs` (shown with
+In the sample, `crates/bunshin-core/tests/counter_service.rs` (shown with
 `CounterService::new` inlined; the file builds it through its `service_over` helper):
 
 ```rust
@@ -63,21 +63,21 @@ for (value, expected) in [(-5, 0), (2, 2), (40, 3)] {
 }
 ```
 
-`each_bound_key_maps_to_its_action` in `crates/myapp-core/src/counter/screen.rs` does
+`each_bound_key_maps_to_its_action` in `crates/bunshin-core/src/counter/screen.rs` does
 the same over `(ScreenKey, ScreenAction)` pairs.
 
 ## The contract suite
 
-One function per port in `crates/myapp-test-support/`, called once per implementation.
+One function per port in `crates/bunshin-test-support/`, called once per implementation.
 The function calls `make` again for each group of clauses, so `make` runs several times
 per test: the real adapter's gives each call its own temporary directory, and keeps
 every `TempDir` alive until the test ends:
 
 ```rust
-// crates/myapp-core/tests/contracts.rs — the fake
+// crates/bunshin-core/tests/contracts.rs — the fake
 counter_store_contract(|| Box::new(InMemoryCounterStore::default()));
 
-// crates/myapp-platform/tests/contracts.rs — the real adapter
+// crates/bunshin-platform/tests/contracts.rs — the real adapter
 let mut dirs = Vec::new();
 counter_store_contract(|| {
     let dir = tempfile::tempdir().unwrap();
@@ -94,7 +94,7 @@ Inside the contract function, compare `Result`s and name the clause:
 
 Fold the keys through the same path the binary's loop takes, with no terminal, and
 compare what the screen shows as one value. In the sample,
-`crates/myapp-core/tests/counter_screen.rs`:
+`crates/bunshin-core/tests/counter_screen.rs`:
 
 ```rust
 fn after_keys(service: &CounterService, keys: &[ScreenKey]) -> CounterScreen {
@@ -118,7 +118,7 @@ fn a_sequence_of_keys_drives_the_counter_and_ignores_unbound_keys() {
 
 Build the crossterm event as a value and assert the translation; cover a press, a
 release and a repeat, a modifier chord, and a key the screen has no name for. In the
-sample, `crates/myapp/src/tui/mod.rs`:
+sample, `crates/bunshin/src/tui/mod.rs`:
 
 ```rust
 fn press(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
@@ -136,7 +136,7 @@ assert_eq!(
 Draw one state into an in-memory terminal of a fixed size and compare every cell. Use
 `assert_buffer_lines` when no cell carries a style; build the expected `Buffer` and use
 `assert_buffer` when one does, since that comparison includes styles. In the sample,
-`crates/myapp/src/tui/view.rs`:
+`crates/bunshin/src/tui/view.rs`:
 
 ```rust
 fn drawn(screen: &CounterScreen, width: u16, height: u16) -> Terminal<TestBackend> {
@@ -165,7 +165,7 @@ size smaller than the layout proves the view clips instead of panicking.
 Run the built executable with `env!("CARGO_BIN_EXE_<name>")`, set `HOME` on the child
 process to a `tempfile::tempdir()` and remove the `XDG_*` variables, then assert the
 exit code, stdout exactly, and the last stderr line. In the sample,
-`crates/myapp/tests/cli.rs`:
+`crates/bunshin/tests/cli.rs`:
 
 ```rust
 let home = tempfile::tempdir().unwrap();
@@ -185,7 +185,7 @@ whose read end is already closed, for an unwritable stdout).
 ## Wording, one test per variant
 
 Each variant's sentence is asserted literally, in the module that owns it, so a reworded
-sentence is a visible, reviewed change. In the sample, `crates/myapp/src/wording.rs`:
+sentence is a visible, reviewed change. In the sample, `crates/bunshin/src/wording.rs`:
 
 ```rust
 #[test]
