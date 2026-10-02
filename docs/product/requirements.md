@@ -126,7 +126,7 @@ by using the app, because only the real model on a real day can settle them.
 |---|---|
 | Message input | one message at a time, at most 400 characters† |
 | One message yields | zero or more changes (§3.3) and at most one reply |
-| Reply length | at most 200 characters† (keeps the answer inside the model's window) |
+| Reply length | at most 200 characters†, asked of the model in the operating rules (keeps the answer inside the model's window); a longer reply is shown whole, never cut |
 | What the model sees | the instructions (§3.8), the app's operating rules, the current time, today's tasks, and as many recent messages as fit the window, oldest dropped first; today's open tasks are never dropped before chat history |
 | Model window | 4,096 tokens shared by instructions, prompt, and answer; the prompt is sized to leave room for the answer |
 | One call at a time | the model handles one request at a time; a message sent or a trigger fired during a call waits for it |
@@ -212,9 +212,9 @@ by using the app, because only the real model on a real day can settle them.
 | Trigger: day start / evening review / catch-up | §3.6 and §3.7 |
 | No trigger for | appointments — there is no heads-up before one |
 | Each trigger | fires at most once per task and kind; a trigger the model let pass is spent, and the model's planned check is how it comes back to it |
-| Decision | when a trigger fires, the model returns {kind: silent, notify, or question; the task it is about, or none; the message; minutes until its next look}; silent posts nothing; the model decides, the core enforces only the bounds in this table |
+| Decision | when a trigger fires, the model returns {kind: silent, note, or question; the task it is about, or none; the message; minutes until its next look}; silent posts nothing; the model decides, the core enforces only the bounds in this table |
 | What the model is told | the triggers, the instructions, today's tasks, yesterday's record (§3.6), recent chat, and the state of the last 5† unprompted messages — answered, acknowledged, ignored, and so on (§3.10) |
-| Active hours | 08:00–22:00†: outside them no unprompted message is posted; triggers that fire outside are held and go to the model together as one message when active hours begin; held triggers of a previous day are dropped at the day start, whose leftovers cover them. The day start and the catch-up at an open answer the owner opening the screen, so active hours do not hold them |
+| Active hours | 08:00–22:00†: outside them no unprompted message is posted; triggers that fire outside are held and go to the model together as one message when active hours begin; held triggers of a previous day are dropped at the day start, whose leftovers cover them. The day start and the catch-up at an open answer the owner opening the screen, so neither active hours, the minimum gap, nor the mute holds them; the evening review and the catch-up after a sleep obey all three |
 | Same task | at most one unprompted message about the same task in 30 min†; a message about a task inside that window is not posted and is recorded as suppressed |
 | The list stays yours | a check-in never changes a task; only the owner's words (§3.3) and keys (§3.4) do |
 | Minimum gap | 5 min† between any two unprompted messages; triggers that fire inside the gap wait for its end and go to the model together |
@@ -226,7 +226,8 @@ by using the app, because only the real model on a real day can settle them.
 
 #### Edge Cases
 - **The model is unavailable:** deadline triggers are posted as fixed sentences
-  (「資料（〜15:00）の締切を過ぎました」); planned checks, the day start, and the review
+  (before: 「資料（〜15:00）の締切が近づいています」; after:
+  「資料（〜15:00）の締切を過ぎました」); planned checks, the day start, and the review
   wait until the model is back.
 - **The model call for a trigger fails:** a deadline trigger falls back to its fixed
   sentence; any other trigger is retried once at the next tick, then spent.
@@ -434,3 +435,9 @@ is, and the README says where that is.
 - 2026-10-02 Mail moves from Later to Non-goals (the memo records the decision); a hosted
   model moves from Non-goals to Later, behind the same interface as `fm`.
 - 2026-10-02 The TUI shows the instructions read-only; editing stays in the editor.
+- 2026-10-02 Settled while cutting the issues: the before-deadline fixed sentence is
+  「…の締切が近づいています」 with no minutes in it (rejected: 「…の締切まであと30分です」,
+  which would drift from the tuned value); the day start and the catch-up at an open are
+  held by neither the minimum gap nor the mute, as by no active hours (rejected: the mute
+  only; all guards, which could leave a fresh open silent); a reply over 200† characters
+  is shown whole (rejected: cutting it with 「…」; treating it as a failed answer).

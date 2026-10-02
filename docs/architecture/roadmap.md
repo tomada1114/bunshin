@@ -26,17 +26,20 @@ request, and the change lands only once the owner has approved it.
 The outcomes being worked on, one to three of them. Each has its issues filed.
 
 - **Keep today's list by hand** — the list, its keys, and its files are what every
-  later feature writes into, and they work with no model at all. Issues: [links].
+  later feature writes into, and they work with no model at all.
+  Issues: [#2](https://github.com/tomada1114/bunshin/issues/2), sub-issues [#6](https://github.com/tomada1114/bunshin/issues/6), [#7](https://github.com/tomada1114/bunshin/issues/7), [#5](https://github.com/tomada1114/bunshin/issues/5), [#8](https://github.com/tomada1114/bunshin/issues/8), [#9](https://github.com/tomada1114/bunshin/issues/9), [#10](https://github.com/tomada1114/bunshin/issues/10), [#11](https://github.com/tomada1114/bunshin/issues/11).
   Done when: in `bunshin tui` the owner adds, edits, completes, drops, deletes, and
   undoes tasks by key (requirements §3.2, §3.4); after quitting and reopening the list
   is the same; `bunshin today` and `bunshin today --json` print it (§3.9); a second
   `bunshin tui` refuses to start (§3.7); and the template's counter is gone.
-- **Tell it the day in words** — the core interaction's first half. Issues: [links].
+- **Tell it the day in words** — the core interaction's first half.
+  Issues: [#3](https://github.com/tomada1114/bunshin/issues/3), sub-issues [#12](https://github.com/tomada1114/bunshin/issues/12), [#13](https://github.com/tomada1114/bunshin/issues/13), [#14](https://github.com/tomada1114/bunshin/issues/14), [#15](https://github.com/tomada1114/bunshin/issues/15).
   Done when: a sentence such as 「15時までに資料」 adds a deadline task, 「会議終わった」
   marks the meeting done, each shown as a change line and undone by one key (§3.3); the
   owner's instructions shape the reply and `bunshin instructions` prints them (§3.8);
   and with `fm` unavailable the screen says so and every key still works (§4).
-- **Be nudged at the right moment** — the second half: it speaks first. Issues: [links].
+- **Be nudged at the right moment** — the second half: it speaks first.
+  Issues: [#4](https://github.com/tomada1114/bunshin/issues/4), sub-issues [#16](https://github.com/tomada1114/bunshin/issues/16), [#17](https://github.com/tomada1114/bunshin/issues/17), [#18](https://github.com/tomada1114/bunshin/issues/18), [#19](https://github.com/tomada1114/bunshin/issues/19), [#20](https://github.com/tomada1114/bunshin/issues/20).
   Done when: over one working day with the screen open, the day starts with yesterday's
   leftovers and the plan (§3.6), every open deadline task is considered before and after
   its time, check-ins come at intervals the model chose and never outside active hours

@@ -78,7 +78,7 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   `$XDG_DATA_HOME/bunshin/` — outside any checkout, so no data file can reach git.
 - **Layout:**
   - `days/YYYY-MM-DD.json` — one file per logical date (the day that starts at 04:00†).
-  - `instructions.txt` — the owner's instructions, UTF-8, ≤ 600 characters† (§3.8).
+  - `instructions.md` — the owner's instructions, UTF-8, ≤ 600 characters† (§3.8).
   - `tui.lock` — the single-writer lock.
 - **Permissions:** the directory and `days/` are created `0700`, every file `0600`
   (`DirBuilderExt::mode`, `OpenOptionsExt::mode`); a directory found wider is narrowed at
@@ -86,8 +86,9 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
 - **The day file:** one JSON object with `"format": 1` and the Day of §5 — tasks,
   messages, unprompted messages with their inbox states, fired and held triggers, the
   next planned look, the last unprompted time, the mute, yesterday's record. Its shape
-  is a versioned type in core (`day::file`), so the format is tested inside the floor;
-  the adapter moves bytes. A file with a higher `format` is refused, never overwritten;
+  is a versioned type in core (`day::file`, deriving serde), so the format is tested
+  inside the floor; the adapter turns it into JSON with `serde_json`, which core uses
+  only in tests. A file with a higher `format` is refused, never overwritten;
   an older one is migrated on read. The `--json` output of `bunshin today` is its own
   versioned view, not the file.
 - **Writing:** the whole day on every change, to a temporary file in `days/`, flushed
@@ -98,7 +99,8 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   retries on the next change; an unreadable day file stops the TUI with a message and is
   never overwritten (`docs/design/ux-guidelines.md`).
 - **The lock:** `bunshin tui` opens `tui.lock` and takes `File::try_lock` for its whole
-  life; `WouldBlock` means another screen runs (§3.7). The OS releases the lock when the
+  life and writes its PID into the file; `WouldBlock` means another screen runs, and the
+  refusal reads that PID for its message (§3.7, `docs/product/ux-flows.md` C4). The OS releases the lock when the
   file closes, crash included, so no stale lock is ever cleaned up
   (https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock, stable since 1.89,
   checked 2026-10-02).
@@ -150,8 +152,8 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   are dropped before any open task (§3.1); if open tasks alone overflow, their titles
   are shortened, never dropped. `fm count-tokens` is not used: it took 1.97 s per call
   (observed 2026-10-02).
-- **Availability:** checked at start and after a call fails as unavailable, then at the
-  next tick until it returns. `/usr/bin/fm` missing → not installed; `fm available` exit
+- **Availability:** checked at start and after a call fails as unavailable, then every
+  10 min† until it returns (`docs/product/ux-flows.md` F10). `/usr/bin/fm` missing → not installed; `fm available` exit
   0 → available (observed 2026-10-02); exit 69 means the terms are not accepted
   (`man fm`), and the screen names `sudo fm license` for the owner to run, never the app
   (§4). On Linux the adapter is always "unavailable on this OS".
@@ -168,7 +170,7 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
 
 ## Main flows
 
-- **Open.** Take the lock (or exit with 「すでに開いています」), read the instructions,
+- **Open.** Take the lock (or exit with C4's 「すでに起動しています（PID …）」), read the instructions,
   load today's file and the last day on record, check availability, draw. A first open
   of the day runs the day start (§3.6); triggers that came due while closed go to the
   model as one catch-up (§3.7).

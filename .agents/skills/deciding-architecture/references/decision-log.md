@@ -101,6 +101,9 @@ why), and **Sources** where an external fact carried weight.
 - **Sources:** `File::try_lock`, stable since Rust 1.89, released when the file closes
   (https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock, checked
   2026-10-02); the workspace's `rust-version` is 1.90.
+- Corrected 2026-10-02: the file is `instructions.md`, as `docs/product/ux-flows.md`
+  T5, C2, and C3 show; the lock file also holds the running screen's PID, which C4's
+  refusal prints.
 
 ### 2026-10-02 — Configuration: VISUAL and EDITOR only
 

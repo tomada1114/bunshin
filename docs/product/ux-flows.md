@@ -418,11 +418,11 @@ $ bunshin instructions
 あなたは私の分身で、秘書として私の一日を見守る。口調はタメ口で、短く。
 平日は9〜18時が仕事。午前は集中したいので、急ぎでなければ午後に声をかけて。
 締切の前は少ししつこくていい。終わったら一言ほめて。
-file: ~/Library/Application Support/<bundle-id>/instructions.md (112/600)
+ファイル: ~/Library/Application Support/<bundle-id>/instructions.md（112/600字）
 ```
 
 With no file, the default goes to stdout and stderr says
-`using the default: no file at ~/Library/Application Support/<bundle-id>/instructions.md`.
+「既定の指示文を使っています（ファイルがありません）: ~/Library/Application Support/<bundle-id>/instructions.md」.
 
 ### C3 `bunshin instructions edit`
 
