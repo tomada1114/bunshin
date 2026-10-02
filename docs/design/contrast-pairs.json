@@ -1,0 +1,74 @@
+[
+ {
+  "name": "tokyonight (Ghostty, the owner's): base text",
+  "fg": "#c0caf5",
+  "bg": "#1a1b26",
+  "kind": "text"
+ },
+ {
+  "name": "tokyonight (Ghostty, the owner's): selected row (reversed)",
+  "fg": "#1a1b26",
+  "bg": "#c0caf5",
+  "kind": "text"
+ },
+ {
+  "name": "tokyonight (Ghostty, the owner's): Bunshin, tags, 考え中 (magenta)",
+  "fg": "#bb9af7",
+  "bg": "#1a1b26",
+  "kind": "text"
+ },
+ {
+  "name": "tokyonight (Ghostty, the owner's): 変更, システム (blue)",
+  "fg": "#7aa2f7",
+  "bg": "#1a1b26",
+  "kind": "text"
+ },
+ {
+  "name": "tokyonight (Ghostty, the owner's): エラー, failing states (red)",
+  "fg": "#f7768e",
+  "bg": "#1a1b26",
+  "kind": "text"
+ },
+ {
+  "name": "tokyonight (Ghostty, the owner's): focused border (green)",
+  "fg": "#9ece6a",
+  "bg": "#1a1b26",
+  "kind": "ui"
+ },
+ {
+  "name": "Terminal.app Basic (light): base text",
+  "fg": "#000000",
+  "bg": "#FFFFFF",
+  "kind": "text"
+ },
+ {
+  "name": "Terminal.app Basic (light): selected row (reversed)",
+  "fg": "#FFFFFF",
+  "bg": "#000000",
+  "kind": "text"
+ },
+ {
+  "name": "Terminal.app Basic (light): Bunshin, tags, 考え中 (magenta)",
+  "fg": "#B200B2",
+  "bg": "#FFFFFF",
+  "kind": "text"
+ },
+ {
+  "name": "Terminal.app Basic (light): 変更, システム (blue)",
+  "fg": "#0000B2",
+  "bg": "#FFFFFF",
+  "kind": "text"
+ },
+ {
+  "name": "Terminal.app Basic (light): エラー, failing states (red)",
+  "fg": "#990000",
+  "bg": "#FFFFFF",
+  "kind": "text"
+ },
+ {
+  "name": "Terminal.app Basic (light): focused border (green)",
+  "fg": "#00A600",
+  "bg": "#FFFFFF",
+  "kind": "ui"
+ }
+]
