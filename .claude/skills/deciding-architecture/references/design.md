@@ -132,9 +132,12 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   thread, started with the loop, runs one `LanguageModel` call at a time from a channel
   and sends the result back. Core keeps the queue and its order — an owner's message
   before a trigger (§3.5) — so the worker never decides.
-- **Wait and cancel:** the adapter polls the child for exit; it kills and reaps it when
-  the request's timeout (30 s†) passes or the cancel flag is set (Esc, quit). A killed
-  call is `ModelError::Cancelled` or `ModelError::TimedOut`.
+- **Wait and cancel:** the adapter monitors the child and its input/output workers
+  until the call completes. Each child has a private process group; when the request's
+  timeout (30 s†) passes or the cancel flag is set (Esc, quit), the adapter terminates
+  that group and reaps the direct child. It retains the child's process ID while any
+  pipe worker is unfinished, so cleanup cannot target a reused process ID. A stopped
+  call is `ModelError::Cancelled` or `ModelError::TimedOut`; failed cleanup is `Failed`.
 - **One call per event.** An owner's message gets one call whose schema answers
   `{changes: [...], reply}`; a check-in (a trigger batch, the day start, the evening
   review, a catch-up) gets one call whose schema answers
@@ -161,12 +164,13 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   (§4). On Linux the adapter is always "unavailable on this OS".
 - **Errors** map to `ModelError` variants the screen can act on: `Unavailable(reason)`,
   `TimedOut`, `Cancelled`, `Refused`, `Malformed` (the answer failed the schema or the
-  parse), `Failed` (any other exit). Exit 64 is a usage error and exit 1 an invalid
-  schema (observed 2026-10-02) — both bugs, logged without the prompt. What a user
-  message and a trigger do on each error is §3.5 and §4.
-- **Tests:** no routine check needs the real `fm` — it fails inside a sandboxed agent's
-  process (observed under Codex CLI's sandbox, 2026-10-02) and does not exist on a CI
-  runner. The core and the binary are tested against `ScriptedLanguageModel`;
+  parse), `Failed` (any other exit). Exit 64 was observed for a usage error, and exit 1
+  for both an invalid schema and a runtime model-service error (2026-10-02); they stay
+  `Failed`, because the exit code alone does not identify the cause. Diagnostics never
+  include the prompt. What a user message and a trigger do on each error is §3.5 and §4.
+- **Tests:** no routine check needs the real `fm`; responses failed in the observed
+  agent runs (2026-10-02), and it does not exist on a CI runner. The core and the binary
+  are tested against `ScriptedLanguageModel`;
   `FmLanguageModel`'s contract run is `#[ignore = "local machine: fm with Apple
   Intelligence enabled"]` and runs only in `just test-local`, a human's recipe.
 
@@ -238,8 +242,10 @@ In code it is a set of `const` `Style`s beside the labels in the view, asserted 
 - Observed with `fm respond --no-stream --schema` using that generated empty-object
   schema inline under agent execution, 2026-10-02: exit 1 with
   `ModelManagerServices.ModelManagerError` error 1008, also on an elevated retry.
-  This remains `Failed`; it has not been identified as a rate limit, guardrail, or
-  refusal. A successful real-model contract is still unverified.
+  A direct `fm respond --no-stream` without a schema or the app also returned the
+  same error, while `fm available` returned 0. This remains `Failed`; neither its
+  meaning nor whether it also occurs outside the agent's execution environment is
+  verified. A successful real-model contract is still unverified.
 - Unverified: the exit codes and stderr of `fm respond` for a runtime model error
   (window exceeded, guardrail, rate limit). Until `just test-local` observes them, they
   map to `Failed`, and the budget is the only guard against an overflow. Apple's error

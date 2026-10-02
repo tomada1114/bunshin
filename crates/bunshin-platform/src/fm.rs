@@ -26,6 +26,7 @@ mod command {
     };
     use std::{
         io::{self, Read, Write},
+        os::unix::process::CommandExt,
         path::PathBuf,
         process::{Child, Command, ExitStatus, Stdio},
         thread,
@@ -33,6 +34,7 @@ mod command {
     };
 
     const FM_PATH: &str = "/usr/bin/fm";
+    const KILL_PATH: &str = "/bin/kill";
     const POLL_INTERVAL: Duration = Duration::from_millis(5);
 
     /// A fresh `fm` process per call, never a shell. Routine tests inject a stub path.
@@ -79,6 +81,7 @@ mod command {
             let started = Instant::now();
             let mut child = Command::new(&self.executable)
                 .args(args)
+                .process_group(0)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -113,7 +116,9 @@ mod command {
                     terminate(&mut child)?;
                     return Err(ModelError::Failed);
                 };
-                let status = wait(&mut child, started, timeout, cancel);
+                let status = wait(&mut child, started, timeout, cancel, || {
+                    writer.is_finished() && reader.is_finished() && diagnostics.is_finished()
+                });
                 let written = writer.join().map_err(|_| ModelError::Failed)?;
                 let output = reader.join().map_err(|_| ModelError::Failed)?;
                 let drained = diagnostics.join().map_err(|_| ModelError::Failed)?;
@@ -136,29 +141,57 @@ mod command {
         }
     }
     fn terminate(child: &mut Child) -> Result<(), ModelError> {
-        // An exit racing with kill is harmless only if wait confirms it was reaped.
-        let killed = child.kill();
+        terminate_using(child, KILL_PATH)
+    }
+    pub(super) fn terminate_using(child: &mut Child, kill_path: &str) -> Result<(), ModelError> {
+        // The root is not reaped until all streams finish or cleanup completes, so
+        // its PID still identifies the private group this call created.
+        let group = format!("-{}", child.id());
+        let group_status = Command::new(kill_path)
+            .args(["-KILL", "--", &group])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        // Even if the group helper fails, try to stop and reap the directly owned
+        // child. This does not promise bounded drainage for escaped descendants or
+        // when the OS refuses the group signal.
+        let direct_killed = child.kill();
         let waited = child.wait().map_err(|_| ModelError::Failed)?;
-        if killed.is_err() && waited.success() {
+        if direct_killed.is_err() && waited.success() {
             tracing::debug!("model exited during termination");
         }
-        Ok(())
+        match group_status {
+            Ok(status) if status.success() => Ok(()),
+            Ok(status) => {
+                tracing::warn!(code = status.code(), "model group termination failed");
+                Err(ModelError::Failed)
+            }
+            Err(_) => {
+                tracing::warn!("model group termination command failed");
+                Err(ModelError::Failed)
+            }
+        }
     }
     fn wait(
         child: &mut Child,
         started: Instant,
         timeout: Duration,
         cancel: &CancelFlag,
+        streams_finished: impl Fn() -> bool,
     ) -> Result<ExitStatus, ModelError> {
         loop {
-            // Reap an already exited child before checking the deadline: a completed
-            // answer at the boundary wins over a late polling wakeup.
-            match child.try_wait() {
-                Ok(Some(status)) => return Ok(status),
-                Ok(None) => {}
-                Err(_) => {
-                    terminate(child)?;
-                    return Err(ModelError::Failed);
+            // Completed streams plus an exited child win over a late polling wakeup.
+            // Do not reap an exited root while descendants still own pipe ends:
+            // cleanup must retain ownership of the root PID and private group.
+            if streams_finished() {
+                match child.try_wait() {
+                    Ok(Some(status)) => return Ok(status),
+                    Ok(None) => {}
+                    Err(_) => {
+                        terminate(child)?;
+                        return Err(ModelError::Failed);
+                    }
                 }
             }
             let reason = if cancel.is_cancelled() {
@@ -385,6 +418,16 @@ printf '{"reply":"了解"}'"#,
         assert_reaped(&dir);
     }
     #[test]
+    fn timeout_still_applies_after_child_exit_while_inherited_pipes_remain_open() {
+        let (_dir, model) = stub("/bin/cat >/dev/null\n/bin/sleep 1 &\nprintf '{}'");
+        let mut req = request();
+        req.timeout = Duration::from_millis(200);
+        assert_eq!(
+            model.respond(&req, &CancelFlag::default()),
+            Err(ModelError::TimedOut)
+        );
+    }
+    #[test]
     fn cancellation_kills_and_reaps_running_child() {
         let (dir, model) =
             stub("printf '%s' \"$$\" >\"$(dirname \"$0\")/pid\"\nexec /bin/sleep 30");
@@ -489,5 +532,70 @@ printf '{"reply":"了解"}'"#,
         let model = FmLanguageModel::with_tuning(model.executable_for_test(), tuning);
         assert_eq!(model.availability(), Err(ModelError::TimedOut));
         assert_reaped(&dir);
+    }
+    #[test]
+    fn timeout_applies_when_only_descendant_stderr_remains_open() {
+        let (dir, model) = stub(
+            r#"cd "$(dirname "$0")"
+printf '%s' "$$" >pid
+/bin/cat >/dev/null
+/bin/sh -c '/bin/sleep 1; printf completed >natural-end' >/dev/null &
+printf '{}'"#,
+        );
+        let mut req = request();
+        req.timeout = Duration::from_millis(200);
+        assert_eq!(
+            model.respond(&req, &CancelFlag::default()),
+            Err(ModelError::TimedOut)
+        );
+        assert!(
+            !dir.path().join("natural-end").exists(),
+            "pipe owner reached its natural lifetime before call returned"
+        );
+        assert_reaped(&dir);
+    }
+    #[test]
+    fn timeout_applies_when_only_descendant_stdin_blocks_the_writer() {
+        let (dir, model) = stub(
+            r#"cd "$(dirname "$0")"
+printf '%s' "$$" >pid
+/bin/sh -c '/bin/sleep 1; printf completed >natural-end' <&0 >/dev/null 2>&1 &
+printf '{}'"#,
+        );
+        let mut req = request();
+        req.prompt = "x".repeat(2_000_000);
+        req.timeout = Duration::from_millis(200);
+        assert_eq!(
+            model.respond(&req, &CancelFlag::default()),
+            Err(ModelError::TimedOut)
+        );
+        assert!(
+            !dir.path().join("natural-end").exists(),
+            "stdin owner reached its natural lifetime before call returned"
+        );
+        assert_reaped(&dir);
+    }
+
+    #[test]
+    fn group_helper_spawn_or_status_failure_still_kills_and_reaps_root() {
+        use std::os::unix::process::{CommandExt, ExitStatusExt};
+        let (dir, helper) = stub("exit 73");
+        let absent = dir.path().join("missing-helper");
+        for path in [absent, helper.executable_for_test()] {
+            let mut child = Command::new("/bin/sleep")
+                .arg("1")
+                .process_group(0)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+            assert_eq!(
+                super::command::terminate_using(&mut child, path.to_str().unwrap()),
+                Err(ModelError::Failed)
+            );
+            // wait() returns the cached reaped status, proving fallback sent SIGKILL.
+            assert_eq!(child.wait().unwrap().signal(), Some(9));
+        }
     }
 }
