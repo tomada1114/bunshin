@@ -9,11 +9,14 @@ pub mod store;
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use jiff::civil::Time;
 use serde::Serialize;
 
 use crate::time::{Clock, UnixMillis};
 pub use screen::{CounterScreen, ScreenAction, ScreenKey};
 pub use store::{CounterStore, StorageError, StorageErrorKind, StoredCounter};
+
+const DEFAULT_DAY_BOUNDARY: Time = Time::constant(4, 0, 0, 0);
 
 /// Tunables in one place (designing-core-logic). Built only by [`Tuning::new`] (or
 /// [`Default`]), so every `Tuning` holds a range with at least one value in it.
@@ -30,6 +33,8 @@ pub use store::{CounterStore, StorageError, StorageErrorKind, StoredCounter};
 pub struct Tuning {
     min: i64,
     max: i64,
+    /// 04:00 keeps late-night work on the preceding logical day; callers may tune it.
+    pub day_boundary: Time,
 }
 
 impl Tuning {
@@ -42,7 +47,11 @@ impl Tuning {
         if min > max {
             return Err(TuningError::MinAboveMax);
         }
-        Ok(Self { min, max })
+        Ok(Self {
+            min,
+            max,
+            day_boundary: DEFAULT_DAY_BOUNDARY,
+        })
     }
 
     /// The lowest value; also the value a fresh or reset counter holds.
@@ -60,7 +69,11 @@ impl Tuning {
 
 impl Default for Tuning {
     fn default() -> Self {
-        Self { min: 0, max: 99 }
+        Self {
+            min: 0,
+            max: 99,
+            day_boundary: DEFAULT_DAY_BOUNDARY,
+        }
     }
 }
 
@@ -244,7 +257,7 @@ impl CounterService {
         let mut revision = self.lock();
         let stored = StoredCounter {
             value: Counter::new(self.tuning.min, self.tuning).reset().value(),
-            last_changed_at: Some(self.clock.now()),
+            last_changed_at: Some(self.clock.now().instant),
         };
         self.store.save(&stored)?;
         Ok(Self::committed(&mut revision, &stored))
@@ -279,7 +292,7 @@ impl CounterService {
             let decide = decide.take()?;
             let decision = decide(self.counter_from(stored).0).map(|changed| StoredCounter {
                 value: changed.value(),
-                last_changed_at: Some(self.clock.now()),
+                last_changed_at: Some(self.clock.now().instant),
             });
             let to_save = decision.as_ref().ok().cloned();
             decided = Some(decision);

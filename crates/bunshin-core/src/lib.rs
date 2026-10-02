@@ -16,4 +16,4 @@ pub use counter::{
     Counter, CounterError, CounterScreen, CounterService, CounterView, ScreenAction, ScreenKey,
     StorageError, StorageErrorKind, StoredCounter, Tuning, TuningError, store::CounterStore,
 };
-pub use time::{Clock, UnixMillis};
+pub use time::{Clock, Now, UnixMillis, logical_date};

@@ -186,6 +186,8 @@ xtask/                      # Repository automation in Rust, run as `cargo xtask
   hands core a fake from `bunshin-test-support`. Core never meets async.
   The worked example is `CounterStore` / `JsonFileCounterStore` / `InMemoryCounterStore`
   and `Clock` / `SystemClock` / `FixedClock`.
+  A clock read returns `Now`: an instant for elapsed gaps and local civil time for
+  the day's dates. `logical_date` applies `Tuning.day_boundary` in core.
 - The core boundary is enforced three times, so removing one layer leaves the others:
   core's `Cargo.toml` lists no OS or platform crate; `deny.toml`'s `[bans]`
   `wrappers` let only `bunshin` depend on `bunshin-platform`; and a harness check fails
@@ -205,7 +207,8 @@ xtask/                      # Repository automation in Rust, run as `cargo xtask
   TcpListener, UdpSocket}`, `std::os::unix::net::{UnixStream, UnixListener,
   UnixDatagram}`, and `ToSocketAddrs::to_socket_addrs`, `std::process::{Command, exit,
   abort, id}`, `std::os::unix::process::parent_id`, `SystemTime::now`/`Instant::now`
-  and both types' `elapsed`, `std::env`'s `var`/`var_os`/`vars`/`vars_os`,
+  and both types' `elapsed`, `jiff::Timestamp::now`/`jiff::Zoned::now`,
+  `std::env`'s `var`/`var_os`/`vars`/`vars_os`,
   `args`/`args_os`, `current_dir`/`set_current_dir`, `current_exe`, `home_dir`,
   `temp_dir`, and `set_var`/`remove_var`, and
   `std::thread::{spawn, sleep, park_timeout, available_parallelism}` and

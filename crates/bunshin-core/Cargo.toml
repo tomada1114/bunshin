@@ -13,6 +13,7 @@ publish.workspace = true
 # security-framework*), the desktop-GUI crates, or bunshin-platform. clap, ratatui, and
 # crossterm belong to the binary too, but only review keeps them out of here.
 [dependencies]
+jiff = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
