@@ -11,6 +11,7 @@
 
 pub mod counter;
 pub mod day;
+pub mod screen;
 pub mod time;
 pub mod tuning;
 pub use tuning::DayTuning;

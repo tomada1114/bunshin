@@ -21,6 +21,8 @@ pub struct Tuning {
     pub day: DayTuning,
     /// 04:00 keeps late-night work on the preceding logical day; callers may tune it.
     pub day_boundary: Time,
+    /// One hour of quiet from the task-pane mute key, shared with check-in logic.
+    pub key_mute_minutes: u16,
 }
 
 impl Tuning {
@@ -37,6 +39,7 @@ impl Tuning {
             counter: CounterTuning { min, max },
             day: DayTuning::shipped(),
             day_boundary: DEFAULT_DAY_BOUNDARY,
+            key_mute_minutes: 60,
         })
     }
 
@@ -59,6 +62,7 @@ impl Default for Tuning {
             counter: CounterTuning { min: 0, max: 99 },
             day: DayTuning::shipped(),
             day_boundary: DEFAULT_DAY_BOUNDARY,
+            key_mute_minutes: 60,
         }
     }
 }
