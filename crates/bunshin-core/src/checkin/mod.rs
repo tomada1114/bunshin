@@ -22,7 +22,7 @@ pub enum BatchReason {
     /// An evening hook obeys ordinary delivery guards.
     EveningReview,
 }
-/// All pending triggers handed to the later model use case at once.
+/// Eligible pending triggers handed to the later model use case at once.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadyBatch {
     /// Events consumed even if the model later stays silent.
@@ -48,6 +48,8 @@ pub struct Checkin {
     last_evaluation: UnixMillis,
     last_tick: UnixMillis,
     pending_reason: BatchReason,
+    // Owner-initiated exemptions apply only to events captured at that event.
+    opening_batch: Option<ReadyBatch>,
     tuning: Tuning,
 }
 impl Checkin {
@@ -58,6 +60,7 @@ impl Checkin {
             last_evaluation: now.instant,
             last_tick: now.instant,
             pending_reason: BatchReason::Tick,
+            opening_batch: None,
             tuning,
         }
     }
@@ -79,7 +82,7 @@ impl Checkin {
             return self.unchanged(day);
         }
         self.last_evaluation = now.instant;
-        if sleep && !self.bypasses_guards() {
+        if sleep {
             self.pending_reason = BatchReason::Sleep;
         }
         self.evaluate(day, now, input_has_text)
@@ -89,8 +92,13 @@ impl Checkin {
     pub fn open(mut self, day: Day, now: Now, input_has_text: bool) -> CheckinUpdate {
         self.last_tick = now.instant;
         self.last_evaluation = now.instant;
-        self.pending_reason = BatchReason::Open;
-        self.evaluate(day, now, input_has_text)
+        let before = day.data().clone();
+        let day = self.collect_due(day, now);
+        self.opening_batch = Some(ReadyBatch {
+            triggers: day.data().held_triggers.clone(),
+            reason: BatchReason::Open,
+        });
+        self.release(day, now, input_has_text, &before)
     }
     /// Feed the day-start use case's already-decided event, without implementing it.
     #[must_use]
@@ -104,7 +112,19 @@ impl Checkin {
                 due_at: now.instant,
             },
         );
-        self.pending_reason = BatchReason::DayStart;
+        let mut triggers = self
+            .opening_batch
+            .take()
+            .map_or_else(Vec::new, |batch| batch.triggers);
+        for trigger in &day.data().held_triggers {
+            if trigger.kind == TriggerKind::DayStart && !triggers.contains(trigger) {
+                triggers.push(trigger.clone());
+            }
+        }
+        self.opening_batch = Some(ReadyBatch {
+            triggers,
+            reason: BatchReason::DayStart,
+        });
         self.release(day, now, input_has_text, &before)
     }
     /// Feed the evening use case's event, obeying all delivery guards.
@@ -119,9 +139,7 @@ impl Checkin {
                 due_at: now.instant,
             },
         );
-        if !self.bypasses_guards() {
-            self.pending_reason = BatchReason::EveningReview;
-        }
+        self.pending_reason = BatchReason::EveningReview;
         self.release(day, now, input_has_text, &before)
     }
     /// Retry a held batch when input is sent/cleared or an explicit guard changes.
@@ -139,14 +157,12 @@ impl Checkin {
             save: false,
         }
     }
-    fn bypasses_guards(&self) -> bool {
-        matches!(
-            self.pending_reason,
-            BatchReason::Open | BatchReason::DayStart
-        )
-    }
-    fn evaluate(self, mut day: Day, now: Now, input_has_text: bool) -> CheckinUpdate {
+    fn evaluate(self, day: Day, now: Now, input_has_text: bool) -> CheckinUpdate {
         let before = day.data().clone();
+        let day = self.collect_due(day, now);
+        self.release(day, now, input_has_text, &before)
+    }
+    fn collect_due(&self, mut day: Day, now: Now) -> Day {
         let mut due = Vec::new();
         for task in day.tasks() {
             if task.kind != TaskKind::Deadline || task.status != TaskStatus::Open {
@@ -191,7 +207,7 @@ impl Checkin {
             // fresh even though PlannedLook already appears in fired history.
             day.consume_planned_look(now.instant);
         }
-        self.release(day, now, input_has_text, &before)
+        day
     }
     fn release(
         mut self,
@@ -211,19 +227,34 @@ impl Checkin {
             .data()
             .last_unprompted_at
             .is_some_and(|last| elapsed(now.instant, last) < minutes(tuning.minimum_gap_minutes));
-        let ready = if !day.data().held_triggers.is_empty()
-            && !input_has_text
-            && (self.bypasses_guards() || (active && !muted && !gap))
-        {
+        let guards_allow = active && !muted && !gap;
+        let ready = if input_has_text || day.data().held_triggers.is_empty() {
+            None
+        } else if guards_allow {
             let triggers = day.take_held_triggers();
-            let reason = self.pending_reason;
-            self.pending_reason = BatchReason::Tick;
+            let reason = self
+                .opening_batch
+                .take()
+                .map_or(self.pending_reason, |batch| batch.reason);
             Some(ReadyBatch { triggers, reason })
+        } else if let Some(batch) = self.opening_batch.take() {
+            // The exception belongs to the opening batch, never to routine events
+            // appended by subsequent ticks while the owner is still typing.
+            let triggers = day.take_held_triggers_matching(&batch.triggers);
+            if triggers.is_empty() {
+                None
+            } else {
+                Some(ReadyBatch {
+                    triggers,
+                    reason: batch.reason,
+                })
+            }
         } else {
             None
         };
         if day.data().held_triggers.is_empty() {
             self.pending_reason = BatchReason::Tick;
+            self.opening_batch = None;
         }
         let save = day.data() != before;
         CheckinUpdate {

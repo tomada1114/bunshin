@@ -944,3 +944,191 @@ fn checkin_before_deadline_civil_subtraction_at_minimum_date_saturates() {
         ))
     );
 }
+
+#[test]
+fn checkin_open_while_typing_bypasses_only_events_present_at_open() {
+    let (day, _) = deadline(22, 15)
+        .add(
+            "later".into(),
+            TaskKind::Deadline,
+            Some(time(23, 45, 0, 0)),
+            TaskOrigin::Key,
+            UnixMillis(0),
+        )
+        .unwrap();
+    let (day, _) = day.mute(UnixMillis(3_600_000), UnixMillis(0));
+    let opening =
+        Checkin::new(reading(23, 0, 0), Tuning::default()).open(day, reading(23, 0, 0), true);
+    assert_eq!(opening.ready, None);
+    assert_eq!(
+        opening.day.data().held_triggers,
+        vec![
+            trigger(TriggerKind::BeforeDeadline, 0),
+            trigger(TriggerKind::AfterDeadline, 0)
+        ]
+    );
+    let tick = opening
+        .checkin
+        .tick(opening.day, reading(23, 15, 900_000), true);
+    assert_eq!(tick.ready, None);
+    let serialized = serde_json::to_string(&DayFile::from(&tick.day)).unwrap();
+    let restored = reload(serde_json::from_str(&serialized).unwrap());
+    let released = tick
+        .checkin
+        .release_held(restored, reading(23, 15, 900_001), false);
+    assert_eq!(
+        released.ready,
+        Some(batch(
+            vec![
+                trigger(TriggerKind::BeforeDeadline, 0),
+                trigger(TriggerKind::AfterDeadline, 0)
+            ],
+            BatchReason::Open
+        ))
+    );
+    assert_eq!(
+        released.day.data().held_triggers,
+        vec![Trigger {
+            kind: TriggerKind::BeforeDeadline,
+            task: Some(2),
+            due_at: UnixMillis(900_000)
+        }]
+    );
+    assert!(released.save);
+    let still = released
+        .checkin
+        .release_held(released.day, reading(23, 16, 960_000), false);
+    assert_eq!(still.ready, None);
+    assert!(!still.save);
+    let morning = still.checkin.release_held(
+        still.day,
+        now(date(2026, 10, 3).at(8, 0, 0, 0), 32_400_000),
+        false,
+    );
+    assert_eq!(
+        morning.ready,
+        Some(batch(
+            vec![Trigger {
+                kind: TriggerKind::BeforeDeadline,
+                task: Some(2),
+                due_at: UnixMillis(900_000)
+            }],
+            BatchReason::Sleep
+        ))
+    );
+    let duplicate = morning.checkin.release_held(
+        morning.day,
+        now(date(2026, 10, 3).at(8, 0, 0, 0), 32_400_001),
+        false,
+    );
+    assert_eq!(duplicate.ready, None);
+    assert!(!duplicate.save);
+}
+
+#[test]
+fn checkin_opening_and_later_events_still_combine_when_all_guards_allow() {
+    let (day, _) = deadline(15, 0)
+        .add(
+            "later".into(),
+            TaskKind::Deadline,
+            Some(time(15, 45, 0, 0)),
+            TaskOrigin::Key,
+            UnixMillis(0),
+        )
+        .unwrap();
+    let opening =
+        Checkin::new(reading(14, 30, 0), Tuning::default()).open(day, reading(14, 30, 0), true);
+    assert_eq!(opening.ready, None);
+    let later = opening
+        .checkin
+        .tick(opening.day, reading(15, 15, 2_700_000), true);
+    assert_eq!(later.ready, None);
+    let released = later
+        .checkin
+        .release_held(later.day, reading(15, 15, 2_700_001), false);
+    assert_eq!(
+        released.ready,
+        Some(batch(
+            vec![
+                trigger(TriggerKind::BeforeDeadline, 0),
+                trigger(TriggerKind::AfterDeadline, 2_700_000),
+                Trigger {
+                    kind: TriggerKind::BeforeDeadline,
+                    task: Some(2),
+                    due_at: UnixMillis(2_700_000)
+                }
+            ],
+            BatchReason::Open
+        ))
+    );
+    assert_eq!(released.day.data().held_triggers, vec![]);
+    let duplicate = released
+        .checkin
+        .release_held(released.day, reading(15, 15, 2_700_002), false);
+    assert_eq!(duplicate.ready, None);
+    assert!(!duplicate.save);
+}
+#[test]
+fn checkin_day_start_while_typing_bypasses_only_its_supplied_event() {
+    let (day, _) = deadline(23, 45).mute(UnixMillis(3_600_000), UnixMillis(0));
+    let start =
+        Checkin::new(reading(23, 0, 0), Tuning::default()).day_start(day, reading(23, 0, 0), true);
+    assert_eq!(start.ready, None);
+    let later = start
+        .checkin
+        .tick(start.day, reading(23, 15, 900_000), true);
+    assert_eq!(later.ready, None);
+    let evening = later
+        .checkin
+        .evening_review(later.day, reading(23, 16, 960_000), true);
+    assert_eq!(evening.ready, None);
+    let released = evening
+        .checkin
+        .release_held(evening.day, reading(23, 16, 960_001), false);
+    assert_eq!(
+        released.ready,
+        Some(batch(
+            vec![Trigger {
+                kind: TriggerKind::DayStart,
+                task: None,
+                due_at: UnixMillis(0)
+            }],
+            BatchReason::DayStart
+        ))
+    );
+    assert_eq!(
+        released.day.data().held_triggers,
+        vec![
+            trigger(TriggerKind::BeforeDeadline, 900_000),
+            Trigger {
+                kind: TriggerKind::EveningReview,
+                task: None,
+                due_at: UnixMillis(960_000)
+            }
+        ]
+    );
+    let released_all =
+        released
+            .checkin
+            .release_held(released.day, reading(8, 0, 32_400_000), false);
+    assert_eq!(
+        released_all.ready,
+        Some(batch(
+            vec![
+                trigger(TriggerKind::BeforeDeadline, 900_000),
+                Trigger {
+                    kind: TriggerKind::EveningReview,
+                    task: None,
+                    due_at: UnixMillis(960_000)
+                }
+            ],
+            BatchReason::EveningReview
+        ))
+    );
+    let duplicate =
+        released_all
+            .checkin
+            .release_held(released_all.day, reading(8, 0, 32_400_001), false);
+    assert_eq!(duplicate.ready, None);
+    assert!(!duplicate.save);
+}

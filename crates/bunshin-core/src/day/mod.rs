@@ -508,6 +508,21 @@ impl Day {
     pub(crate) fn take_held_triggers(&mut self) -> Vec<Trigger> {
         std::mem::take(&mut self.data.held_triggers)
     }
+    pub(crate) fn take_held_triggers_matching(&mut self, eligible: &[Trigger]) -> Vec<Trigger> {
+        let mut remaining = eligible.to_vec();
+        let mut ready = Vec::new();
+        let mut held = Vec::new();
+        for trigger in self.take_held_triggers() {
+            if let Some(index) = remaining.iter().position(|event| event == &trigger) {
+                remaining.remove(index);
+                ready.push(trigger);
+            } else {
+                held.push(trigger);
+            }
+        }
+        self.data.held_triggers = held;
+        ready
+    }
     pub(crate) fn schedule_look(&mut self, at: DateTime) {
         self.data.next_planned_look = Some(at);
     }
