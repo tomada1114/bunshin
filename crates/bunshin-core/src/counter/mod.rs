@@ -7,92 +7,15 @@
 pub mod screen;
 pub mod store;
 
-use std::{
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use jiff::civil::Time;
 use serde::Serialize;
 
 use crate::time::{Clock, UnixMillis};
 pub use screen::{CounterScreen, ScreenAction, ScreenKey};
 pub use store::{CounterStore, StorageError, StorageErrorKind, StoredCounter};
 
-const DEFAULT_MODEL_TIMEOUT: Duration = Duration::from_secs(30);
-
-const DEFAULT_DAY_BOUNDARY: Time = Time::constant(4, 0, 0, 0);
-
-/// Tunables in one place (designing-core-logic). Built only by [`Tuning::new`] (or
-/// [`Default`]), so every `Tuning` holds a range with at least one value in it.
-///
-/// ```
-/// use bunshin_core::{Counter, Tuning, TuningError};
-///
-/// let tuning = Tuning::new(0, 3)?;
-/// assert_eq!(Counter::new(7, tuning).value(), 3);
-/// assert_eq!(Tuning::new(5, 1), Err(TuningError::MinAboveMax));
-/// # Ok::<(), TuningError>(())
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Tuning {
-    min: i64,
-    max: i64,
-    /// 04:00 keeps late-night work on the preceding logical day; callers may tune it.
-    pub day_boundary: Time,
-    /// Maximum model call and availability-probe wait; callers may tune it.
-    pub model_timeout: Duration,
-}
-
-impl Tuning {
-    /// A range from `min` to `max`, both included.
-    ///
-    /// # Errors
-    /// [`TuningError::MinAboveMax`] when `min > max`: no value lies in that range, so a
-    /// counter could not stay inside it.
-    pub const fn new(min: i64, max: i64) -> Result<Self, TuningError> {
-        if min > max {
-            return Err(TuningError::MinAboveMax);
-        }
-        Ok(Self {
-            min,
-            max,
-            day_boundary: DEFAULT_DAY_BOUNDARY,
-            model_timeout: DEFAULT_MODEL_TIMEOUT,
-        })
-    }
-
-    /// The lowest value; also the value a fresh or reset counter holds.
-    #[must_use]
-    pub const fn min(&self) -> i64 {
-        self.min
-    }
-
-    /// The highest value.
-    #[must_use]
-    pub const fn max(&self) -> i64 {
-        self.max
-    }
-}
-
-impl Default for Tuning {
-    fn default() -> Self {
-        Self {
-            min: 0,
-            max: 99,
-            day_boundary: DEFAULT_DAY_BOUNDARY,
-            model_timeout: DEFAULT_MODEL_TIMEOUT,
-        }
-    }
-}
-
-/// A [`Tuning`] that no counter could stay inside.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum TuningError {
-    /// `min` is above `max`, so the range holds no value.
-    #[error("the tuning's minimum is above its maximum")]
-    MinAboveMax,
-}
+pub use crate::tuning::{Tuning, TuningError};
 
 /// A counter value that never leaves its range. Pure: no I/O, no time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,7 +31,7 @@ impl Counter {
     pub fn new(value: i64, tuning: Tuning) -> Self {
         // `clamp` panics when min > max; `Tuning::new` refuses that range.
         Self {
-            value: value.clamp(tuning.min, tuning.max),
+            value: value.clamp(tuning.min(), tuning.max()),
             tuning,
         }
     }
@@ -124,7 +47,7 @@ impl Counter {
     /// # Errors
     /// [`CounterError::AtMaximum`] when the value is already at `tuning.max`.
     pub fn increment(self) -> Result<Self, CounterError> {
-        if self.value >= self.tuning.max {
+        if self.value >= self.tuning.max() {
             return Err(CounterError::AtMaximum);
         }
         Ok(Self {
@@ -138,7 +61,7 @@ impl Counter {
     /// # Errors
     /// [`CounterError::AtMinimum`] when the value is already at `tuning.min`.
     pub fn decrement(self) -> Result<Self, CounterError> {
-        if self.value <= self.tuning.min {
+        if self.value <= self.tuning.min() {
             return Err(CounterError::AtMinimum);
         }
         Ok(Self {
@@ -151,7 +74,7 @@ impl Counter {
     #[must_use]
     pub fn reset(self) -> Self {
         Self {
-            value: self.tuning.min,
+            value: self.tuning.min(),
             ..self
         }
     }
@@ -265,7 +188,7 @@ impl CounterService {
     pub fn reset(&self) -> Result<CounterView, CounterError> {
         let mut revision = self.lock();
         let stored = StoredCounter {
-            value: Counter::new(self.tuning.min, self.tuning).reset().value(),
+            value: Counter::new(self.tuning.min(), self.tuning).reset().value(),
             last_changed_at: Some(self.clock.now().instant),
         };
         self.store.save(&stored)?;
@@ -328,7 +251,7 @@ impl CounterService {
                 Counter::new(stored.value, self.tuning),
                 stored.last_changed_at,
             ),
-            None => (Counter::new(self.tuning.min, self.tuning), None),
+            None => (Counter::new(self.tuning.min(), self.tuning), None),
         }
     }
 }
