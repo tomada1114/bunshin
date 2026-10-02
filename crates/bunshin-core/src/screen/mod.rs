@@ -248,6 +248,17 @@ impl MainScreen {
             return;
         };
         let result = if let Some(number) = form.number() {
+            if self.day.tasks().iter().any(|task| {
+                task.number == number
+                    && task.title == form.title()
+                    && task.kind == form.kind()
+                    && task.time == time
+            }) {
+                self.form = None;
+                self.focus = Focus::Tasks;
+                self.error = None;
+                return;
+            }
             self.day
                 .clone()
                 .edit(number, form.title().to_owned(), form.kind(), time, at)

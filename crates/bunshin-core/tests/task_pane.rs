@@ -808,3 +808,73 @@ fn task_help_includes_main_focus_keys_that_dispatch_from_the_task_pane() {
         assert!(effects.is_empty());
     }
 }
+
+#[test]
+fn unchanged_edit_closes_without_save_history_or_consuming_the_real_undo_slot() {
+    for (kind, clock) in [
+        (TaskKind::Untimed, None),
+        (TaskKind::Deadline, Some(time(15, 0, 0, 0))),
+        (TaskKind::Appointment, Some(time(18, 0, 0, 0))),
+    ] {
+        for opening_key in [ScreenKey::Char('e'), ScreenKey::Enter] {
+            let mut tuning = Tuning::default();
+            tuning.day.undo_depth = 1;
+            let day = add(
+                Day::new(date(2026, 10, 2), tuning),
+                "Ａ社　資料",
+                kind,
+                clock,
+            );
+            let task = day.tasks()[0].clone();
+            let screen = no_save(MainScreen::new(day.clone(), tuning), ScreenKey::Tab);
+            let screen = no_save(screen, opening_key);
+            let (screen, effects) = screen.update(ScreenKey::Enter, now());
+            assert_eq!(effects, Vec::<Effect>::new());
+            assert_eq!(screen.focus(), Focus::Tasks);
+            assert_eq!(screen.form(), None);
+            assert_eq!(screen.day(), &day);
+            assert_eq!(screen.day().messages().len(), 1);
+            assert_eq!(screen.day().tasks()[0].title, "Ａ社　資料");
+            assert_eq!(screen.selection(), Some(0));
+            assert_eq!(screen.last_change(), None);
+            let (screen, effects) = screen.update(ScreenKey::Undo, now());
+            assert_eq!(effects, vec![Effect::Save]);
+            assert!(screen.day().tasks().is_empty());
+            assert_eq!(screen.day().messages().len(), 2);
+            assert_eq!(
+                screen.last_change().unwrap().changes,
+                vec![Change::Task {
+                    before: None,
+                    after: Some(task)
+                }]
+            );
+            assert!(screen.last_change().unwrap().undo);
+        }
+    }
+}
+
+#[test]
+fn equivalent_full_width_time_edit_is_a_no_op_after_validation() {
+    let tuning = Tuning::default();
+    let day = add(
+        Day::new(date(2026, 10, 2), tuning),
+        "gym",
+        TaskKind::Appointment,
+        Some(time(18, 0, 0, 0)),
+    );
+    let screen = no_save(MainScreen::new(day.clone(), tuning), ScreenKey::Tab);
+    let screen = no_save(screen, ScreenKey::Char('e'));
+    let mut screen = no_save(no_save(screen, ScreenKey::Tab), ScreenKey::Tab);
+    screen = no_save(screen, ScreenKey::Home);
+    for _ in 0..5 {
+        screen = no_save(screen, ScreenKey::Delete);
+    }
+    let screen = text(screen, "１８：００");
+    assert_eq!(form(&screen).time_text(), "１８：００");
+    let (screen, effects) = screen.update(ScreenKey::Enter, now());
+    assert_eq!(effects, Vec::<Effect>::new());
+    assert_eq!(screen.focus(), Focus::Tasks);
+    assert_eq!(screen.form(), None);
+    assert_eq!(screen.day(), &day);
+    assert_eq!(screen.day().tasks()[0].time, Some(time(18, 0, 0, 0)));
+}
