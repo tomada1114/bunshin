@@ -41,18 +41,44 @@ harness: without it, an agent implementing an issue here has no in-repo answer t
 this in scope?". The owner writes each bullet (the `starting-an-app` skill says how);
 `just check-harness` fails while one still holds its `TODO` marker.
 
-- **What it is, and who it is for** — TODO: one paragraph. The problem it solves, and
-  whose problem that is.
-- **The core interaction** — TODO: the one thing a user does most. If the app does not
-  do this well, nothing else about it matters.
-- **Non-goals** — TODO: what this app deliberately does not do, even where it would be
-  easy. A first version's cut list is longer than its feature list, and this is the
-  line an eager implementer crosses first: moving anything from here to a goal is a
-  human's decision, not an implementer's.
-- **Where these decisions are recorded** — TODO: where the reasoning behind the three
-  entries above lives — an ADR under `docs/architecture/` (see "Before changing the
-  architecture"), a design issue, or another decision log — so a reader can find why
-  and not only what.
+- **What it is, and who it is for** — Bunshin (分身, "alter ego") is a secretary that
+  lives in a terminal pane and thinks with Apple's on-device foundation model through
+  the `fm` command that ships with macOS 27: no server, no API key, nothing leaves the
+  Mac. Its owner keeps `bunshin tui` open beside their work and tells it in plain
+  Japanese what the day holds and what got done; it keeps today's tasks — due by a time,
+  at a time, or untimed — and once a minute decides, with the model, whether to speak
+  first. It is for its developer: one person at one Apple silicon Mac on macOS 27 or
+  later, working in the terminal, whose problem is that AI agents only answer when
+  asked — nobody watches the day and says 「そろそろこれ片付けたほうがいいんじゃない？」
+  before a task slips.
+- **The core interaction** — telling Bunshin what today holds and what got done, in
+  plain words, and being nudged at the right moment without asking: a short note or
+  question in the chat with a terminal bell, kept to active hours and never twice about
+  one task within half an hour. Every change it makes from words is shown and undoable,
+  and every task operation is also one key away; the subcommands only read.
+- **Non-goals** — from [`docs/product/requirements.md`](docs/product/requirements.md) §2,
+  where the Later list sits beside them:
+  - **Network access in this version** — the MVP talks to nothing but `fm`; every
+    connection on the Later list needs its own decision.
+  - **Acting outside the app** — it sends nothing, edits no file but its own, and runs
+    no command on the user's behalf.
+  - **A general chatbot or knowledge source** — chat is about the day; answers of fact
+    are not something it promises.
+  - **Built-in voice input or speech** — the OS's dictation into the terminal is enough.
+  - **Editing or deleting past messages**, and export or import — the day files are
+    plain local files the owner can read.
+  - **Planning the day for the owner** — no time-blocking, no moving a task's time on
+    its own, no focus timers; it suggests in words and the owner decides.
+  - **Priorities, tags, projects, sub-tasks** — a day's list is flat.
+  - **Mail** — Gmail or any other mail service, reading or replying: out of scope
+    (decided 2026-10-02).
+  - **More than one persona**, more than one user, accounts, sync between Macs.
+- **Where these decisions are recorded** —
+  [`docs/product/requirements.md`](docs/product/requirements.md): the scope, each
+  feature's values, and a decision log that keeps every rejected alternative and why;
+  with the screens and flows in [`docs/product/ux-flows.md`](docs/product/ux-flows.md),
+  the app-wide UX rules in [`docs/design/ux-guidelines.md`](docs/design/ux-guidelines.md),
+  and the color roles in [`docs/design/design-direction.md`](docs/design/design-direction.md).
 
 ## Quick Reference
 
