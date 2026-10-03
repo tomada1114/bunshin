@@ -459,3 +459,55 @@ fn lock_is_released_when_a_process_is_killed() {
     );
     let _guard = store.take_lock().expect("OS released lock");
 }
+
+#[test]
+fn symlinked_day_files_are_refused_without_reading_or_replacing_the_target() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let store = JsonFileDayStore::new(scratch.path().join("data"), Tuning::default());
+    let day = Day::new(date(2026, 10, 2), Tuning::default());
+    store.save(&day).expect("initial day");
+    let path = days_dir(&scratch.path().join("data")).join("2026-10-02.json");
+    let target = scratch.path().join("external.json");
+    fs::rename(&path, &target).expect("external target");
+    let original = fs::read(&target).expect("original");
+    std::os::unix::fs::symlink(&target, &path).expect("day symlink");
+    bunshin_test_support::day_store_refusal_contract(&store, day.date(), DayStoreError::Unreadable);
+    assert_eq!(fs::read(&target).expect("unchanged target"), original);
+    assert_eq!(fs::read_link(path).expect("unchanged link"), target);
+}
+
+#[test]
+fn non_regular_day_entries_are_refused_without_reading_streams() {
+    use std::os::unix::fs::{FileTypeExt, symlink};
+    let scratch = tempfile::tempdir().expect("scratch");
+    let store = JsonFileDayStore::new(scratch.path().join("data"), Tuning::default());
+    let day = Day::new(date(2026, 10, 2), Tuning::default());
+    store.save(&day).expect("initial day");
+    let path = days_dir(&scratch.path().join("data")).join("2026-10-02.json");
+    fs::remove_file(&path).expect("remove initial");
+    symlink("/dev/zero", &path).expect("device link");
+    bunshin_test_support::day_store_refusal_contract(&store, day.date(), DayStoreError::Unreadable);
+    assert_eq!(
+        fs::read_link(&path).expect("preserved link"),
+        std::path::Path::new("/dev/zero")
+    );
+    fs::remove_file(&path).expect("remove link");
+    assert!(
+        Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .expect("scratch FIFO")
+            .success()
+    );
+    bunshin_test_support::day_store_refusal_contract(&store, day.date(), DayStoreError::Unreadable);
+    assert!(
+        fs::symlink_metadata(&path)
+            .expect("preserved FIFO")
+            .file_type()
+            .is_fifo()
+    );
+    fs::remove_file(&path).expect("remove FIFO");
+    fs::create_dir(&path).expect("directory entry");
+    bunshin_test_support::day_store_refusal_contract(&store, day.date(), DayStoreError::Unreadable);
+    assert!(path.is_dir());
+}

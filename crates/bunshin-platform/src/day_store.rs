@@ -10,7 +10,7 @@ use bunshin_core::{
 use jiff::civil::Date;
 use std::{
     fs::{self, DirBuilder, File, OpenOptions, TryLockError},
-    io::{self, Write},
+    io::{self, Read, Write},
     os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -25,9 +25,9 @@ static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 // https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/fcntl.h
 // https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/fcntl.h
 #[cfg(target_os = "macos")]
-const LOCK_OPEN_FLAGS: i32 = 0x100 | 0x4;
+const REGULAR_FILE_OPEN_FLAGS: i32 = 0x100 | 0x4;
 #[cfg(target_os = "linux")]
-const LOCK_OPEN_FLAGS: i32 = (1 << 17) | (1 << 11);
+const REGULAR_FILE_OPEN_FLAGS: i32 = (1 << 17) | (1 << 11);
 
 /// Owner-only versioned day files and an OS-managed single-writer lock. Construction
 /// does no I/O. Readers create nothing and need no lock. The writing screen keeps the
@@ -54,13 +54,31 @@ impl JsonFileDayStore {
         days_dir(&self.data_dir).join(format!("{date}.json"))
     }
 
+    fn read_last(&self, date: Option<Date>) -> Result<Option<Day>, DayStoreError> {
+        match date {
+            Some(date) => self.read(date),
+            None => Ok(None),
+        }
+    }
+
     fn read(&self, date: Date) -> Result<Option<Day>, DayStoreError> {
-        let bytes = match fs::read(self.day_path(date)) {
-            Ok(bytes) => bytes,
+        let path = self.day_path(date);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_file() => {}
+            Ok(_) => return Err(DayStoreError::Unreadable),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(unavailable(error)),
+        }
+        // No-follow/nonblocking open and descriptor validation also cover a
+        // replacement between the entry check and open. Never read a stream.
+        let mut file = match OpenOptions::new()
+            .read(true)
+            .custom_flags(REGULAR_FILE_OPEN_FLAGS)
+            .open(&path)
+        {
+            Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                // A dangling symlink is an existing unreadable day, not an absent
-                // entry. Never replace it when save preflights the same read.
-                return match fs::symlink_metadata(self.day_path(date)) {
+                return match fs::symlink_metadata(&path) {
                     Ok(_) => Err(DayStoreError::Unreadable),
                     Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
                     Err(error) => Err(unavailable(error)),
@@ -68,6 +86,11 @@ impl JsonFileDayStore {
             }
             Err(error) => return Err(unavailable(error)),
         };
+        if !file.metadata().map_err(unavailable)?.is_file() {
+            return Err(DayStoreError::Unreadable);
+        }
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).map_err(unavailable)?;
         let header: FormatHeader =
             serde_json::from_slice(&bytes).map_err(|_| DayStoreError::Unreadable)?;
         header.check()?;
@@ -111,7 +134,7 @@ impl DayStore for JsonFileDayStore {
                 latest = Some(candidate);
             }
         }
-        latest.map(|date| self.load(date)).transpose()
+        self.read_last(latest)
     }
     fn take_lock(&self) -> Result<Box<dyn DayLock>, DayStoreError> {
         self.prepare()?;
@@ -122,7 +145,7 @@ impl DayStore for JsonFileDayStore {
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .custom_flags(LOCK_OPEN_FLAGS)
+            .custom_flags(REGULAR_FILE_OPEN_FLAGS)
             .open(&path)
             .map_err(unavailable)?;
         let metadata = file.metadata().map_err(unavailable)?;
@@ -236,6 +259,19 @@ fn replace_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_selected_day_removed_before_reading_is_not_fabricated() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let store = JsonFileDayStore::new(scratch.path().into(), Tuning::default());
+        let date = jiff::civil::date(2026, 10, 2);
+        store
+            .save(&Day::new(date, Tuning::default()))
+            .expect("save");
+        let selected = Some(date);
+        fs::remove_file(store.day_path(date)).expect("concurrent removal");
+        assert_eq!(store.read_last(selected), Ok(None));
+    }
+
     #[test]
     fn a_failed_partial_write_leaves_the_old_file_and_removes_the_temporary_file() {
         let scratch = tempfile::tempdir().expect("scratch");
