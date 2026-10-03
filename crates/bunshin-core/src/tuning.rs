@@ -1,5 +1,8 @@
 //! The app's tunables, shared by every feature.
 use jiff::civil::Time;
+use std::time::Duration;
+
+const DEFAULT_MODEL_TIMEOUT: Duration = Duration::from_secs(30);
 
 const DEFAULT_DAY_BOUNDARY: Time = Time::constant(4, 0, 0, 0);
 
@@ -14,6 +17,8 @@ pub struct Tuning {
     pub day: DayTuning,
     /// 04:00 keeps late-night work on the preceding logical day; callers may tune it.
     pub day_boundary: Time,
+    /// Maximum model call and availability-probe wait; callers may tune it.
+    pub model_timeout: Duration,
 }
 
 impl Default for Tuning {
@@ -23,6 +28,7 @@ impl Default for Tuning {
             key_mute_minutes: 60,
             day: DayTuning::shipped(),
             day_boundary: DEFAULT_DAY_BOUNDARY,
+            model_timeout: DEFAULT_MODEL_TIMEOUT,
         }
     }
 }

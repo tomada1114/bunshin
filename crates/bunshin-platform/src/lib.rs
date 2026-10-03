@@ -6,6 +6,7 @@
 //! still builds and tests on Linux CI.
 
 mod clock;
+mod fm;
 mod logging;
 mod paths;
 
@@ -15,3 +16,7 @@ pub use paths::{
     BUNDLE_IDENTIFIER, XDG_APP_NAME, app_data_dir, home_dir, log_dir, macos_data_dir,
     macos_log_dir, xdg_data_dir, xdg_log_dir,
 };
+
+#[cfg(target_os = "macos")]
+pub use fm::FmLanguageModel;
+pub use fm::UnavailableLanguageModel;

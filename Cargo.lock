@@ -86,6 +86,7 @@ dependencies = [
  "bunshin-core",
  "bunshin-test-support",
  "jiff",
+ "serde_json",
  "tempfile",
  "thiserror",
  "tracing",

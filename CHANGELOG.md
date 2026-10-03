@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A synchronous on-device model port with a macOS `fm` adapter, timeout and
+  cancellation, typed availability, and a scripted fake for app development.
+
 - Local civil time alongside each clock instant, with a tunable 04:00 boundary for
   the logical day and fixed-offset clocks for deterministic tests.
 

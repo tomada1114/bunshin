@@ -11,6 +11,7 @@
 
 pub mod checkin;
 pub mod day;
+pub mod model;
 pub mod screen;
 pub mod shell;
 pub mod time;
@@ -19,4 +20,9 @@ pub use tuning::{CheckinTuning, DayTuning};
 
 pub use shell::{ShellAction, ShellKey, ShellScreen};
 pub use time::{Clock, Now, UnixMillis, logical_date};
+
+pub use model::{
+    Availability, CancelFlag, LanguageModel, ModelAnswer, ModelError, ModelRequest,
+    UnavailableReason,
+};
 pub use tuning::Tuning;

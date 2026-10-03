@@ -118,7 +118,9 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
 ## The model call
 
 - **How:** one child process per call: `fm respond --no-stream --schema '<schema JSON>'
-  --instructions '<instructions>'`, with the prompt on stdin (`fm respond` reads its
+  --instructions '<instructions>'`. The schema is inline JSON in the format emitted
+  by `fm schema`; `--schema` accepts either this JSON or a schema-file path (`man fm`,
+  observed 2026-10-02). The prompt stays on stdin (`fm respond` reads its
   prompt from stdin, `fm respond --help`, observed 2026-10-02) so the day's tasks and chat
   never appear in another process's argument list. The instructions are on the command
   line for the call's duration; on a single-user Mac that is accepted. `fm` lives at
@@ -128,9 +130,12 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   thread, started with the loop, runs one `LanguageModel` call at a time from a channel
   and sends the result back. Core keeps the queue and its order — an owner's message
   before a trigger (§3.5) — so the worker never decides.
-- **Wait and cancel:** the adapter polls the child for exit; it kills and reaps it when
-  the request's timeout (30 s†) passes or the cancel flag is set (Esc, quit). A killed
-  call is `ModelError::Cancelled` or `ModelError::TimedOut`.
+- **Wait and cancel:** the adapter monitors the child and its input/output workers
+  until the call completes. Each child has a private process group; when the request's
+  timeout (30 s†) passes or the cancel flag is set (Esc, quit), the adapter terminates
+  that group and reaps the direct child. It retains the child's process ID while any
+  pipe worker is unfinished, so cleanup cannot target a reused process ID. A stopped
+  call is `ModelError::Cancelled` or `ModelError::TimedOut`; failed cleanup is `Failed`.
 - **One call per event.** An owner's message gets one call whose schema answers
   `{changes: [...], reply}`; a check-in (a trigger batch, the day start, the evening
   review, a catch-up) gets one call whose schema answers
@@ -157,12 +162,12 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   (§4). On Linux the adapter is always "unavailable on this OS".
 - **Errors** map to `ModelError` variants the screen can act on: `Unavailable(reason)`,
   `TimedOut`, `Cancelled`, `Refused`, `Malformed` (the answer failed the schema or the
-  parse), `Failed` (any other exit). Exit 64 is a usage error and exit 1 an invalid
-  schema (observed 2026-10-02) — both bugs, logged without the prompt. What a user
-  message and a trigger do on each error is §3.5 and §4.
-- **Tests:** no routine check needs the real `fm` — it fails inside a sandboxed agent's
-  process (observed under Codex CLI's sandbox, 2026-10-02) and does not exist on a CI
-  runner. The core and the binary are tested against `ScriptedLanguageModel`;
+  parse), `Failed` (any other exit). Exit 64 was observed for a usage error, and exit 1
+  for both an invalid schema and a runtime model-service error (2026-10-02); they stay
+  `Failed`, because the exit code alone does not identify the cause. Diagnostics never
+  include the prompt. What a user message and a trigger do on each error is §3.5 and §4.
+- **Tests:** no routine check needs the real `fm`, which is absent on a CI runner.
+  The core and the binary are tested against `ScriptedLanguageModel`;
   `FmLanguageModel`'s contract run is `#[ignore = "local machine: fm with Apple
   Intelligence enabled"]` and runs only in `just test-local`, a human's recipe.
 
@@ -226,13 +231,32 @@ In code it is a set of `const` `Style`s beside the labels in the view, asserted 
 
 ## Open
 
+- Observed with `fm schema object --name Empty`, 2026-10-02: the empty-object schema
+  includes `title`, `properties`, `additionalProperties`, `x-order`, and `required`
+  alongside `type`. A response using a schema fixture without `title`, `x-order`, and
+  `required` exited 1 with an invalid-schema, missing-data diagnostic; that is a schema
+  fixture failure, not an observed runtime refusal.
+- Observed with `fm respond --no-stream --schema` using that generated empty-object
+  schema inline under agent execution, 2026-10-02: exit 1 with
+  `ModelManagerServices.ModelManagerError` error 1008, also on an elevated retry.
+  A direct `fm respond --no-stream` without a schema or the app also returned the
+  same error, while `fm available` returned 0. This remains `Failed`; neither its
+  meaning nor whether it also occurs outside the agent's execution environment is
+  verified. On 2026-10-03, the owner authorized all `fm` execution: the real contract
+  passed with `mise exec -- just test-local` under approved execution permissions
+  (exit 0, one test), while the same command failed before and after in the restricted
+  environment (exit 100, typed `Failed`). A direct ordinary
+  `fm respond --no-stream` with a synthetic prompt succeeded (exit 0). These observations
+  satisfy the real adapter contract; they do not establish the cause of the earlier
+  error or the difference between execution environments.
 - Unverified: the exit codes and stderr of `fm respond` for a runtime model error
   (window exceeded, guardrail, rate limit). Until `just test-local` observes them, they
   map to `Failed`, and the budget is the only guard against an overflow. Apple's error
   cases name `exceededContextWindowSize`, `guardrailViolation`, `refusal`,
   `rateLimited`, and `concurrentRequests`
   (https://developer.apple.com/documentation/foundationmodels/languagemodelsession/generationerror,
-  checked 2026-10-02). Settled by the first local run of the adapter's contract.
+  checked 2026-10-02). A successful local contract does not exercise these failures;
+  their mappings need separate observed failure cases.
 - The language of the operating rules (Japanese or English prompt text). Settled by
   comparing both on real days; either way it is model input in core.
 - Whether `--greedy` sampling suits the check-in call. Settled the same way; a `Tuning`
