@@ -9,6 +9,8 @@ const DEFAULT_DAY_BOUNDARY: Time = Time::constant(4, 0, 0, 0);
 /// Shared domain tunables, adjustable without reading configuration in core.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tuning {
+    /// Prompt window, response reserves and text bounds shared by model callers.
+    pub prompt: PromptTuning,
     /// Check-in scheduling and guard bounds.
     pub checkin: CheckinTuning,
     /// One hour of quiet from the task-pane mute key, shared with check-in logic.
@@ -26,12 +28,48 @@ pub struct Tuning {
 impl Default for Tuning {
     fn default() -> Self {
         Self {
+            prompt: PromptTuning::default(),
             checkin: CheckinTuning::shipped(),
             key_mute_minutes: 60,
             day: DayTuning::shipped(),
             day_boundary: DEFAULT_DAY_BOUNDARY,
             model_timeout: DEFAULT_MODEL_TIMEOUT,
             instructions_max_chars: 600,
+        }
+    }
+}
+
+/// Conservative context budgeting, independent of the platform's tokenizer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PromptTuning {
+    /// Complete instructions, prompt, schema and answer window.
+    pub context_tokens: usize,
+    /// Rounded-up ASCII scalars per estimated token.
+    pub ascii_chars_per_token: usize,
+    /// Reserved answer tokens for an owner's chat call.
+    pub chat_answer_tokens: usize,
+    /// Reserved answer tokens for a later check-in call.
+    pub checkin_answer_tokens: usize,
+    /// Maximum yesterday summary estimate.
+    pub yesterday_tokens: usize,
+    /// Number of recent unprompted states included in context.
+    pub recent_unprompted: usize,
+    /// Maximum owner-message Unicode scalar count, refused before assembly.
+    pub input_max_chars: usize,
+    /// Reply bound requested in operating rules, never used to truncate an answer.
+    pub reply_max_chars: usize,
+}
+impl Default for PromptTuning {
+    fn default() -> Self {
+        Self {
+            context_tokens: 4096,
+            ascii_chars_per_token: 2,
+            chat_answer_tokens: 450,
+            checkin_answer_tokens: 300,
+            yesterday_tokens: 120,
+            recent_unprompted: 5,
+            input_max_chars: 400,
+            reply_max_chars: 200,
         }
     }
 }
