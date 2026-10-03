@@ -59,13 +59,6 @@ pub fn run(edit: bool) -> ExitCode {
         let mut stdout = io::stdout().lock();
         let result = stdout
             .write_all(state.text.as_bytes())
-            .and_then(|()| {
-                if state.text.ends_with('\n') {
-                    Ok(())
-                } else {
-                    stdout.write_all(b"\n")
-                }
-            })
             .and_then(|()| stdout.flush());
         if result.is_err() {
             eprintln!("error: {}", wording::STDOUT_UNAVAILABLE);

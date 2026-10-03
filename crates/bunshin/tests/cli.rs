@@ -111,7 +111,7 @@ fn missing_instructions_print_the_default_and_reason_without_creating_files() {
     assert_eq!(result.status.code(), Some(0), "{}", stderr(&result));
     assert_eq!(
         stdout(&result),
-        format!("{}\n", bunshin_core::prompt::rules::DEFAULT_INSTRUCTIONS)
+        bunshin_core::prompt::rules::DEFAULT_INSTRUCTIONS
     );
     assert_eq!(
         stderr(&result),
@@ -121,6 +121,26 @@ fn missing_instructions_print_the_default_and_reason_without_creating_files() {
         )
     );
     assert_eq!(fs::read_dir(home.path()).expect("no files").count(), 0);
+}
+
+#[test]
+fn instructions_stdout_preserves_six_hundred_characters_without_a_final_newline() {
+    let home = tempfile::tempdir().expect("home");
+    let root = bunshin_platform::app_data_dir(home.path());
+    let text = "文".repeat(600);
+    bunshin_platform::FileInstructions::new(root.clone())
+        .ensure_default(&text)
+        .expect("private instructions");
+    let path = root.join("instructions.md");
+    let result = run(home.path(), &["instructions"]);
+    assert_eq!(result.status.code(), Some(0));
+    assert_eq!(result.stdout, text.as_bytes());
+    assert_eq!(stdout(&result).chars().count(), 600);
+    assert_eq!(
+        stderr(&result),
+        format!("ファイル: {}（600/600字）\n", path.display())
+    );
+    assert_eq!(fs::read(&path).expect("unchanged"), text.as_bytes());
 }
 
 #[test]
@@ -157,7 +177,7 @@ fn over_limit_instructions_print_the_complete_default_and_reason() {
     assert_eq!(result.status.code(), Some(0));
     assert_eq!(
         stdout(&result),
-        format!("{}\n", bunshin_core::prompt::rules::DEFAULT_INSTRUCTIONS)
+        bunshin_core::prompt::rules::DEFAULT_INSTRUCTIONS
     );
     assert_eq!(
         stderr(&result),
@@ -350,7 +370,7 @@ fn empty_instructions_print_the_default_and_edited_empty_text_is_saved() {
     assert_eq!(result.status.code(), Some(0));
     assert_eq!(
         stdout(&result),
-        format!("{}\n", bunshin_core::prompt::rules::DEFAULT_INSTRUCTIONS)
+        bunshin_core::prompt::rules::DEFAULT_INSTRUCTIONS
     );
     assert_eq!(
         stderr(&result),

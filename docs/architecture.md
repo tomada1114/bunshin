@@ -124,7 +124,8 @@ checkout, so it is a human's recipe. The command-line contract, which
   `[workspace.package]`.
 
 `bunshin instructions` reads `InstructionsState`: the complete selected text goes to
-stdout, and its source, file path and owner-text length go to stderr. Reads create no
+stdout unchanged, without adding a newline; its source, file path and owner-text
+length go to stderr. Reads create no
 files or logs. `bunshin instructions edit` initializes a missing `instructions.md`
 with core's default, launches the selected owner editor, waits, and validates the
 saved text. `VISUAL` precedes `EDITOR`; its shell text is trusted owner configuration,

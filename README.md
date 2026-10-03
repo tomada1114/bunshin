@@ -273,6 +273,7 @@ just install-cli  # install the bunshin binary into ~/.cargo/bin (a human's step
 
 Run `bunshin instructions` to print the instructions in use; stderr shows the file
 location and the reason if the shipped default is used. Reading creates nothing.
+Stdout preserves the selected UTF-8 text exactly, without adding a trailing newline.
 Run `bunshin instructions edit` to edit `instructions.md` in the app's data directory
 with `VISUAL`, or `EDITOR` when `VISUAL` is unset/empty. The first edit initializes
 core's short default, then waits for the editor. The file is private (0600), and new
