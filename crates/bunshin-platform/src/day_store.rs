@@ -46,12 +46,7 @@ impl JsonFileDayStore {
 
     fn prepare(&self) -> Result<(), DayStoreError> {
         for dir in [&self.data_dir, &days_dir(&self.data_dir)] {
-            DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(dir)
-                .map_err(unavailable)?;
-            fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(unavailable)?;
+            create_private_directory(dir).map_err(unavailable)?;
         }
         Ok(())
     }
@@ -162,6 +157,32 @@ fn unavailable(_: io::Error) -> DayStoreError {
     DayStoreError::Unavailable
 }
 
+fn create_private_directory(path: &Path) -> io::Result<()> {
+    if let Some(parent) = path.parent().filter(|path| !path.as_os_str().is_empty()) {
+        create_missing_parent(parent)?;
+    }
+    match DirBuilder::new().mode(0o700).create(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+    // Metadata without following the final entry protects external directories
+    // from chmod and subsequent writes through an accidental data/days symlink.
+    if !fs::symlink_metadata(path)?.is_dir() {
+        return Err(io::Error::from(io::ErrorKind::InvalidInput));
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+}
+
+fn create_missing_parent(path: &Path) -> io::Result<()> {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => Ok(()), // Existing ancestors are not ours to chmod.
+        Ok(_) => Err(io::Error::from(io::ErrorKind::NotADirectory)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => create_private_directory(path),
+        Err(error) => Err(error),
+    }
+}
+
 struct TemporaryFile {
     path: PathBuf,
     file: File,
@@ -180,7 +201,14 @@ impl TemporaryFile {
                 .mode(0o600)
                 .open(&path)
             {
-                Ok(file) => return Ok(Self { path, file }),
+                Ok(file) => {
+                    let temp = Self { path, file };
+                    // OpenOptions' mode is masked by the caller's umask. Enforce
+                    // owner read/write on the new descriptor before any rename.
+                    temp.file
+                        .set_permissions(fs::Permissions::from_mode(0o600))?;
+                    return Ok(temp);
+                }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
                 Err(error) => return Err(error),
             }

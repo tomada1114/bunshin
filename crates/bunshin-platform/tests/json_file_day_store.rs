@@ -317,6 +317,104 @@ fn a_lock_with_an_external_hard_link_is_refused() {
 }
 
 #[test]
+fn linked_storage_directories_never_change_the_external_target() {
+    for linked_root in [true, false] {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let root = scratch.path().join("data");
+        let outside = scratch.path().join("outside");
+        fs::create_dir(&outside).expect("external directory");
+        fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).expect("original mode");
+        fs::write(outside.join("document.txt"), b"unchanged").expect("external document");
+        let link = if linked_root {
+            root.clone()
+        } else {
+            fs::create_dir(&root).expect("root");
+            days_dir(&root)
+        };
+        std::os::unix::fs::symlink(&outside, &link).expect("linked storage");
+        let store = JsonFileDayStore::new(root, Tuning::default());
+        assert_eq!(
+            store.save(&Day::new(date(2026, 10, 2), Tuning::default())),
+            Err(DayStoreError::Unavailable)
+        );
+        assert!(matches!(store.take_lock(), Err(DayStoreError::Unavailable)));
+        assert_eq!(
+            fs::metadata(&outside)
+                .expect("unchanged permissions")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+        assert_eq!(
+            fs::read(outside.join("document.txt")).expect("unchanged bytes"),
+            b"unchanged"
+        );
+        assert_eq!(fs::read_dir(&outside).expect("no new file").count(), 1);
+        assert_eq!(fs::read_link(&link).expect("link preserved"), outside);
+    }
+}
+
+#[test]
+fn child_umask_save() {
+    let Some(root) = std::env::var_os("BUNSHIN_TEST_UMASK_ROOT") else {
+        return;
+    };
+    let store = JsonFileDayStore::new(root.into(), Tuning::default());
+    let day = Day::new(date(2026, 10, 2), Tuning::default());
+    store
+        .save(&day)
+        .expect("save under owner-bit-removing umask");
+    assert_eq!(
+        store.load(day.date()).expect("reload readable file").data(),
+        day.data()
+    );
+}
+
+#[test]
+fn owner_permissions_survive_an_owner_bit_removing_umask() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let root = bunshin_platform::macos_data_dir(scratch.path());
+    let result = Command::new("/bin/sh")
+        .args([
+            "-c",
+            "umask 0777; exec \"$1\" --exact child_umask_save --nocapture",
+            "sh",
+        ])
+        .arg(std::env::current_exe().expect("test binary"))
+        .env("BUNSHIN_TEST_UMASK_ROOT", &root)
+        .stdin(Stdio::null())
+        .output()
+        .expect("isolated umask child");
+    assert!(
+        result.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        fs::metadata(&root).expect("root").permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(days_dir(&root))
+            .expect("days")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(days_dir(&root).join("2026-10-02.json"))
+            .expect("day file")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+}
+
+#[test]
 fn child_lock_holder() {
     let Some(root) = std::env::var_os("BUNSHIN_TEST_LOCK_ROOT") else {
         return;
