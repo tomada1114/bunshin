@@ -3,6 +3,7 @@
 
 mod instructions;
 mod startup;
+mod today;
 mod tui;
 mod wording;
 
@@ -27,6 +28,13 @@ enum Command {
     /// Open the full-screen shell (needs an interactive terminal).
     #[command(about = wording::TUI_ABOUT)]
     Tui,
+    /// Read the logical day's task list without taking a writer lease.
+    #[command(about = wording::TODAY_ABOUT)]
+    Today {
+        /// Print the stable versioned task view as one JSON object.
+        #[arg(long,help=wording::TODAY_JSON_HELP)]
+        json: bool,
+    },
     /// Print the instructions in use, or edit the owner's file.
     #[command(about = wording::INSTRUCTIONS_ABOUT)]
     Instructions {
@@ -45,6 +53,7 @@ enum InstructionsCommand {
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Tui => tui(),
+        Command::Today { json } => today::run(json),
         Command::Instructions { command } => instructions::run(match command {
             None => false,
             Some(InstructionsCommand::Edit) => true,

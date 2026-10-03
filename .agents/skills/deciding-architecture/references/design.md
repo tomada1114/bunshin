@@ -72,6 +72,10 @@ Core's prompt module reuses the workspace's existing `serde_json` runtime depend
 for structured context and strict answer parsing. Its version and features stay
 unchanged; the platform already ships it for persisted JSON. No crate is added.
 
+The binary directly uses the existing workspace `serde_json` to write the public
+`TodayView`. This adds no package, version or feature to the shipped dependency graph;
+the platform already uses the same crate for day JSON.
+
 The binary's tests reuse the workspace's existing `bunshin-test-support` port
 fakes through a dev dependency. This shared test-only crate does not ship.
 

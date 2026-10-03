@@ -1,5 +1,5 @@
 //! The built binary's command-line contract, with an isolated home directory.
-use bunshin_core::instructions::InstructionsSource;
+use bunshin_core::{Clock, instructions::InstructionsSource};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -83,7 +83,7 @@ fn legacy_sample_data_is_ignored_and_preserved() {
 }
 
 #[test]
-fn help_lists_the_tui_instructions_and_help_subcommands() {
+fn help_lists_the_tui_today_instructions_and_help_subcommands() {
     let home = tempfile::tempdir().unwrap();
     let result = run(home.path(), &["--help"]);
     assert_eq!(result.status.code(), Some(0));
@@ -98,7 +98,7 @@ fn help_lists_the_tui_instructions_and_help_subcommands() {
         .lines()
         .filter_map(|line| line.split_whitespace().next())
         .collect();
-    assert_eq!(commands, ["tui", "instructions", "help"]);
+    assert_eq!(commands, ["tui", "today", "instructions", "help"]);
     assert_eq!(help.lines().next(), Some("ターミナルの秘書"));
     assert_eq!(stderr(&result), "");
 }
@@ -575,4 +575,306 @@ fn editing_six_hundred_one_whitespace_characters_reports_over_limit_and_retains_
         "error: 指示文が600字を超えています（601字）。直すまでは既定の指示文が使われます。\n"
     );
     assert_eq!(fs::read_to_string(source.path()).expect("preserved"), text);
+}
+
+fn today_store(home: &Path) -> bunshin_platform::JsonFileDayStore {
+    #[cfg(target_os = "macos")]
+    let root = home.join("Library/Application Support/io.github.tomada1114.bunshin");
+    #[cfg(not(target_os = "macos"))]
+    let root = home.join(".local/share/bunshin");
+    bunshin_platform::JsonFileDayStore::new(root, bunshin_core::Tuning::default())
+}
+fn empty_today() -> bunshin_core::day::Day {
+    use bunshin_core::Clock;
+    let tuning = bunshin_core::Tuning::default();
+    let date = bunshin_core::logical_date(
+        bunshin_platform::SystemClock.now().local,
+        tuning.day_boundary,
+    );
+    bunshin_core::day::Day::new(date, tuning)
+}
+fn seed_adjacent_days(
+    store: &dyn bunshin_core::day::store::DayStore,
+    day: &bunshin_core::day::Day,
+) -> Result<(), bunshin_core::day::store::DayStoreError> {
+    for date in [
+        day.date().yesterday().ok(),
+        Some(day.date()),
+        day.date().tomorrow().ok(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let mut file = bunshin_core::day::file::DayFile::from(day);
+        file.data.date = date;
+        let day = file.into_day(bunshin_core::Tuning::default())?;
+        store.save(&day)?;
+    }
+    Ok(())
+}
+#[test]
+fn today_reads_plain_task_rows_without_a_writer_lock_and_leaves_data_unchanged() {
+    use bunshin_core::day::{TaskKind, TaskOrigin, store::DayStore};
+    let home = tempfile::tempdir().unwrap();
+    let store = today_store(home.path());
+    let before = empty_today();
+    let now = bunshin_platform::SystemClock.now();
+    let (day, _) = before
+        .add(
+            "資料作成".into(),
+            TaskKind::Deadline,
+            Some(
+                now.local
+                    .time()
+                    .with()
+                    .hour(15)
+                    .minute(0)
+                    .second(0)
+                    .subsec_nanosecond(0)
+                    .build()
+                    .unwrap(),
+            ),
+            TaskOrigin::Key,
+            now.instant,
+        )
+        .unwrap();
+    let (day, _) = day
+        .add(
+            "全角の予定".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Chat,
+            now.instant,
+        )
+        .unwrap();
+    seed_adjacent_days(&store, &day).unwrap();
+    let _lease = store.take_lock().unwrap();
+    let result = run(home.path(), &["today"]);
+    assert_eq!(result.status.code(), Some(0), "{}", stderr(&result));
+    assert_eq!(stderr(&result), "");
+    assert_eq!(
+        stdout(&result),
+        "1  [ ]  〜15:00  資料作成\n2  [ ]           全角の予定\n"
+    );
+    assert_eq!(store.load(day.date()).unwrap().data(), day.data());
+}
+#[test]
+fn today_missing_data_is_empty_and_creates_no_files_even_in_json_mode() {
+    let home = tempfile::tempdir().unwrap();
+    let before = empty_today().date();
+    let result = run(home.path(), &["today"]);
+    assert_eq!(result.status.code(), Some(0));
+    assert_eq!(stdout(&result), "");
+    assert_eq!(stderr(&result), "");
+    let result = run(home.path(), &["today", "--json"]);
+    assert_eq!(result.status.code(), Some(0));
+    assert_eq!(stderr(&result), "");
+    let text = stdout(&result);
+    assert!(text.contains("\"format\":1"));
+    assert!(text.contains("\"tasks\":[]"));
+    let after = empty_today().date();
+    assert!(
+        text.contains(&format!("\"date\":\"{before}\""))
+            || text.contains(&format!("\"date\":\"{after}\""))
+    );
+    assert_eq!(fs::read_dir(home.path()).unwrap().count(), 0);
+}
+#[test]
+fn today_refuses_newer_and_unreadable_files_with_one_line_and_preserves_bytes() {
+    use bunshin_core::day::store::DayStore;
+    let home = tempfile::tempdir().unwrap();
+    let day = empty_today();
+    let store = today_store(home.path());
+    seed_adjacent_days(&store, &day).unwrap();
+    #[cfg(target_os = "macos")]
+    let directory = home
+        .path()
+        .join("Library/Application Support/io.github.tomada1114.bunshin/days");
+    #[cfg(not(target_os = "macos"))]
+    let directory = home.path().join(".local/share/bunshin/days");
+    for (bytes, line) in [
+        (
+            b"{\"format\":2}".as_slice(),
+            "error: 今日のデータを読めませんでした（ファイルの形式が新しすぎます）\n",
+        ),
+        (
+            b"not json".as_slice(),
+            "error: 今日のデータを読めませんでした（ファイルを確認してください）\n",
+        ),
+    ] {
+        let paths = fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        for path in &paths {
+            fs::write(path, bytes).unwrap();
+        }
+        for args in [&["today"][..], &["today", "--json"]] {
+            let result = run(home.path(), args);
+            assert_eq!(result.status.code(), Some(1));
+            assert_eq!(stdout(&result), "");
+            assert_eq!(stderr(&result), line);
+            for path in &paths {
+                assert_eq!(fs::read(path).unwrap(), bytes);
+            }
+        }
+    }
+    assert!(store.load(day.date()).is_err());
+}
+
+#[test]
+fn today_json_is_one_versioned_public_view_with_every_status_and_no_bookkeeping() {
+    use bunshin_core::day::{TaskKind, TaskOrigin, TaskStatus, file::DayFile};
+    let home = tempfile::tempdir().unwrap();
+    let store = today_store(home.path());
+    let now = bunshin_platform::SystemClock.now();
+    let at_ten = now
+        .local
+        .time()
+        .with()
+        .hour(10)
+        .minute(0)
+        .second(0)
+        .subsec_nanosecond(0)
+        .build()
+        .unwrap();
+    let (day, _) = empty_today()
+        .add(
+            "全角タスク".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Chat,
+            now.instant,
+        )
+        .unwrap();
+    let (day, _) = day
+        .add(
+            "終了".into(),
+            TaskKind::Appointment,
+            Some(at_ten),
+            TaskOrigin::Key,
+            now.instant,
+        )
+        .unwrap();
+    let (day, _) = day
+        .add(
+            "中止".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            now.instant,
+        )
+        .unwrap();
+    let (day, _) = day
+        .add(
+            "持ち越し".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            now.instant,
+        )
+        .unwrap();
+    let (day, _) = day.done(2, now.instant).unwrap();
+    let (day, _) = day.drop(3, now.instant).unwrap();
+    let (day, _) = day.drop(4, now.instant).unwrap();
+    let mut file = DayFile::from(&day);
+    file.data.tasks[3].status = TaskStatus::CarriedOver;
+    let day = file.into_day(bunshin_core::Tuning::default()).unwrap();
+    seed_adjacent_days(&store, &day).unwrap();
+    let before = empty_today().date();
+    let result = run(home.path(), &["today", "--json"]);
+    let after = empty_today().date();
+    assert_eq!(result.status.code(), Some(0));
+    assert_eq!(stderr(&result), "");
+    let text = stdout(&result);
+    assert_eq!(text.lines().count(), 1);
+    assert!(text.ends_with('\n'));
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(value["date"] == before.to_string() || value["date"] == after.to_string());
+    assert_eq!(
+        value,
+        serde_json::json!({"format":1,"date":value["date"],"tasks":[{"number":1,"title":"全角タスク","kind":"untimed","time":null,"status":"open"},{"number":2,"title":"終了","kind":"appointment","time":"10:00","status":"done"},{"number":3,"title":"中止","kind":"untimed","time":null,"status":"dropped"},{"number":4,"title":"持ち越し","kind":"untimed","time":null,"status":"carriedOver"}]})
+    );
+    let result = run(home.path(), &["today"]);
+    assert_eq!(
+        stdout(&result),
+        "1  [ ]           全角タスク\n2  [x]  10:00    終了\n3  [-]           中止\n4  [>]           持ち越し\n"
+    );
+}
+#[test]
+fn closed_today_stdout_is_a_runtime_error_for_plain_and_json_output() {
+    use bunshin_core::day::{TaskKind, TaskOrigin};
+    use std::os::{fd::OwnedFd, unix::net::UnixStream};
+    let home = tempfile::tempdir().unwrap();
+    let store = today_store(home.path());
+    let now = bunshin_platform::SystemClock.now();
+    let day = empty_today()
+        .add(
+            "資料".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            now.instant,
+        )
+        .unwrap()
+        .0;
+    seed_adjacent_days(&store, &day).unwrap();
+    for args in [&["today"][..], &["today", "--json"]] {
+        let (reader, writer) = UnixStream::pair().unwrap();
+        drop(reader);
+        let result = output({
+            let mut command = command(home.path(), args);
+            command.stdout(Stdio::from(OwnedFd::from(writer)));
+            command
+        });
+        assert_eq!(result.status.code(), Some(1));
+        assert_eq!(stderr(&result), "error: 標準出力に書き込めませんでした。\n");
+    }
+}
+#[test]
+fn today_help_and_missing_home_use_japanese_wording_and_bad_arguments_touch_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    let result = run(home.path(), &["today", "--help"]);
+    assert_eq!(result.status.code(), Some(0));
+    let help = stdout(&result);
+    assert!(help.contains("今日のタスクを読み取って表示する"));
+    assert!(help.contains("形式バージョン付きの JSON を表示する"));
+    assert_eq!(stderr(&result), "");
+    let mut no_home = command(home.path(), &["today"]);
+    no_home.env_remove("HOME");
+    let result = output(no_home);
+    assert_eq!(result.status.code(), Some(1));
+    assert_eq!(stdout(&result), "");
+    assert_eq!(
+        stderr(&result),
+        "error: HOME が設定されていないため、今日のデータの場所が分かりません。\n"
+    );
+    let result = run(home.path(), &["today", "--bad-flag"]);
+    assert_eq!(result.status.code(), Some(2));
+    assert_eq!(stdout(&result), "");
+    assert_eq!(fs::read_dir(home.path()).unwrap().count(), 0);
+}
+#[test]
+fn today_plain_rows_keep_control_characters_from_splitting_or_controlling_the_terminal() {
+    use bunshin_core::day::{TaskKind, TaskOrigin};
+    let home = tempfile::tempdir().unwrap();
+    let store = today_store(home.path());
+    let now = bunshin_platform::SystemClock.now();
+    let day = empty_today()
+        .add(
+            "一行\n改行\t\u{1b}末尾".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            now.instant,
+        )
+        .unwrap()
+        .0;
+    seed_adjacent_days(&store, &day).unwrap();
+    let result = run(home.path(), &["today"]);
+    assert_eq!(result.status.code(), Some(0));
+    assert_eq!(stdout(&result), "1  [ ]           一行 改行  末尾\n");
+    let json = run(home.path(), &["today", "--json"]);
+    let value: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(value["tasks"][0]["title"], "一行\n改行\t\u{1b}末尾");
 }

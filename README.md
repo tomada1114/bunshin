@@ -42,6 +42,16 @@ the full-screen view in the terminal you run it from. Tab moves to the task pane
 `q` quits from the task pane; Ctrl+C quits from anywhere. Chat and model-driven
 interaction are forthcoming.
 
+Read the saved logical day's tasks without opening a screen:
+
+```bash
+cargo run -p bunshin -- today
+cargo run -p bunshin -- today --json
+```
+
+These commands take no writer lock. Before 04:00 they read the previous day's file.
+A missing day prints nothing in plain output and an empty task list in JSON.
+
 ## Day data
 
 The TUI stores its day outside the checkout: on macOS in

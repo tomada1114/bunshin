@@ -3,6 +3,7 @@ pub mod change;
 pub mod file;
 mod serde_civil;
 pub mod store;
+pub mod today_view;
 
 use crate::{Tuning, UnixMillis};
 pub use change::{Change, ChangeSet};

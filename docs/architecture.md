@@ -207,7 +207,24 @@ private.
 | **Core's public API** — public items reachable from `crates/bunshin-core/src/lib.rs`, including `day`'s transitions, `TaskView` and file DTOs, the shared `Tuning`, `LanguageModel`, `ModelRequest`, `ModelAnswer`, `Availability`, `UnavailableReason`, `ModelError`, `CancelFlag`, and the clock and shell APIs | `bunshin-platform`, `bunshin-test-support`, `bunshin`, and their tests | Update every caller in the same pull request; the compiler finds them. A new port is a recorded decision. |
 | **The data and log locations** — the bundle identifier `io.github.tomada1114.bunshin` (`BUNDLE_IDENTIFIER` in `crates/bunshin-platform/src/paths.rs` and `bundle_id` in the justfile) and the XDG directory name `bunshin` (`XDG_APP_NAME`) | Where the tool's files are on a machine that ran it: on macOS `~/Library/Application Support/io.github.tomada1114.bunshin/` and `~/Library/Logs/io.github.tomada1114.bunshin/` (and any privacy grant, keyed by the identifier); on Linux `$XDG_DATA_HOME/bunshin/` and `$XDG_STATE_HOME/bunshin/logs/` | Fixed once the tool has run anywhere but your checkout: a new name leaves the user's data behind under the old one. Changing it is a human's decision, recorded as a decision (`deciding-architecture`); the bootstrap sets both once. |
 | **On-disk file formats** — see below | Files already on a user's disk; `just logs` and anyone reading the logs | A new version still reads the old format: a format version and a migration, with a test that reads a sample of the previous format. |
-| **The command line** — `bunshin tui`, `--help`, `--version`, what goes to stdout and what to stderr, and the exit codes (0 success, 1 the action failed, 2 a usage error) — see [The binary](#the-binary) | A person, a script, or a scheduled job that runs `bunshin` | Keep the old form working, or treat the change as breaking and say so in `CHANGELOG.md`. |
+| **The command line** — `bunshin tui`, `bunshin today [--json]`, `--help`, `--version`, what goes to stdout and what to stderr, and the exit codes (0 success, 1 the action failed, 2 a usage error) — see [The binary](#the-binary) | A person, a script, or a scheduled job that runs `bunshin` | Keep the old form working, or treat the change as breaking and say so in `CHANGELOG.md`. |
+
+### Read-only task output
+
+`bunshin today` reads the logical date once from `Clock`, then loads that day through
+`DayStore` without taking a writer lease or initializing logging. It prints tasks in
+pane order: number, status mark, time, full title. Untimed rows have a blank time field.
+Control characters become spaces in plain output so a saved title cannot split a row
+or issue terminal control sequences; full-width text remains unchanged.
+
+`bunshin today --json` writes one object and a final newline:
+`format` (currently 1), `date` (the logical date), and `tasks` (number, title, kind,
+time, status). Time is an HH:MM string or null. JSON preserves the complete title.
+This output is core's `TodayView`, independently versioned from day files; origins,
+messages, triggers and other persisted bookkeeping stay outside the output contract.
+A missing day is empty: plain output has no bytes, while JSON has an empty task array.
+Unreadable or unsupported data returns one Japanese `error:` line and exit 1; files
+remain unchanged. Failed stdout writes also return exit 1 without a panic.
 
 ### On-disk file formats
 

@@ -68,6 +68,10 @@ To run `bunshin` from any directory, `just install-cli` installs it into `~/.car
 a human's recipe that no check and no agent runs unasked. There is no other
 distribution: no release artifacts, no installer.
 
+Read today's saved task list with `cargo run -p bunshin -- today`, or add `--json`
+for its stable versioned task view. The command works while a screen holds the writer
+lock. It does not create a missing day, change files, or invoke the model.
+
 ## Permissions (TCC)
 
 The sample asks for no privacy permission. When an app cut from the template does on

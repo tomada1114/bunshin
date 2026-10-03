@@ -205,6 +205,15 @@ why), and **Sources** where an external fact carried weight.
   Unicode handling and strict validation already supplied by the existing crate;
   parsing domain proposals in platform — moves core decisions outside its tests.
 
+### 2026-10-03 — Reuse existing serde_json for the public task output
+
+- **Decided:** the binary directly reuses the workspace's existing `serde_json`
+  to serialize the independently versioned core task view. The owner explicitly
+  accepted this reuse on 2026-10-03; no package, version or feature is introduced.
+- **Rejected:** serializing the persisted day object — exposes bookkeeping and
+  couples script output to storage; hand-written JSON formatting — duplicates
+  escaping and risks invalid output for complete owner titles.
+
 ### 2026-10-03 — Reuse shared port fakes in binary tests
 
 - **Decided:** the binary takes the existing workspace `bunshin-test-support`
