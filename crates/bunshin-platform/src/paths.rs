@@ -82,6 +82,12 @@ pub fn log_dir(home: &Path) -> PathBuf {
     }
 }
 
+/// The owner's plain UTF-8 instructions inside the application data directory.
+#[must_use]
+pub fn instructions_file(root: &Path) -> PathBuf {
+    root.join("instructions.md")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

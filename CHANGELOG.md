@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `bunshin instructions` shows the text in use and its source; `bunshin instructions
+  edit` initializes an owner-only file and opens `VISUAL`, then `EDITOR`. Missing,
+  empty or over-600-character text uses the shipped default without truncating the
+  owner's file. Saved text is checked before the next call uses it.
+
 - A synchronous on-device model port with a macOS `fm` adapter, timeout and
   cancellation, typed availability, and a scripted fake for app development.
 

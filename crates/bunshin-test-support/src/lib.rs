@@ -10,7 +10,9 @@
 //! compare `Result`s with `assert_eq!` instead of unwrapping.
 
 mod clock;
+mod instructions;
 mod language_model;
 
 pub use clock::{FixedClock, clock_contract};
+pub use instructions::{InMemoryInstructions, instructions_contract, instructions_text};
 pub use language_model::{ScriptedLanguageModel, language_model_contract};

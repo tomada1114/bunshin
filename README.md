@@ -246,3 +246,17 @@ just install-cli  # install the bunshin binary into ~/.cargo/bin (a human's step
 ## License
 
 [MIT](LICENSE)
+
+
+### Owner instructions
+
+Run `bunshin instructions` to print the instructions in use; stderr shows the file
+location and the reason if the shipped default is used. Reading creates nothing.
+Run `bunshin instructions edit` to edit `instructions.md` in the app's data directory
+with `VISUAL`, or `EDITOR` when `VISUAL` is unset/empty. The first edit initializes
+core's short default, then waits for the editor. The file is private (0600), and new
+application directories are 0700. Missing, whitespace-only or over-600-character text
+uses the default; over-limit text stays in the file until the owner shortens it.
+Characters count Unicode scalars, including whitespace and newlines. Flags such as
+`VISUAL="code --wait"` work; paths containing spaces or shell punctuation are passed
+as an argument. Set the editor deliberately: its value is owner-provided shell code.

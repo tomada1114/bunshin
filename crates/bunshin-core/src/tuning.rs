@@ -19,6 +19,8 @@ pub struct Tuning {
     pub day_boundary: Time,
     /// Maximum model call and availability-probe wait; callers may tune it.
     pub model_timeout: Duration,
+    /// Six hundred Unicode scalar values reserve a compact owner instructions block.
+    pub instructions_max_chars: usize,
 }
 
 impl Default for Tuning {
@@ -29,6 +31,7 @@ impl Default for Tuning {
             day: DayTuning::shipped(),
             day_boundary: DEFAULT_DAY_BOUNDARY,
             model_timeout: DEFAULT_MODEL_TIMEOUT,
+            instructions_max_chars: 600,
         }
     }
 }
