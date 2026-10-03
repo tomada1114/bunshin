@@ -64,6 +64,7 @@ dependencies = [
  "bunshin-platform",
  "clap",
  "ratatui",
+ "serde_json",
  "tempfile",
  "tracing",
 ]
