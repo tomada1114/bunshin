@@ -29,6 +29,36 @@ fn missing_day_is_empty_and_readers_create_nothing() {
 }
 
 #[test]
+fn dangling_day_symlinks_are_refused_and_preserved() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let store = JsonFileDayStore::new(scratch.path().into(), Tuning::default());
+    fs::create_dir_all(days_dir(scratch.path())).expect("days");
+    let path = days_dir(scratch.path()).join("2026-10-02.json");
+    let missing = scratch.path().join("missing-target.json");
+    std::os::unix::fs::symlink(&missing, &path).expect("dangling day entry");
+    assert_eq!(
+        store.load(date(2026, 10, 2)),
+        Err(DayStoreError::Unreadable)
+    );
+    assert_eq!(
+        store.save(&Day::new(date(2026, 10, 2), Tuning::default())),
+        Err(DayStoreError::Unreadable)
+    );
+    assert_eq!(
+        store.last_before(date(2026, 10, 3)),
+        Err(DayStoreError::Unreadable)
+    );
+    assert!(
+        fs::symlink_metadata(&path)
+            .expect("entry preserved")
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read_link(&path).expect("target preserved"), missing);
+    assert!(!missing.exists());
+}
+
+#[test]
 fn save_replaces_the_whole_day_and_creates_private_directories_and_files() {
     let scratch = tempfile::tempdir().expect("scratch");
     let root = bunshin_platform::macos_data_dir(scratch.path());

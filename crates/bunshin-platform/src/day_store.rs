@@ -51,7 +51,15 @@ impl JsonFileDayStore {
     fn read(&self, date: Date) -> Result<Option<Day>, DayStoreError> {
         let bytes = match fs::read(self.day_path(date)) {
             Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                // A dangling symlink is an existing unreadable day, not an absent
+                // entry. Never replace it when save preflights the same read.
+                return match fs::symlink_metadata(self.day_path(date)) {
+                    Ok(_) => Err(DayStoreError::Unreadable),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+                    Err(error) => Err(unavailable(error)),
+                };
+            }
             Err(error) => return Err(unavailable(error)),
         };
         let header: FormatHeader =
