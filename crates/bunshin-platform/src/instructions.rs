@@ -66,6 +66,19 @@ impl FileInstructions {
         }
         Ok(Some(file))
     }
+    fn publish_default(&self, temp: TemporaryInstructions) -> Result<(), InstructionsError> {
+        // Publish a complete file exclusively: concurrent initialization or an
+        // owner edit cannot be overwritten by our default. Drop removes our link.
+        match fs::hard_link(&temp.path, self.path()) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(_) => return Err(InstructionsError::Unavailable),
+        }
+        // Remove our extra link before checking nlink. A concurrent winner must
+        // pass the same no-follow/regular/single-link checks as an existing file.
+        drop(temp);
+        self.protect_after_edit()
+    }
 }
 impl InstructionsSource for FileInstructions {
     fn read(&self, visit: &mut dyn FnMut(&str)) -> Result<bool, InstructionsError> {
@@ -99,13 +112,7 @@ impl InstructionsSource for FileInstructions {
             .and_then(|()| file.flush())
             .and_then(|()| file.sync_all())
             .map_err(|_| InstructionsError::Unavailable)?;
-        // Publish a complete file exclusively: concurrent initialization or an
-        // owner edit cannot be overwritten by our default. Drop removes our link.
-        match fs::hard_link(&temp.path, self.path()) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
-            Err(_) => Err(InstructionsError::Unavailable),
-        }
+        self.publish_default(temp)
     }
     fn path(&self) -> PathBuf {
         instructions_file(&self.root)
@@ -204,5 +211,84 @@ pub fn run_editor(editor: &str, path: &Path) -> Result<(), EditorError> {
         Err(EditorError::Exited {
             code: status.code(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn concurrent_unsafe_initialization_winners_are_refused_without_touching_targets() {
+        for kind in ["symlink", "hardlink", "directory"] {
+            let scratch = tempfile::tempdir().expect("scratch");
+            let root = scratch.path().join("data");
+            create_private_directory(&root).expect("private root");
+            let source = FileInstructions::new(root.clone());
+            assert!(source.existing().expect("initially absent").is_none());
+            let mut temp = TemporaryInstructions::create(&root).expect("default temporary file");
+            temp.file.write_all(b"default").expect("complete default");
+            let external = scratch.path().join("external");
+            fs::write(&external, b"external owner's text").expect("external text");
+            fs::set_permissions(&external, fs::Permissions::from_mode(0o640))
+                .expect("external mode");
+            match kind {
+                "symlink" => symlink(&external, source.path()).expect("concurrent link"),
+                "hardlink" => {
+                    fs::hard_link(&external, source.path()).expect("concurrent hard link");
+                }
+                "directory" => fs::create_dir(source.path()).expect("concurrent directory"),
+                _ => unreachable!("test kinds"),
+            }
+            assert_eq!(
+                source.publish_default(temp),
+                Err(InstructionsError::UnsafeEntry)
+            );
+            assert_eq!(
+                fs::read(&external).expect("preserved external text"),
+                b"external owner's text"
+            );
+            assert_eq!(
+                fs::metadata(&external)
+                    .expect("external metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o640
+            );
+            assert_eq!(fs::read_dir(&root).expect("temporary removed").count(), 1);
+        }
+    }
+
+    #[test]
+    fn a_concurrent_regular_initialization_winner_is_preserved_and_protected() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let source = FileInstructions::new(scratch.path().into());
+        let mut temp =
+            TemporaryInstructions::create(scratch.path()).expect("default temporary file");
+        temp.file.write_all(b"default").expect("complete default");
+        fs::write(source.path(), b"concurrent owner's text").expect("concurrent owner file");
+        fs::set_permissions(source.path(), fs::Permissions::from_mode(0o644))
+            .expect("initial mode");
+        assert_eq!(source.publish_default(temp), Ok(()));
+        assert_eq!(
+            fs::read(source.path()).expect("preserved text"),
+            b"concurrent owner's text"
+        );
+        assert_eq!(
+            fs::metadata(source.path())
+                .expect("private file")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::read_dir(scratch.path())
+                .expect("temporary removed")
+                .count(),
+            1
+        );
     }
 }
