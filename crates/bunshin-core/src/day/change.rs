@@ -42,3 +42,22 @@ pub(super) struct UndoEntry {
     pub snapshot: Snapshot,
     pub changes: Vec<Change>,
 }
+
+impl super::Day {
+    /// Collapse a model message's already validated transitions into one session
+    /// entry, retaining consumed identifiers and all pre-existing undo history.
+    pub(crate) fn group_changes(
+        mut self,
+        original: &Self,
+        changes: Vec<Change>,
+        at: UnixMillis,
+    ) -> (Self, Option<ChangeSet>) {
+        if changes.is_empty() {
+            return (self, None);
+        }
+        self.undo.clone_from(&original.undo);
+        self.data.messages.truncate(original.data.messages.len());
+        let (day, set) = self.record(original.snapshot(), changes, at);
+        (day, Some(set))
+    }
+}

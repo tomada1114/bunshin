@@ -195,6 +195,16 @@ why), and **Sources** where an external fact carried weight.
   falsely implies that the old file remains and can mislead retry and quit handling;
   treating the failure as success — hides the unconfirmed durability.
 
+### 2026-10-03 — Reuse existing serde_json in core prompt handling
+
+- **Decided:** reuse the workspace's existing `serde_json` as a normal dependency
+  of core for structured prompt context and strict answer-envelope parsing. The
+  owner explicitly accepted this reuse on 2026-10-03; the version, features and
+  already-shipped packages stay unchanged.
+- **Rejected:** a hand-written JSON encoder and parser — duplicates escaping,
+  Unicode handling and strict validation already supplied by the existing crate;
+  parsing domain proposals in platform — moves core decisions outside its tests.
+
 ### 2026-10-03 — Reuse existing serde_json for the public task output
 
 - **Decided:** the binary directly reuses the workspace's existing `serde_json`
