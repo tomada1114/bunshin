@@ -206,6 +206,14 @@ Format one ignores unknown fields and validates task invariants when converted t
 `Day`. No older day format has shipped: zero is explicitly unsupported, with no guessed
 migration. A future format must define how to read format one before it can replace it.
 
+Day files have no size cap. Whole-file reading and replacement can exhaust memory or
+other resources for very large files. Saves sync a private temporary file, rename it,
+then sync the containing directory. A failure before publication leaves the previous
+file intact; `PublishedButNotDurable` means the complete replacement is already visible
+but directory sync failed, so crash durability is unconfirmed. Its serialized error
+code is `publishedButNotDurable`. The OS writer lease determines exclusion; its stored
+PID is advisory and can be absent or stale before the new holder publishes it.
+
 Legacy sample files are ignored and never deleted. The empty shell reads no stored
 application state; future persistence adapters use the versioned day DTO above.
 

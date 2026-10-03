@@ -9,6 +9,18 @@ pub const BUNDLE_IDENTIFIER: &str = "io.github.tomada1114.bunshin";
 /// with the slug, and the justfile's `log_dir` uses the same name.
 pub const XDG_APP_NAME: &str = "bunshin";
 
+/// Whole-day JSON files under the resolved application data directory.
+#[must_use]
+pub fn days_dir(data: &Path) -> PathBuf {
+    data.join("days")
+}
+
+/// The single writer's lifetime lock under the application data directory.
+#[must_use]
+pub fn lock_file(data: &Path) -> PathBuf {
+    data.join("tui.lock")
+}
+
 /// The user's home directory, from `HOME`. Tests point `HOME` at a temporary directory,
 /// so nothing they run touches the real home directory.
 #[must_use]

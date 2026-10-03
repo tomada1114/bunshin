@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   empty or over-600-character text uses the shipped default without truncating the
   owner's file. Saved text is checked before the next call uses it.
 
+- A whole-day JSON store with private files, atomic replacement, and an OS-managed
+  writer lease. `PublishedButNotDurable` distinguishes a visible replacement whose
+  directory sync failed; day files remain unlimited and lock PIDs are advisory.
+
 - A synchronous on-device model port with a macOS `fm` adapter, timeout and
   cancellation, typed availability, and a scripted fake for app development.
 

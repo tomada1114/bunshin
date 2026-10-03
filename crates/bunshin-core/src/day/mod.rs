@@ -2,6 +2,7 @@
 pub mod change;
 pub mod file;
 mod serde_civil;
+pub mod store;
 
 use crate::{Tuning, UnixMillis};
 pub use change::{Change, ChangeSet};
