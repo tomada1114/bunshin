@@ -50,6 +50,16 @@ impl JsonFileDayStore {
         }
         Ok(())
     }
+    fn validate_directories(&self) -> Result<(), DayStoreError> {
+        for dir in [&self.data_dir, &days_dir(&self.data_dir)] {
+            match fs::symlink_metadata(dir) {
+                Ok(metadata) if metadata.is_dir() => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Ok(_) | Err(_) => return Err(DayStoreError::Unavailable),
+            }
+        }
+        Ok(())
+    }
     fn day_path(&self, date: Date) -> PathBuf {
         days_dir(&self.data_dir).join(format!("{date}.json"))
     }
@@ -62,6 +72,7 @@ impl JsonFileDayStore {
     }
 
     fn read(&self, date: Date) -> Result<Option<Day>, DayStoreError> {
+        self.validate_directories()?;
         let path = self.day_path(date);
         match fs::symlink_metadata(&path) {
             Ok(metadata) if metadata.is_file() => {}
@@ -113,6 +124,7 @@ impl DayStore for JsonFileDayStore {
         replace_file(&self.day_path(day.date()), |file| file.write_all(&bytes)).map_err(unavailable)
     }
     fn last_before(&self, date: Date) -> Result<Option<Day>, DayStoreError> {
+        self.validate_directories()?;
         let entries = match fs::read_dir(days_dir(&self.data_dir)) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -249,11 +261,18 @@ fn replace_file(
     destination: &Path,
     write: impl FnOnce(&mut File) -> io::Result<()>,
 ) -> io::Result<()> {
+    // Open before publication so an inaccessible directory cannot replace the old
+    // day. Sync the directory entry after rename before reporting success.
+    let parent = destination
+        .parent()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let directory = File::open(parent)?;
     let mut temp = TemporaryFile::create(destination)?;
     write(&mut temp.file)?;
     temp.file.flush()?;
     temp.file.sync_all()?;
-    fs::rename(&temp.path, destination)
+    fs::rename(&temp.path, destination)?;
+    directory.sync_all()
 }
 
 #[cfg(test)]

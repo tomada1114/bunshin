@@ -511,3 +511,45 @@ fn non_regular_day_entries_are_refused_without_reading_streams() {
     bunshin_test_support::day_store_refusal_contract(&store, day.date(), DayStoreError::Unreadable);
     assert!(path.is_dir());
 }
+
+#[test]
+fn linked_storage_directories_are_refused_by_readers_without_side_effects() {
+    for linked_root in [true, false] {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let external = scratch.path().join("external");
+        let external_store = JsonFileDayStore::new(external.clone(), Tuning::default());
+        let day = Day::new(date(2026, 10, 2), Tuning::default());
+        external_store.save(&day).expect("external valid day");
+        let root = scratch.path().join("data");
+        let (link, target) = if linked_root {
+            (root.clone(), external.clone())
+        } else {
+            fs::create_dir(&root).expect("root");
+            (days_dir(&root), days_dir(&external))
+        };
+        std::os::unix::fs::symlink(&target, &link).expect("storage link");
+        let store = JsonFileDayStore::new(root, Tuning::default());
+        assert_eq!(store.load(day.date()), Err(DayStoreError::Unavailable));
+        assert_eq!(
+            store.last_before(date(2026, 10, 3)),
+            Err(DayStoreError::Unavailable)
+        );
+        assert_eq!(fs::read_link(&link).expect("unchanged link"), target);
+        assert_eq!(
+            external_store
+                .load(day.date())
+                .expect("unchanged external")
+                .data(),
+            day.data()
+        );
+        fs::remove_file(&link).expect("replace link");
+        let absent = scratch.path().join("absent");
+        std::os::unix::fs::symlink(&absent, &link).expect("dangling storage link");
+        assert_eq!(store.load(day.date()), Err(DayStoreError::Unavailable));
+        assert_eq!(
+            store.last_before(date(2026, 10, 3)),
+            Err(DayStoreError::Unavailable)
+        );
+        assert!(!absent.exists());
+    }
+}
