@@ -213,3 +213,11 @@ why), and **Sources** where an external fact carried weight.
 - **Rejected:** serializing the persisted day object — exposes bookkeeping and
   couples script output to storage; hand-written JSON formatting — duplicates
   escaping and risks invalid output for complete owner titles.
+
+### 2026-10-03 — Reuse shared port fakes in binary tests
+
+- **Decided:** the binary takes the existing workspace `bunshin-test-support`
+  as a dev dependency for TUI and CLI tests against the shared port fakes. The
+  owner explicitly accepted this reuse on 2026-10-03. It does not ship.
+- **Rejected:** duplicating fakes inside the binary — separates them from the
+  shared port contracts and creates a second implementation to keep consistent.

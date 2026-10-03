@@ -26,8 +26,9 @@
 | C4 | `bunshin tui` refusing to start | stderr | §3.7, building-tuis |
 
 There is no settings screen (the starting values live in code; the instructions are
-edited in the owner's editor) and no confirmation dialog: every change is undoable, and
-the day is written on every change, so quitting loses nothing.
+edited in the owner's editor) and no general confirmation dialog: every change is undoable. A save failure or
+unconfirmed durability asks once on the help line before quitting
+(`ux-guidelines.md`, States).
 
 ## 2. Layout of the main screen (T1)
 
@@ -35,7 +36,7 @@ the day is written on every change, so quitting loses nothing.
 |---|---|
 | Header | one row: the app name, the **logical** date (from 00:00 to 03:59 it still shows the previous day) and the clock on the left; status items on the right, in this order, each omitted when it does not apply: 受信箱 N, 保留 N (a message held while typing), 保存できません, ミュート中 〜HH:MM, 時間外（HH:MM から）, 次の見回り HH:MM (— when none is planned), and the model's state: 待機中, 考え中…, or モデル: 使えません |
 | Wide (≥ 100 columns) | the task pane takes the left 36 columns at full height; the chat and the input share the right side |
-| Narrow (60–99 columns) | the task pane spans the width above the chat, as tall as its rows plus its border, at most 12 rows (10 tasks; beyond that it scrolls with the selection) |
+| Narrow (60–99 columns) | the task pane spans the width above the chat, as tall as its rows plus its border, at most 12 rows (10 tasks; beyond that it scrolls with the selection), shortened when needed to leave an error row and the input visible |
 | Too small (< 60 × 18) | only the "too small" message; nothing panics (T1-e) |
 | Input | under the chat; one line of text growing to three as the text wraps; its title carries the reply target and a length indicator against 400 characters |
 | Help line | the last row: the keys of the focused region, from core's key table, in the order of §4; in the task pane `? 全キー` comes first so a narrow terminal never cuts it off |
@@ -445,14 +446,17 @@ exit code, and the file is checked as it was left.
 
 ### C4 `bunshin tui` refusing to start
 
-Both exit 1 before touching the terminal or the data.
+Both exit 1 before touching the terminal or day data. The noninteractive refusal
+precedes all file I/O. The writer lease is taken before loading a day, so a locked
+startup reads no day file. Its PID is advisory and may be absent or stale while a
+new holder publishes it; only the OS lock determines exclusion.
 
 ```
 $ bunshin tui < /dev/null
 error: bunshin tui は端末の中で実行してください
 
 $ bunshin tui
-error: bunshin tui はすでに起動しています（PID 4821）
+error: bunshin tui はすでに起動しています（参考 PID 4821）。PID は起動直後に前回の値を示す場合があります。
 ```
 
 ## 4. Key table

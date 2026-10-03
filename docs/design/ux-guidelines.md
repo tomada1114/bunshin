@@ -70,6 +70,8 @@ Copy is in Japanese, です・ます (see Language and copy); wording lives in t
 | Muted | `m`, or a mute by chat | 「ミュート中 〜HH:MM」 in the header; a change line | `m` to unmute | 「ミュート 〜16:31（m で解除）」 |
 | Held while typing | an unprompted message is due while the input has text | 「保留 N」 in the header | send or clear | — |
 | Save failing | a write of the day fails | 「保存できません」 in the header until a write succeeds; one エラー row with the cause; state kept in memory and written again on every change | free disk space, fix permissions | 「保存できませんでした（<cause>）。変更は画面に残っていて、次の変更のときにもう一度保存します。」 |
+| Durability unconfirmed | directory sync fails after the complete new day becomes visible | 「保存済み・耐久性未確認」 in the header, a distinct error row and retry on the next change | inspect storage; next change retries | 「新しいデータは保存済みですが、耐久性は未確認です。次の変更のときにもう一度保存します。」 |
+| Quit while durability is unconfirmed | `q` or Ctrl+C with the durability flag | a distinct confirmation on the help line | `y` quits, any other key stays | 「保存済み・耐久性未確認です。終了しますか？（y で終了）」 |
 | Quit while saves fail | `q` or Ctrl+C with 「保存できません」 showing | the only confirmation in the app, on the help line | `y` quits, any other key stays | 「保存できていない変更があります。終了しますか？（y で終了）」 |
 | Day data unreadable | a day file is corrupt or of a newer format at start | the TUI does not start: stderr and exit 1; the file is never overwritten | fix or move the file | 「error: <path> を読めませんでした（<cause>）。ファイルはそのままです。」 |
 | Too small | under 60 × 18 | T1-e | widen the terminal | 「端末が小さすぎます」「60×18 以上に広げてください」 |

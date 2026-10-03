@@ -284,6 +284,14 @@ pub enum DayError {
 }
 
 impl Day {
+    /// Number of tasks still open, independent of display order or creation history.
+    #[must_use]
+    pub fn open_task_count(&self) -> usize {
+        self.tasks()
+            .iter()
+            .filter(|task| task.status == TaskStatus::Open)
+            .count()
+    }
     /// An empty logical day, with no clock or storage read.
     #[must_use]
     pub fn new(date: Date, tuning: Tuning) -> Self {
@@ -307,6 +315,9 @@ impl Day {
     #[must_use]
     pub fn messages(&self) -> &[Message] {
         &self.data.messages
+    }
+    pub(crate) fn append_message(&mut self, message: Message) {
+        self.data.messages.push(message);
     }
     /// Every persisted field, read-only; session undo is excluded.
     #[must_use]

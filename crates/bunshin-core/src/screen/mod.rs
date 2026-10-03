@@ -1,7 +1,9 @@
 //! Pure task-pane state: keys change one Day or request an effect, never call a model.
 pub mod help;
 pub mod keys;
+mod persistence;
 pub mod task_form;
+pub use persistence::SaveState;
 
 use crate::day::{ChangeSet, Day, DayError, TaskOrigin, TaskStatus, TaskView};
 use crate::{Now, Tuning, UnixMillis};
@@ -47,6 +49,8 @@ pub struct MainScreen {
     error: Option<ScreenError>,
     last_change: Option<ChangeSet>,
     finished: bool,
+    save_state: SaveState,
+    confirming_quit: bool,
 }
 impl MainScreen {
     /// Start in the input with the first display row selected, without reading I/O.
@@ -66,6 +70,8 @@ impl MainScreen {
             error: None,
             last_change: None,
             finished: false,
+            save_state: SaveState::Saved,
+            confirming_quit: false,
         }
     }
     /// Day to render or persist after a Save effect.
@@ -111,6 +117,14 @@ impl MainScreen {
             return (self, Vec::new());
         }
         let command_key = key.normalized();
+        if self.confirming_quit {
+            self.confirming_quit = false;
+            if command_key == ScreenKey::Char('y') {
+                self.finished = true;
+                return (self, vec![Effect::Quit]);
+            }
+            return (self, Vec::new());
+        }
         let action = action_for(command_key, KeyRegion::Anywhere).or_else(|| match self.focus {
             Focus::Input => action_for(command_key, KeyRegion::Main),
             Focus::Tasks => action_for(command_key, KeyRegion::Tasks)
@@ -136,8 +150,12 @@ impl MainScreen {
     ) {
         match action {
             ScreenAction::Quit => {
-                self.finished = true;
-                effects.push(Effect::Quit);
+                if self.save_state == SaveState::Saved {
+                    self.finished = true;
+                    effects.push(Effect::Quit);
+                } else {
+                    self.confirming_quit = true;
+                }
             }
             ScreenAction::Undo => self.accept(self.day.clone().undo(at), effects),
             ScreenAction::MoveFocus => {
