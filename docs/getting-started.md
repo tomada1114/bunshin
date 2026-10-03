@@ -35,7 +35,7 @@ The first `cargo` command installs the Rust toolchain `rust-toolchain.toml` pins
 ```bash
 just check       # the full local gate, in CI's order; takes over no terminal
 just test        # core and xtask, with their coverage floors
-just test-fast increment   # one core test or a group of them
+just test-fast logical_date   # one core test or a group of them
 just lint        # rustfmt, clippy -D warnings
 just fmt         # format everything
 ```
@@ -48,18 +48,15 @@ just fmt         # format everything
 just logs        # the newest log file's last lines
 ```
 
-On macOS the tool keeps its data in
-`~/Library/Application Support/io.github.tomada1114.bunshin/counter.json` and its logs in
-`~/Library/Logs/io.github.tomada1114.bunshin/`; on Linux, in `$XDG_DATA_HOME/bunshin/counter.json`
-(default `~/.local/share/bunshin/`) and `$XDG_STATE_HOME/bunshin/logs/` (default
-`~/.local/state/bunshin/logs/`). Deleting `counter.json` starts the counter over.
-
-The `bunshin` binary reads and writes that file:
+The shell opens an empty day and offers `q` and Ctrl+C to quit. The clock adapter
+and deterministic day model remain available for the next product features; the shell
+reads no day file. Data-directory conventions remain unchanged, and old sample data
+is left untouched. Logs go to `~/Library/Logs/io.github.tomada1114.bunshin/` on macOS
+and `$XDG_STATE_HOME/bunshin/logs/` on Linux (default `~/.local/state/bunshin/logs/`).
 
 ```bash
-cargo run --locked -p bunshin -- counter show
-cargo run --locked -p bunshin -- counter increment
-cargo run --locked -p bunshin -- tui   # full screen: +/Up, -/Down, r to reset, q to quit
+cargo run --locked -p bunshin -- --help
+cargo run --locked -p bunshin -- tui   # a human's terminal: q or Ctrl+C quits
 ```
 
 `tui` takes over the terminal you run it from until you quit, and restores it on the
@@ -79,76 +76,11 @@ start it; nothing else does. macOS grants such a permission to the program that 
 so how a tool installed with `cargo install` keeps its grant across rebuilds is a
 decision for that app to record.
 
-## Removing the example code
+## The domain foundation
 
-The counter is an illustration to replace, not something an app must keep. The
-`starting-an-app` skill walks through this with the first decisions to record; the
-checklist below is every file that holds the sample. Work through it after the
-bootstrap has run (the paths then carry your app's name), in the pull request that adds
-your first real core module, so the coverage floor always has code to measure.
-
-**Core** (`crates/bunshin-core`):
-
-- [ ] `src/counter/` (`Counter`, `CounterService`, `CounterView`, `CounterError`,
-      `StoredCounter`, `StorageError`, `Tuning`, the `CounterStore` port, and the
-      screen in `screen.rs`: `CounterScreen`, `ScreenAction`, `ScreenKey`) and its
-      `pub mod` and re-exports in `src/lib.rs` — replace with your domain model, ports,
-      and screen
-- [ ] `tests/counter_service.rs`, `tests/counter_screen.rs`, the counter-store test in
-      `tests/contracts.rs`, and the counter shapes in `tests/serialization.rs` —
-      replace with tests for your core
-- [ ] Keep `src/time.rs` (`Clock`) unless your app has no use for it: it is general, not
-      counter-specific
-
-**Adapters and fakes**:
-
-- [ ] `crates/bunshin-platform/src/counter_store.rs` (`JsonFileCounterStore`), its `mod`
-      and re-export in `src/lib.rs`, `COUNTER_FILE_NAME` and `counter_file` in
-      `src/paths.rs` (drop only the `counter_file` assertion from
-      `macos_selects_the_macos_directories`, which also covers the data and log
-      directories), `tests/json_file_counter_store.rs`, and the counter-store test in
-      `tests/contracts.rs`
-- [ ] `crates/bunshin-test-support/src/counter_store.rs` (`InMemoryCounterStore`,
-      `FailingCounterStore`, `counter_store_contract`) and its `mod` and re-export in
-      `src/lib.rs`
-
-**The binary** (`crates/bunshin`):
-
-- [ ] `src/main.rs` — the `counter` subcommand and its handler (keep `--help`,
-      `--version`, `compose`, and the exit-code convention), its wording in
-      `src/wording.rs`, and its tests in `tests/cli.rs`
-- [ ] `src/tui/` — the counter view in `view.rs` and the counter wiring in `mod.rs`;
-      keep the terminal's enter, leave, and panic-hook code for your own screen, or
-      remove the `tui` subcommand if your tool has none
-
-**Documents and agent guidance**:
-
-- [ ] `docs/architecture.md` — the counter column under "Ports and adapters", the
-      command line's `counter` subcommand, the screen under "The binary", and the
-      `counter.json` format under "What is contract"
-- [ ] `README.md` — the introduction's counter sentence, "Why is the sample app a
-      counter?", and the `just test-fast increment` example
-- [ ] `AGENTS.md` — the `just test-fast increment` example, the counter examples in
-      Architecture (`JsonFileCounterStore`, `CounterStore`, `CounterView`)
-- [ ] `CONTRIBUTING.md`, the `justfile`'s `test-fast` comment, and this page — the
-      `just test-fast increment` examples, "Seeing the app"'s `counter.json` and `bunshin`
-      commands, and this checklist
-- [ ] `.claude/rules/rust.md` and `.claude/rules/testing.md` — the sentences that give
-      a counter type as the example (each is a parenthetical or its own sentence;
-      replace it with your own type or delete it)
-- [ ] `.github/PULL_REQUEST_TEMPLATE.md` — the counter in the example title
-- [ ] The skills under `.agents/skills/` that give the counter as an example, then
-      `just agents-sync` (the `starting-an-app` skill)
-
-Then run `just check`, and this search, which should print nothing:
-
-```bash
-git grep -nIiE 'counter|test-fast increment' -- . ':(exclude).claude/skills/' \
-  ':(exclude,glob).agents/skills/*/scripts/**' ':(exclude)CHANGELOG.md'
-```
-
-It uses `git grep`, which needs nothing beyond the prerequisites. The exclusions are
-words that are not the sample: a skill's bundled scripts, `.claude/skills/` (the mirror
-`just agents-sync` regenerates), and `CHANGELOG.md`, where the entry recording the
-sample's removal names it on purpose. The harness checks under `xtask/` name no counter,
-so the search reads them too.
+Core's `day` module holds task transitions, undo, and versioned file DTOs. The shared
+`Tuning` holds `DayTuning` and the logical-day boundary. `Clock`, `SystemClock`,
+`FixedClock`, and `clock_contract` illustrate the same port, adapter, fake, and
+contract split used for future I/O features. Core's `shell` module holds the empty
+screen's state and one key table; the binary draws it with ratatui's `TestBackend`
+covering the view. Real terminal lifecycle evidence comes from the owner's run.

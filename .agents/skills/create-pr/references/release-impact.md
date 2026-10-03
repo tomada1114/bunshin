@@ -32,7 +32,7 @@ what is private":
 - the command line: its subcommands and flags, what goes to stdout and what to stderr,
   and the exit codes (0 success, 1 a runtime error, 2 a usage error), which a person's
   scripts and scheduled jobs call and parse;
-- the on-disk formats, such as `counter.json`, which an earlier version left on the
+- the on-disk formats, such as `days/YYYY-MM-DD.json`, which an earlier version left on the
   user's disk;
 - where the data and logs live, named by the bundle identifier on macOS and the XDG
   directory name on Linux;

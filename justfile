@@ -77,7 +77,7 @@ test-xtask:
     cargo llvm-cov report --locked -p xtask -p xtask-guard --fail-under-lines 85 --fail-under-functions 90
     cargo llvm-cov report --locked -p xtask -p xtask-guard --ignore-filename-regex '/xtask/src/' --fail-under-lines 90 --fail-under-functions 100
 
-# One core test or a group of them, fast: `just test-fast increment`
+# One core test or a group of them, fast: `just test-fast logical_date`
 test-fast filter:
     cargo nextest run --locked -p bunshin-core {{ filter }}
 

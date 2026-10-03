@@ -498,7 +498,6 @@ fn q_requests_quit_without_persistence_and_failed_undo_retains_original_day() {
 #[test]
 fn mute_and_unmute_record_one_change_and_use_the_shared_duration() {
     assert_eq!(Tuning::default().key_mute_minutes, 60);
-    assert_eq!(Tuning::new(0, 1).unwrap().key_mute_minutes, 60);
     let (screen, effects) = pane(Tuning::default()).update(ScreenKey::Char('m'), now());
     assert_eq!(screen.day().data().muted_until, Some(UnixMillis(3_601_000)));
     assert_eq!(
@@ -519,8 +518,10 @@ fn mute_and_unmute_record_one_change_and_use_the_shared_duration() {
         }]
     );
     assert_eq!(effects, vec![Effect::Save]);
-    let mut tuning = Tuning::default();
-    tuning.key_mute_minutes = 2;
+    let tuning = Tuning {
+        key_mute_minutes: 2,
+        ..Tuning::default()
+    };
     let (screen, effects) = pane(tuning).update(ScreenKey::Char('m'), now());
     assert_eq!(screen.day().data().muted_until, Some(UnixMillis(121_000)));
     assert_eq!(effects, vec![Effect::Save]);

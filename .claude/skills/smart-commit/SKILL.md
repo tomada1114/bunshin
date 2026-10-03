@@ -130,10 +130,10 @@ git commit -m "<type>(<optional scope>): <summary>"
   goes away or changes meaning, an on-disk format) carries `!` after the type and says
   so in the body.
 
-In the sample (a deletable illustration):
+In the shell (a deletable illustration):
 
 ```text
-feat(core): save the counter with the time it changed
+feat(core): record task completion with its instant
 fix(tui): keep the error line visible after a resize
 deps: bump clap to 4.6
 ```

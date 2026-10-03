@@ -70,8 +70,7 @@ production core and tests alike, since a scope joins every thread it started bef
 returns and so cannot outlive the call; a core test that drives a service from several
 threads uses it.
 
-In the sample, `CounterService` is handed an `Arc<dyn Clock>` and stamps a change with
-`self.clock.now().instant`; a test hands it `FixedClock` and moves time with `advance`.
+For deterministic time tests, hand core a `FixedClock` and move time with `advance`.
 
 A duration held in core is a `std::time::Duration` or a number of milliseconds; only
 reading the clock is banned, not representing time.
@@ -103,20 +102,15 @@ reading the clock is banned, not representing time.
   `Debug, Clone, Copy, PartialEq, Eq`, implements `Default` with the shipped values,
   and each field's `///` says why it has that value.
 - The binary builds it and passes it in, so a test passes a tiny one to reach a
-  boundary in one step. In the sample, `Tuning` lives in
-  `crates/bunshin-core/src/counter/mod.rs`, `compose` in `crates/bunshin/src/main.rs`
-  passes `Tuning::default()`, and `crates/bunshin-core/tests/counter_service.rs` uses
-  `Tuning::new(0, 2)`.
+  boundary in one step. `Tuning` lives in `crates/bunshin-core/src/tuning.rs`; tests override
+  `DayTuning` fields to reach a boundary quickly.
 - When fields only make sense together, keep them private and let a constructor refuse
-  an inconsistent set with a typed error. In the sample, `Tuning::new(min, max)`
-  returns `TuningError::MinAboveMax` when `min > max`, so every `Tuning` holds a range
-  with a value in it.
+  an inconsistent set with a typed error.
 - A domain invariant is not a tunable. Ask: would changing it be a product tweak
   (`Tuning`) or change what the type means (a constant or a parameter of the type)?
 - A value from outside is never trusted to be well formed: code that receives stored
-  data or a user's input handles an inconsistent one without panicking. In the sample,
-  `Counter::new` pulls a stored value into range with `clamp`, which cannot panic
-  because `Tuning::new` refuses `min > max`.
+  data or a user's input handles an inconsistent one without panicking. Day file loading
+  validates task invariants before returning a `Day`.
 - When a second feature needs tunables, give `Tuning` one nested struct per feature and
   keep one root type, so there is one place to look.
 
@@ -124,16 +118,14 @@ reading the clock is banned, not representing time.
 
 - A domain value is a struct with private fields and a constructor that establishes its
   invariant. A state transition is a method that takes `self` and returns the new value
-  or a typed error, never a `&mut self` setter that returns nothing. In the sample,
-  `Counter::increment` takes `self` and returns `Result<Self, CounterError>`. A rejected
-  transition then leaves nothing half-changed, and a test of it is one `assert_eq!`.
-- A use case is a method on a service named for what the user did (`increment`,
-  `reset`), not a setter and not a generic `dispatch(action)`: each is typed,
+  or a typed error, never a `&mut self` setter that returns nothing. A rejected transition
+  leaves the original state intact, and its test asserts that explicitly.
+- A use case is a method on a service named for what the user did (`add_task`,
+  `undo`), not a setter and not a generic `dispatch(action)`: each is typed,
   discoverable, and tested on its own. It runs **load → decide → save**: load the
   state, call the pure decision, save only if the decision succeeded, return the view.
-  In the sample, `CounterService::change` does this under one `Mutex` and one
-  `CounterStore::update`, so neither another thread nor another `bunshin` process can
-  slip a save in between; the clock is read only when there is a change to stamp.
+  Keep persistence sequencing and concurrency guarantees explicit; read the clock only when an
+  operation needs an instant.
 - Construction has no side effects: `new` stores what it is handed and reads nothing.
   The first load happens when a use case runs.
 
@@ -142,16 +134,15 @@ reading the clock is banned, not representing time.
 - A front end receives one `…View` struct per model: the data it shows, in plain
   numbers, strings, `Option`s, and `UnixMillis`, never wording and never an internal
   type. A subcommand prints it and a TUI frame draws it, so both front ends show the
-  same facts from one value. In the sample, `CounterView { value, last_changed_at,
-  revision }`; `Counter` itself never leaves core. `revision` counts the saves this
-  service has made and is not stored, so it means nothing across two runs of `bunshin`.
+  same facts from one value. `day::TaskView` supplies the display facts independently of the day
+  file DTO.
 - A TUI's state is a core value too: a `…Screen` holding the last view, the last
   error, and whether the user asked to leave, with an `update(self, action, &service)`
-  that returns the next one, and an action enum with its key table. In the sample,
-  `CounterScreen`, `ScreenAction`, and `ScreenKey` in
-  `crates/bunshin-core/src/counter/screen.rs`. **REQUIRED:** `building-tuis` before
+  that returns the next one, and an action enum with its key table. In the shell,
+  `ShellScreen`, `ShellAction`, and `ShellKey` in
+  `crates/bunshin-core/src/shell.rs`. **REQUIRED:** `building-tuis` before
   adding one.
-- What goes to disk is its own type (in the sample, `StoredCounter`), separate from the
+- What goes to disk is its own type (such as `day::file::DayFile`), separate from the
   view, so the file format and the output can change independently. A view that a
   `--json` flag prints derives `Serialize` with `#[serde(rename_all = "camelCase")]`,
   and then its JSON is contract as the file format is (`docs/architecture.md` › "What
@@ -173,7 +164,7 @@ recorded decision naming the problem the current shape cannot solve (**REQUIRED:
 | A repository per entity, entity classes, per-layer DTO copies | one store port per persisted thing; the view is the one outward shape |
 | Use-case or interactor structs, one per action | a method on the service already is the use case |
 | A generic `dispatch(action)` on a service | named methods are typed and tested one at a time; only a screen's `update` takes an action, and it calls one named method per action |
-| A DI container or service locator | `compose` in `crates/bunshin/src/main.rs` is the composition root; constructor arguments suffice |
+| A DI container or service locator | `main.rs` is the composition root; constructor arguments suffice |
 | Global mutable state (`static mut`, a lazily built singleton) | state lives in the service the binary builds and the screen value the TUI loop holds |
 | An event bus or channels between core types | direct calls; the TUI loop redraws from the screen `update` returned |
 | A TUI framework over ratatui, or a component trait per widget | one `…Screen` value with its `update`, and one `draw` function per screen |

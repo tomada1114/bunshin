@@ -7,7 +7,7 @@ documentation (https://docs.rs/ratatui/latest/ratatui/). Where code goes and wha
 decide is `designing-clis` and `building-tuis`; this file is only the language side.
 
 - A subcommand enum derives `Subcommand`; a fieldless one also derives `Clone, Copy`
-  so a handler can pass it by value and log it with `?action` (`CounterAction`). The
+  so a handler can pass it by value and log it with `?action` (`ShellAction`). The
   `///` on each variant is the user-facing `--help` line, not a note for developers:
   write it for the person typing the command.
 - `main` returns `std::process::ExitCode` and each handler returns one, rather than

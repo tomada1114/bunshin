@@ -4,7 +4,7 @@ description: >
   Covers the first decisions of this app, cut from the template by its bootstrap:
   AGENTS.md's Product section and the roadmap; the tool's shape, subcommands only or
   subcommands plus the bunshin tui screen; where it keeps state and the first recorded
-  decisions; removing the sample counter; installing it with just install-cli; just
+  decisions; removing template examples; installing it with just install-cli; just
   labels, just ruleset, the GitHub security settings, and private-repository steps. Use
   when starting the app's first feature, a name the rename missed turns up, just
   check-harness fails on the Product section, or setting up the repository on GitHub.
@@ -63,14 +63,14 @@ the full-screen view (`building-tuis`); a system API or TCC permission
 
 ## Choose the tool's shape
 
-Every app starts with both front ends over one core: subcommands
-(`bunshin counter show`) for a script, a scheduled job, or a quick look, and `bunshin tui`
-for a person who sits in front of the tool. Decide before the first feature which the
+The current shell offers `bunshin tui`, `--help`, and `--version`. Future read-only
+subcommands serve scripts, scheduled jobs, and quick looks; the screen serves a person
+who works beside the tool. Decide before the first feature which the
 app needs, and write it into the Product section's core interaction:
 
 - **Subcommands only**, for a tool that is scripted or scheduled: remove the `tui`
-  subcommand, `crates/bunshin/src/tui/`, and core's screen types (`CounterScreen`,
-  `ScreenAction`, `ScreenKey`), drop `ratatui` from `crates/bunshin/Cargo.toml`, and,
+  subcommand, `crates/bunshin/src/tui/`, and core's screen types (`ShellScreen`,
+  `ShellAction`, `ShellKey`), drop `ratatui` from `crates/bunshin/Cargo.toml`, and,
   since no other member uses it, its entry in the root `Cargo.toml`'s
   `[workspace.dependencies]` (crossterm has no entry of its own: the binary reaches it
   as `ratatui::crossterm`). `mise exec -- cargo shear` confirms nothing is left unused
@@ -87,7 +87,7 @@ recorded decision too (below).
 
 ## Decide where it keeps state
 
-The sample keeps `counter.json` where each system expects an app's data:
+The planned day storage keeps `days/YYYY-MM-DD.json` where each system expects an app's data:
 `~/Library/Application Support/<bundle identifier>/` on macOS and
 `$XDG_DATA_HOME/<slug>/` on Linux (`crates/bunshin-platform/src/paths.rs`), with logs
 beside them. The bundle identifier and the slug the bootstrap set key those
@@ -106,25 +106,14 @@ each new crate the first features need, any TCC permission, and any platform the
 adds or drops beyond macOS and Linux. Every external claim in them carries its URL and
 the date it was checked.
 
-## Remove the sample
+## Keep guidance current
 
-The counter is a deletable illustration, not the app. The checklist is
-`docs/getting-started.md` › "Removing the example code": it lists every file that holds
-the sample and the search that ends it. On top of it:
-
-- delete or rewrite what the skills under `.agents/skills/` give the counter as an
-  example: the sample appears as its own "In the sample" sentences, parentheticals, code
-  blocks, or a table column (`integrating-system-apis`), each of which can be deleted or
-  rewritten with the app's own names while the rule around it stands. Two files are
-  the sample's worked examples throughout and are rewritten with the app's own first
-  command, use case, and tests rather than deleted: `writing-tests/references/patterns.md`
-  and `tdd/SKILL.md` Steps 1-3. Then run `just agents-sync`;
-- replace the core module and its tests in the same pull request that removes them, so
-  the core coverage floor still measures real code.
-
-Keep what is general: the `Clock` port and `SystemClock`, logging and its directories,
-the binary's `compose` and exit-code convention, the wording module's shape, and, for a
-tool with a screen, the TUI's enter, leave, and panic-hook code.
+The template examples have been removed. The domain foundation in
+`docs/getting-started.md` shows the remaining day model, clock contract, and empty
+shell. When replacing an illustration, keep its governing rule, rewrite code samples
+against existing APIs, and run `just agents-sync`. Keep real domain code covered by
+the existing floors. Preserve general logging, path conventions, exit codes, and
+terminal enter, leave, and panic-hook behavior.
 
 ## Install it
 

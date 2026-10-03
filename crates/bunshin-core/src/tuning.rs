@@ -3,20 +3,9 @@ use jiff::civil::Time;
 
 const DEFAULT_DAY_BOUNDARY: Time = Time::constant(4, 0, 0, 0);
 
-/// Tunables in one place (designing-core-logic). Built only by [`Tuning::new`] (or
-/// [`Default`]), so every `Tuning` holds a range with at least one value in it.
-///
-/// ```
-/// use bunshin_core::{Counter, Tuning, TuningError};
-///
-/// let tuning = Tuning::new(0, 3)?;
-/// assert_eq!(Counter::new(7, tuning).value(), 3);
-/// assert_eq!(Tuning::new(5, 1), Err(TuningError::MinAboveMax));
-/// # Ok::<(), TuningError>(())
-/// ```
+/// Shared domain tunables, adjustable without reading configuration in core.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tuning {
-    counter: CounterTuning,
     /// Check-in scheduling and guard bounds.
     pub checkin: CheckinTuning,
     /// One hour of quiet from the task-pane mute key, shared with check-in logic.
@@ -27,62 +16,15 @@ pub struct Tuning {
     pub day_boundary: Time,
 }
 
-impl Tuning {
-    /// A range from `min` to `max`, both included.
-    ///
-    /// # Errors
-    /// [`TuningError::MinAboveMax`] when `min > max`: no value lies in that range, so a
-    /// counter could not stay inside it.
-    pub const fn new(min: i64, max: i64) -> Result<Self, TuningError> {
-        if min > max {
-            return Err(TuningError::MinAboveMax);
-        }
-        Ok(Self {
-            counter: CounterTuning { min, max },
-            checkin: CheckinTuning::shipped(),
-            key_mute_minutes: 60,
-            day: DayTuning::shipped(),
-            day_boundary: DEFAULT_DAY_BOUNDARY,
-        })
-    }
-
-    /// The lowest value; also the value a fresh or reset counter holds.
-    #[must_use]
-    pub const fn min(&self) -> i64 {
-        self.counter.min
-    }
-
-    /// The highest value.
-    #[must_use]
-    pub const fn max(&self) -> i64 {
-        self.counter.max
-    }
-}
-
 impl Default for Tuning {
     fn default() -> Self {
         Self {
-            counter: CounterTuning { min: 0, max: 99 },
             checkin: CheckinTuning::shipped(),
             key_mute_minutes: 60,
             day: DayTuning::shipped(),
             day_boundary: DEFAULT_DAY_BOUNDARY,
         }
     }
-}
-
-/// A [`Tuning`] that no counter could stay inside.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum TuningError {
-    /// `min` is above `max`, so the range holds no value.
-    #[error("the tuning's minimum is above its maximum")]
-    MinAboveMax,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct CounterTuning {
-    min: i64,
-    max: i64,
 }
 
 /// Tunable task bounds, independently adjustable for small deterministic tests.
