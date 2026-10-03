@@ -187,14 +187,23 @@ pub fn build_chat(
     if total(&instructions, &encode(&minimum)?, tuning) > limit {
         return Err(PromptError::RequiredContextTooLong);
     }
-    fill_extras(
+    let original = context
+        .open_tasks
+        .iter()
+        .map(|task| task.title.clone())
+        .collect::<Vec<_>>();
+    fill_yesterday(
         &instructions,
         &mut context,
         &mut minimum,
-        extras,
+        extras.yesterday,
         tuning,
         limit,
     )?;
+    // Open names precede recent states and triggers. Establish their available
+    // title lengths before admitting either lower-priority optional block.
+    fit_tasks(&instructions, &mut context, &original, tuning, limit)?;
+    fill_lower_extras(&instructions, &mut context, extras, tuning, limit)?;
     context.closed_tasks = tasks
         .into_iter()
         .rev()
@@ -202,11 +211,6 @@ pub fn build_chat(
         .map(PromptTask::from)
         .collect();
     let history = chat_history(day, input, now);
-    let original = context
-        .open_tasks
-        .iter()
-        .map(|task| task.title.clone())
-        .collect::<Vec<_>>();
     let closed_count = context.closed_tasks.len();
     fit_tasks(&instructions, &mut context, &original, tuning, limit)?;
     // Keep a newest-first prefix. All older rows are necessarily dropped once
@@ -288,15 +292,15 @@ fn fit_tasks(
     }
     Ok(())
 }
-fn fill_extras(
+fn fill_yesterday(
     instructions: &str,
     context: &mut Context,
     minimum: &mut Context,
-    extras: ContextExtras<'_>,
+    yesterday: Option<&str>,
     tuning: Tuning,
     limit: usize,
 ) -> Result<(), PromptError> {
-    if let Some(yesterday) = extras.yesterday {
+    if let Some(yesterday) = yesterday {
         let mut text = String::new();
         for character in yesterday.chars() {
             text.push(character);
@@ -313,25 +317,33 @@ fn fill_extras(
             minimum.yesterday = None;
         }
     }
-    minimum.unprompted_states = extras
+    Ok(())
+}
+fn fill_lower_extras(
+    instructions: &str,
+    context: &mut Context,
+    extras: ContextExtras<'_>,
+    tuning: Tuning,
+    limit: usize,
+) -> Result<(), PromptError> {
+    let mut candidate = context.clone();
+    candidate.unprompted_states = extras
         .unprompted_states
         .iter()
         .rev()
         .take(tuning.prompt.recent_unprompted)
         .cloned()
         .collect();
-    if total(instructions, &encode(minimum)?, tuning) <= limit {
+    if total(instructions, &encode(&candidate)?, tuning) <= limit {
         context
             .unprompted_states
-            .clone_from(&minimum.unprompted_states);
+            .clone_from(&candidate.unprompted_states);
     } else {
-        minimum.unprompted_states.clear();
+        candidate.unprompted_states.clear();
     }
-    minimum.triggers = extras.triggers.to_vec();
-    if total(instructions, &encode(minimum)?, tuning) <= limit {
-        context.triggers.clone_from(&minimum.triggers);
-    } else {
-        minimum.triggers.clear();
+    candidate.triggers = extras.triggers.to_vec();
+    if total(instructions, &encode(&candidate)?, tuning) <= limit {
+        context.triggers.clone_from(&candidate.triggers);
     }
     Ok(())
 }

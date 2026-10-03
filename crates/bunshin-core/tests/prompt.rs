@@ -336,6 +336,70 @@ fn history_is_dropped_before_closed_tasks_and_closed_tasks_before_open_title_sho
     );
 }
 #[test]
+fn lower_priority_states_and_triggers_never_shorten_open_titles_that_fit() {
+    use bunshin_core::day::{InboxState, Trigger, TriggerKind, UnpromptedKind};
+    use bunshin_core::prompt::chat::UnpromptedContext;
+    let title = "資料作成".repeat(20);
+    let day = day()
+        .add(
+            title.clone(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            UnixMillis(0),
+        )
+        .expect("valid fixture")
+        .0;
+    let owner = instructions("owner");
+    let mut tuning = Tuning::default();
+    let base = build_chat(
+        &day,
+        &owner,
+        "current",
+        now(),
+        ContextExtras::default(),
+        tuning,
+    )
+    .expect("full title fits");
+    tuning.prompt.context_tokens = base.budget.estimated_tokens;
+    let states = [UnpromptedContext {
+        task: Some(1),
+        kind: UnpromptedKind::Note,
+        state: InboxState::Open,
+    }];
+    let triggers = [Trigger {
+        kind: TriggerKind::BeforeDeadline,
+        task: Some(1),
+        due_at: UnixMillis(0),
+    }];
+    for (states, triggers) in [
+        (&states[..], &[][..]),
+        (&[][..], &triggers[..]),
+        (&states[..], &triggers[..]),
+    ] {
+        let built = build_chat(
+            &day,
+            &owner,
+            "current",
+            now(),
+            ContextExtras {
+                yesterday: None,
+                unprompted_states: states,
+                triggers,
+            },
+            tuning,
+        )
+        .expect("mandatory context fits");
+        let json: serde_json::Value = serde_json::from_str(&built.request.prompt).unwrap();
+        assert_eq!(json["openTasks"][0]["title"], title);
+        assert_eq!(json["unpromptedStates"], serde_json::json!([]));
+        assert_eq!(json["triggers"], serde_json::json!([]));
+        assert_eq!(built.budget.shortened_titles, 0);
+        assert!(built.budget.estimated_tokens <= tuning.prompt.context_tokens);
+    }
+}
+
+#[test]
 fn tiny_optional_slots_never_displace_mandatory_context_and_tuning_cannot_raise_the_window() {
     use bunshin_core::day::{InboxState, Trigger, TriggerKind, UnpromptedKind};
     use bunshin_core::prompt::chat::UnpromptedContext;
