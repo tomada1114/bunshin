@@ -46,8 +46,9 @@ The DayStore foundation defines storage outside the checkout: on macOS in
 one `days/YYYY-MM-DD.json` file. The data directory and `days/` are private (`0700`);
 day files and `tui.lock` are owner-only (`0600`). The adapter supplies an OS lock
 lease for the writing screen; readers need no lock. The current empty TUI is not yet
-wired to this store or its lock; that integration is tracked in #11. Whole-day writes use a temporary file, flush,
-fsync, and rename, so readers see a complete old or new day. Unreadable and newer-format
+wired to this store or its lock; TUI integration is forthcoming. Whole-day writes use
+a temporary file, flush, fsync, and rename, so readers see a complete old or new day.
+Unreadable and newer-format
 files are refused without overwriting them. No day is deleted automatically; removing
 old files is the owner's decision. Session undo is not persisted.
 

@@ -202,8 +202,14 @@ fn unavailable(_: io::Error) -> DayStoreError {
 }
 
 fn create_private_directory(path: &Path) -> io::Result<()> {
+    create_private_directory_with_sync(path, &|directory| File::open(directory)?.sync_all())
+}
+fn create_private_directory_with_sync(
+    path: &Path,
+    sync_directory: &dyn Fn(&Path) -> io::Result<()>,
+) -> io::Result<()> {
     if let Some(parent) = path.parent().filter(|path| !path.as_os_str().is_empty()) {
-        create_missing_parent(parent)?;
+        create_missing_parent(parent, sync_directory)?;
     }
     match DirBuilder::new().mode(0o700).create(path) {
         Ok(()) => {}
@@ -215,16 +221,34 @@ fn create_private_directory(path: &Path) -> io::Result<()> {
     if !fs::symlink_metadata(path)?.is_dir() {
         return Err(io::Error::from(io::ErrorKind::InvalidInput));
     }
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    sync_directory_entry(path, sync_directory)
 }
 
-fn create_missing_parent(path: &Path) -> io::Result<()> {
+fn create_missing_parent(
+    path: &Path,
+    sync_directory: &dyn Fn(&Path) -> io::Result<()>,
+) -> io::Result<()> {
     match fs::metadata(path) {
-        Ok(metadata) if metadata.is_dir() => Ok(()), // Existing ancestors are not ours to chmod.
+        // Never chmod an existing ancestor. Sync it and its parent as well: it
+        // may be left by an earlier attempt whose publication sync failed.
+        Ok(metadata) if metadata.is_dir() => sync_directory_entry(path, sync_directory),
         Ok(_) => Err(io::Error::from(io::ErrorKind::NotADirectory)),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => create_private_directory(path),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            create_private_directory_with_sync(path, sync_directory)
+        }
         Err(error) => Err(error),
     }
+}
+fn sync_directory_entry(
+    path: &Path,
+    sync_directory: &dyn Fn(&Path) -> io::Result<()>,
+) -> io::Result<()> {
+    sync_directory(path)?;
+    if let Some(parent) = path.parent().filter(|path| !path.as_os_str().is_empty()) {
+        sync_directory(parent)?;
+    }
+    Ok(())
 }
 
 struct TemporaryFile {
@@ -312,6 +336,40 @@ fn replace_file_with_sync(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn directory_creation_sync_failure_stops_before_deeper_directories_and_retries_parent_sync() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let ancestor = scratch.path().join("new-parent");
+        let destination = ancestor.join("application").join("days");
+        let result = create_private_directory_with_sync(&destination, &|path| {
+            if path == scratch.path() && ancestor.is_dir() {
+                Err(io::Error::from(io::ErrorKind::PermissionDenied))
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(
+            result.map_err(|error| error.kind()),
+            Err(io::ErrorKind::PermissionDenied)
+        );
+        assert!(ancestor.is_dir());
+        assert!(!destination.parent().expect("application").exists());
+        let synced = std::cell::RefCell::new(Vec::new());
+        create_private_directory_with_sync(&destination, &|path| {
+            assert!(path.is_dir());
+            synced.borrow_mut().push(path.to_path_buf());
+            Ok(())
+        })
+        .expect("retry");
+        for child in [&ancestor, &ancestor.join("application"), &destination] {
+            assert!(synced.borrow().contains(child));
+            assert!(
+                synced
+                    .borrow()
+                    .contains(&child.parent().expect("parent").to_path_buf())
+            );
+        }
+    }
     #[test]
     fn a_directory_sync_failure_reports_the_published_replacement() {
         let scratch = tempfile::tempdir().expect("scratch");
