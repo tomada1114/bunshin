@@ -167,10 +167,7 @@ impl DayStore for JsonFileDayStore {
         match file.try_lock() {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => {
-                let pid = fs::read_to_string(&path)
-                    .ok()
-                    .and_then(|text| text.trim().parse().ok())
-                    .filter(|pid| *pid != 0);
+                let pid = read_pid(&file);
                 return Err(DayStoreError::AlreadyLocked { pid });
             }
             Err(TryLockError::Error(error)) => return Err(unavailable(error)),
@@ -183,6 +180,17 @@ impl DayStore for JsonFileDayStore {
         Ok(Box::new(FileLock { _file: file }))
     }
 }
+fn read_pid(file: &File) -> Option<u32> {
+    // The written field is at most ten decimal digits plus a newline. A bounded
+    // descriptor read cannot follow a substituted path or retain arbitrary text.
+    let mut text = String::new();
+    file.take(32).read_to_string(&mut text).ok()?;
+    if text.len() == 32 {
+        return None;
+    }
+    text.trim().parse().ok().filter(|pid| *pid != 0)
+}
+
 struct FileLock {
     _file: File,
 }
@@ -278,6 +286,26 @@ fn replace_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn contended_pid_is_read_from_the_validated_inode_not_its_replaced_path() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let path = scratch.path().join("tui.lock");
+        fs::write(&path, "42\n").expect("original PID");
+        let file = File::open(&path).expect("validated handle");
+        fs::rename(&path, scratch.path().join("previous.lock")).expect("pathname removed");
+        fs::write(&path, "77\n").expect("replacement PID");
+        assert_eq!(read_pid(&file), Some(42));
+    }
+
+    #[test]
+    fn oversized_pid_fields_are_refused_instead_of_reading_an_unbounded_file() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let path = scratch.path().join("tui.lock");
+        fs::write(&path, format!("42{}", " ".repeat(64))).expect("oversized field");
+        let file = File::open(&path).expect("validated handle");
+        assert_eq!(read_pid(&file), None);
+    }
+
     #[test]
     fn a_selected_day_removed_before_reading_is_not_fabricated() {
         let scratch = tempfile::tempdir().expect("scratch");
