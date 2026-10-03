@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Bounded owner-chat requests keep every open task within the estimated model
+  window. Valid model proposals share one undoable change set; invalid proposals
+  have typed refusals, and replies remain whole. The core API is ready for the
+  terminal chat flow.
+
 - `bunshin instructions` shows the text in use and its source; `bunshin instructions
   edit` initializes an owner-only file and opens `VISUAL`, then `EDITOR`. Missing,
   empty or over-600-character text uses the shipped default without truncating the
