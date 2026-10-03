@@ -263,6 +263,60 @@ fn independent_handles_report_the_holder_and_release_on_drop() {
 }
 
 #[test]
+fn a_symlinked_lock_never_changes_the_external_target() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let root = scratch.path().join("data");
+    fs::create_dir(&root).expect("root");
+    let outside = scratch.path().join("owner-document.txt");
+    let bytes = b"owner document must remain unchanged";
+    fs::write(&outside, bytes).expect("external document");
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o640)).expect("original mode");
+    std::os::unix::fs::symlink(&outside, lock_file(&root)).expect("symlink lock");
+    let store = JsonFileDayStore::new(root.clone(), Tuning::default());
+    assert!(matches!(store.take_lock(), Err(DayStoreError::Unavailable)));
+    assert_eq!(fs::read(&outside).expect("unchanged bytes"), bytes);
+    assert_eq!(
+        fs::metadata(&outside)
+            .expect("unchanged mode")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o640
+    );
+    assert_eq!(
+        fs::read_link(lock_file(&root)).expect("unchanged link"),
+        outside
+    );
+}
+
+#[test]
+fn a_dangling_lock_symlink_never_creates_its_target() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let outside = scratch.path().join("missing-document.txt");
+    std::os::unix::fs::symlink(&outside, lock_file(scratch.path())).expect("dangling lock");
+    let store = JsonFileDayStore::new(scratch.path().into(), Tuning::default());
+    assert!(matches!(store.take_lock(), Err(DayStoreError::Unavailable)));
+    assert!(!outside.exists());
+    assert_eq!(
+        fs::read_link(lock_file(scratch.path())).expect("unchanged link"),
+        outside
+    );
+}
+
+#[test]
+fn a_lock_with_an_external_hard_link_is_refused() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let root = scratch.path().join("data");
+    fs::create_dir(&root).expect("root");
+    let outside = scratch.path().join("owner-document.txt");
+    fs::write(&outside, b"unchanged").expect("external document");
+    fs::hard_link(&outside, lock_file(&root)).expect("hard link");
+    let store = JsonFileDayStore::new(root, Tuning::default());
+    assert!(matches!(store.take_lock(), Err(DayStoreError::Unavailable)));
+    assert_eq!(fs::read(&outside).expect("unchanged"), b"unchanged");
+}
+
+#[test]
 fn child_lock_holder() {
     let Some(root) = std::env::var_os("BUNSHIN_TEST_LOCK_ROOT") else {
         return;

@@ -11,12 +11,23 @@ use jiff::civil::Date;
 use std::{
     fs::{self, DirBuilder, File, OpenOptions, TryLockError},
     io::{self, Write},
-    os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
+// Kernel ABI open flags, not tunables. Safe OpenOptionsExt::custom_flags keeps
+// this adapter free of FFI and additional dependencies. Checked 2026-10-03:
+// Apple bsd/sys/fcntl.h (also the installed macOS SDK): O_NOFOLLOW=0x100,
+// O_NONBLOCK=0x4. Linux include/uapi/asm-generic/fcntl.h: bits 17 and 11.
+// https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/fcntl.h
+// https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/fcntl.h
+#[cfg(target_os = "macos")]
+const LOCK_OPEN_FLAGS: i32 = 0x100 | 0x4;
+#[cfg(target_os = "linux")]
+const LOCK_OPEN_FLAGS: i32 = (1 << 17) | (1 << 11);
 
 /// Owner-only versioned day files and an OS-managed single-writer lock. Construction
 /// does no I/O. Readers create nothing and need no lock. The writing screen keeps the
@@ -116,8 +127,13 @@ impl DayStore for JsonFileDayStore {
             .create(true)
             .truncate(false)
             .mode(0o600)
+            .custom_flags(LOCK_OPEN_FLAGS)
             .open(&path)
             .map_err(unavailable)?;
+        let metadata = file.metadata().map_err(unavailable)?;
+        if !metadata.is_file() || metadata.nlink() != 1 {
+            return Err(DayStoreError::Unavailable);
+        }
         match file.try_lock() {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => {
