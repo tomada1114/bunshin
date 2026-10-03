@@ -7,12 +7,14 @@ pub trait InstructionsSource: Send + Sync {
     /// Visit current UTF-8 chunks every call, returning whether the file exists.
     /// An empty existing file returns true; absent files return false.
     /// # Errors
-    /// `Unavailable` for I/O failure, `Unreadable` for invalid UTF-8.
+    /// `Unavailable` for I/O failure, `Unreadable` for invalid UTF-8,
+    /// `UnsafeEntry` for linked/non-regular files and `Permissions` for insecure modes.
     fn read(&self, visit: &mut dyn FnMut(&str)) -> Result<bool, InstructionsError>;
     /// Create a missing file with the supplied default. An existing file is never
     /// overwritten, including an empty, over-limit or unreadable one.
     /// # Errors
-    /// `Unavailable` when the private directory/file cannot be prepared.
+    /// `Unavailable` when the private directory/file cannot be prepared;
+    /// `UnsafeEntry` when an existing entry is not a dedicated regular file.
     fn ensure_default(&self, default: &str) -> Result<(), InstructionsError>;
     /// Resolved file path, shown to the owner without performing I/O.
     fn path(&self) -> PathBuf;
@@ -153,6 +155,12 @@ pub enum InstructionsError {
     /// The source cannot be accessed/initialized.
     #[error("instructions unavailable")]
     Unavailable,
+    /// The source is linked, has multiple links or is not a regular file.
+    #[error("instructions entry unsafe")]
+    UnsafeEntry,
+    /// Owner file or application directory mode differs from 0600/0700.
+    #[error("instructions permissions incorrect")]
+    Permissions,
     /// Bytes are not UTF-8.
     #[error("instructions unreadable")]
     Unreadable,

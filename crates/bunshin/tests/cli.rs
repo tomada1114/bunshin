@@ -1,4 +1,5 @@
 //! The built binary's command-line contract, with an isolated home directory.
+use bunshin_core::instructions::InstructionsSource;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -127,6 +128,9 @@ fn instructions_print_owner_text_and_file_character_count_on_separate_streams() 
     let home = tempfile::tempdir().expect("home");
     let directory = bunshin_platform::app_data_dir(home.path());
     fs::create_dir_all(&directory).expect("data");
+    bunshin_platform::FileInstructions::new(directory.clone())
+        .ensure_default("")
+        .expect("private fixture");
     let path = directory.join("instructions.md");
     fs::write(&path, "日本語\n").expect("owner text");
     let result = run(home.path(), &["instructions"]);
@@ -144,6 +148,9 @@ fn over_limit_instructions_print_the_complete_default_and_reason() {
     let home = tempfile::tempdir().expect("home");
     let directory = bunshin_platform::app_data_dir(home.path());
     fs::create_dir_all(&directory).expect("data");
+    bunshin_platform::FileInstructions::new(directory.clone())
+        .ensure_default("")
+        .expect("private fixture");
     let path = directory.join("instructions.md");
     fs::write(&path, "文".repeat(601)).expect("long text");
     let result = run(home.path(), &["instructions"]);
@@ -265,6 +272,9 @@ fn unreadable_instructions_fail_without_printing_text_or_changing_bytes() {
     let home = tempfile::tempdir().expect("home");
     let directory = bunshin_platform::app_data_dir(home.path());
     fs::create_dir_all(&directory).expect("data");
+    bunshin_platform::FileInstructions::new(directory.clone())
+        .ensure_default("")
+        .expect("private fixture");
     let path = directory.join("instructions.md");
     fs::write(&path, [0xff, 0xfe]).expect("invalid UTF-8");
     let result = run(home.path(), &["instructions"]);
@@ -329,6 +339,9 @@ fn empty_instructions_print_the_default_and_edited_empty_text_is_saved() {
     let home = tempfile::tempdir().expect("home");
     let path = bunshin_platform::instructions_file(&bunshin_platform::app_data_dir(home.path()));
     fs::create_dir_all(path.parent().expect("parent")).expect("data");
+    bunshin_platform::FileInstructions::new(path.parent().expect("parent").into())
+        .ensure_default("")
+        .expect("private fixture");
     fs::write(&path, " \n").expect("whitespace");
     let result = run(home.path(), &["instructions"]);
     assert_eq!(result.status.code(), Some(0));
@@ -380,7 +393,7 @@ fn instructions_runtime_failures_print_no_text_and_exit_one() {
     assert_eq!(stdout(&result), "");
     assert_eq!(
         stderr(&result),
-        "error: 指示文をUTF-8として読めませんでした。ファイルはそのままです。\n"
+        "error: 指示文にはリンクや通常のファイル以外のものは使えません。通常のファイルに置き換えてください。ファイルはそのままです。\n"
     );
     fs::remove_dir(&path).expect("remove entry");
     let script = home.path().join("remove.sh");
@@ -441,4 +454,48 @@ fn failed_editor_replacement_also_keeps_owner_only_permissions() {
             & 0o777,
         0o600
     );
+}
+
+#[test]
+fn instructions_refuse_insecure_modes_without_changing_owner_data_or_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().expect("home");
+    let directory = bunshin_platform::app_data_dir(home.path());
+    let source = bunshin_platform::FileInstructions::new(directory.clone());
+    source
+        .ensure_default("private owner instructions")
+        .expect("secure fixture");
+    for (directory_mode, file_mode) in [(0o755, 0o600), (0o700, 0o644)] {
+        fs::set_permissions(&directory, fs::Permissions::from_mode(directory_mode))
+            .expect("directory mode");
+        fs::set_permissions(source.path(), fs::Permissions::from_mode(file_mode))
+            .expect("file mode");
+        let result = run(home.path(), &["instructions"]);
+        assert_eq!(result.status.code(), Some(1));
+        assert_eq!(stdout(&result), "");
+        assert_eq!(
+            stderr(&result),
+            "error: 指示文の権限が必要な設定ではありません。保存先を0700、ファイルを0600にしてください。ファイルはそのままです。\n"
+        );
+        assert_eq!(
+            fs::read_to_string(source.path()).expect("unchanged text"),
+            "private owner instructions"
+        );
+        assert_eq!(
+            fs::metadata(&directory)
+                .expect("unchanged directory")
+                .permissions()
+                .mode()
+                & 0o777,
+            directory_mode
+        );
+        assert_eq!(
+            fs::metadata(source.path())
+                .expect("unchanged file")
+                .permissions()
+                .mode()
+                & 0o777,
+            file_mode
+        );
+    }
 }

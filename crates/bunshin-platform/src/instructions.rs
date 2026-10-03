@@ -49,7 +49,7 @@ impl FileInstructions {
         let path = self.path();
         match fs::symlink_metadata(&path) {
             Ok(metadata) if metadata.is_file() => {}
-            Ok(_) => return Err(InstructionsError::Unreadable),
+            Ok(_) => return Err(InstructionsError::UnsafeEntry),
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(_) => return Err(InstructionsError::Unavailable),
         }
@@ -62,7 +62,7 @@ impl FileInstructions {
             .metadata()
             .map_err(|_| InstructionsError::Unavailable)?;
         if !metadata.is_file() || metadata.nlink() != 1 {
-            return Err(InstructionsError::Unreadable);
+            return Err(InstructionsError::UnsafeEntry);
         }
         Ok(Some(file))
     }
@@ -72,6 +72,16 @@ impl InstructionsSource for FileInstructions {
         let Some(mut file) = self.existing()? else {
             return Ok(false);
         };
+        let directory =
+            fs::symlink_metadata(&self.root).map_err(|_| InstructionsError::Unavailable)?;
+        let metadata = file
+            .metadata()
+            .map_err(|_| InstructionsError::Unavailable)?;
+        if directory.permissions().mode() & 0o777 != 0o700
+            || metadata.permissions().mode() & 0o777 != 0o600
+        {
+            return Err(InstructionsError::Permissions);
+        }
         read_utf8(&mut file, visit)?;
         Ok(true)
     }

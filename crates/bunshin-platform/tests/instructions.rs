@@ -81,6 +81,7 @@ fn instructions_stream_small_utf8_chunks_and_keep_the_exact_over_limit_count() {
     let scratch = tempfile::tempdir().expect("scratch");
     let source = FileInstructions::new(scratch.path().into());
     let text = format!("{}終", "a文🦀b".repeat(30_000));
+    source.ensure_default("").expect("private file");
     fs::write(source.path(), &text).expect("large UTF-8 file");
     let mut received = String::new();
     let present = source
@@ -107,10 +108,80 @@ fn a_partial_final_utf8_character_is_refused_after_valid_chunks() {
     let source = FileInstructions::new(scratch.path().into());
     let mut bytes = "文".repeat(2000).into_bytes();
     bytes.extend_from_slice(&[0xe3, 0x81]);
+    source.ensure_default("").expect("private file");
     fs::write(source.path(), &bytes).expect("incomplete UTF-8");
     assert_eq!(
         InstructionsState::read(&source, Tuning::default()),
         Err(InstructionsError::Unreadable)
     );
     assert_eq!(fs::read(source.path()).expect("preserved bytes"), bytes);
+}
+
+#[test]
+fn insecure_instructions_permissions_are_refused_without_changing_them() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let root = scratch.path().join("data");
+    let source = FileInstructions::new(root.clone());
+    source.ensure_default("private text").expect("secure file");
+    for (directory_mode, file_mode) in [(0o755, 0o600), (0o700, 0o644)] {
+        fs::set_permissions(&root, fs::Permissions::from_mode(directory_mode)).expect("root mode");
+        fs::set_permissions(source.path(), fs::Permissions::from_mode(file_mode))
+            .expect("file mode");
+        assert_eq!(
+            bunshin_test_support::instructions_text(&source),
+            Err(InstructionsError::Permissions)
+        );
+        assert_eq!(
+            fs::metadata(&root)
+                .expect("root unchanged")
+                .permissions()
+                .mode()
+                & 0o777,
+            directory_mode
+        );
+        assert_eq!(
+            fs::metadata(source.path())
+                .expect("file unchanged")
+                .permissions()
+                .mode()
+                & 0o777,
+            file_mode
+        );
+        assert_eq!(
+            fs::read_to_string(source.path()).expect("bytes preserved"),
+            "private text"
+        );
+    }
+    source
+        .ensure_default("not a replacement")
+        .expect("explicit edit repairs permissions");
+    assert_eq!(
+        bunshin_test_support::instructions_text(&source),
+        Ok(Some("private text".into()))
+    );
+}
+
+#[test]
+fn non_regular_instructions_have_an_actionable_unsafe_entry_error() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let source = FileInstructions::new(scratch.path().into());
+    let external = scratch.path().join("external.md");
+    fs::write(&external, "valid UTF-8").expect("external text");
+    std::os::unix::fs::symlink(&external, source.path()).expect("file link");
+    assert_eq!(
+        bunshin_test_support::instructions_text(&source),
+        Err(InstructionsError::UnsafeEntry)
+    );
+    assert_eq!(
+        source.ensure_default("default"),
+        Err(InstructionsError::UnsafeEntry)
+    );
+    assert_eq!(
+        source.protect_after_edit(),
+        Err(InstructionsError::UnsafeEntry)
+    );
+    assert_eq!(
+        fs::read_to_string(&external).expect("preserved"),
+        "valid UTF-8"
+    );
 }

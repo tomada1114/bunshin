@@ -260,3 +260,8 @@ uses the default; over-limit text stays in the file until the owner shortens it.
 Characters count Unicode scalars, including whitespace and newlines. Flags such as
 `VISUAL="code --wait"` work; paths containing spaces or shell punctuation are passed
 as an argument. Set the editor deliberately: its value is owner-provided shell code.
+
+Reading refuses linked or non-regular instructions and checks data-directory/file
+modes without changing them. For a manually created file, set the app data directory
+to 0700 and instructions.md to 0600 before reading. An explicit edit also narrows
+these modes while preserving existing text.

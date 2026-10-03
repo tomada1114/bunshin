@@ -50,6 +50,8 @@ pub fn instructions_saved(chars: usize, limit: usize) -> String {
 }
 pub fn instructions_error(error: InstructionsError) -> String {
     match error {
+        InstructionsError::UnsafeEntry => "指示文にはリンクや通常のファイル以外のものは使えません。通常のファイルに置き換えてください。ファイルはそのままです。".into(),
+        InstructionsError::Permissions => "指示文の権限が必要な設定ではありません。保存先を0700、ファイルを0600にしてください。ファイルはそのままです。".into(),
         InstructionsError::Unavailable => "指示文ファイルを読み書きできませんでした。".into(),
         InstructionsError::Unreadable => {
             "指示文をUTF-8として読めませんでした。ファイルはそのままです。".into()
@@ -83,6 +85,14 @@ mod tests {
     #[test]
     fn instructions_failures_have_actionable_wording_without_owner_text() {
         for (error, expected) in [
+            (
+                InstructionsError::UnsafeEntry,
+                "指示文にはリンクや通常のファイル以外のものは使えません。通常のファイルに置き換えてください。ファイルはそのままです。",
+            ),
+            (
+                InstructionsError::Permissions,
+                "指示文の権限が必要な設定ではありません。保存先を0700、ファイルを0600にしてください。ファイルはそのままです。",
+            ),
             (
                 InstructionsError::Unavailable,
                 "指示文ファイルを読み書きできませんでした。",

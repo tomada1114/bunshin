@@ -131,7 +131,10 @@ saved text. `VISUAL` precedes `EDITOR`; its shell text is trusted owner configur
 while the file path is passed as `$1` instead of interpolated. The file remains 0600,
 including when an editor replaces it. Missing, empty and over-limit reasons and the
 600-character Unicode scalar bound live in core, behind `InstructionsSource`; the
-file adapter and in-memory fake share `instructions_contract`.
+file adapter and in-memory fake share `instructions_contract`. Read-only access
+refuses non-regular/linked entries and modes other than 0700 for the application
+directory and 0600 for the file; typed errors distinguish these from invalid UTF-8.
+Only the explicit edit path repairs permissions, without rewriting existing text.
 
 `bunshin tui` is an empty-day shell, drawn with ratatui over its
 crossterm backend (reached only as `ratatui::crossterm`). The screen's state and what a
