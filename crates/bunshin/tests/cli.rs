@@ -536,3 +536,23 @@ fn the_no_editor_hint_refers_to_custom_xdg_storage_without_its_private_value() {
     assert!(!data.exists());
     assert_eq!(fs::read_dir(home).expect("no files").count(), 0);
 }
+
+#[test]
+fn editing_six_hundred_one_whitespace_characters_reports_over_limit_and_retains_the_file() {
+    let home = tempfile::tempdir().expect("home");
+    let source =
+        bunshin_platform::FileInstructions::new(bunshin_platform::app_data_dir(home.path()));
+    let text = " ".repeat(601);
+    source.ensure_default(&text).expect("private fixture");
+    let result = command(home.path(), &["instructions", "edit"])
+        .env("VISUAL", "/usr/bin/true")
+        .output()
+        .expect("edit");
+    assert_eq!(result.status.code(), Some(1));
+    assert_eq!(stdout(&result), "");
+    assert_eq!(
+        stderr(&result),
+        "error: 指示文が600字を超えています（601字）。直すまでは既定の指示文が使われます。\n"
+    );
+    assert_eq!(fs::read_to_string(source.path()).expect("preserved"), text);
+}

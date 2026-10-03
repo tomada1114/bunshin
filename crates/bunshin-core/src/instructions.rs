@@ -133,10 +133,10 @@ impl InstructionsState {
 fn select_origin(present: bool, empty: bool, chars: usize, limit: usize) -> InstructionsOrigin {
     if !present {
         InstructionsOrigin::Missing
-    } else if empty {
-        InstructionsOrigin::Empty
     } else if chars > limit {
         InstructionsOrigin::TooLong
+    } else if empty {
+        InstructionsOrigin::Empty
     } else {
         InstructionsOrigin::Owner
     }

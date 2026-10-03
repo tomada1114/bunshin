@@ -178,3 +178,24 @@ fn instructions_error_codes_are_stable_and_carry_only_actionable_kinds() {
         serde_json::json!({"code":"tooLong", "chars":612, "limit":600})
     );
 }
+
+#[test]
+fn whitespace_only_instructions_still_obey_the_edited_length_limit() {
+    for (count, origin, outcome) in [
+        (600, InstructionsOrigin::Empty, Ok(600)),
+        (
+            601,
+            InstructionsOrigin::TooLong,
+            Err(InstructionsError::TooLong {
+                chars: 601,
+                limit: 600,
+            }),
+        ),
+    ] {
+        let text = " ".repeat(count);
+        let state = InstructionsState::resolve(Some(&text), PathBuf::new(), Tuning::default());
+        assert_eq!(state.origin, origin);
+        assert_eq!(state.edited_length(), outcome);
+        assert_eq!(state.text, DEFAULT_INSTRUCTIONS);
+    }
+}
