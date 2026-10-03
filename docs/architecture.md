@@ -77,6 +77,15 @@ reaps the child, and pre-cancellation spawns nothing. Unknown process exits rema
 default) for responses and availability probes respectively. The Linux adapter
 reports `Unavailable(UnsupportedOs)`.
 
+Core's `prompt` module builds a fresh chat request within a conservative estimate of
+instructions, context JSON, schema, and answer reserve. It removes oldest chat before
+closed tasks, then shortens open titles in request copies while retaining every open
+identifier and time. Structural answer failures return `ModelError::Malformed` before
+any proposal is applied. Domain-invalid proposals have typed refusals; valid proposals
+share one visible change set and one undo entry. The complete reply is retained even
+when it exceeds the length requested in the model instructions. The caller remains
+responsible for persistence and for displaying the reply and refusals.
+
 `crates/bunshin-core/tests/contracts.rs` runs each contract against the fake, on Linux,
 inside the coverage floor. `crates/bunshin-platform/tests/contracts.rs` runs the same
 function against the real adapter, on the Linux and macOS CI runners when it needs only

@@ -1,4 +1,4 @@
-//! Synchronous on-device model boundary, with no process or JSON parser in core.
+//! Synchronous on-device model boundary, without processes or platform I/O in core.
 use std::{
     sync::{
         Arc,

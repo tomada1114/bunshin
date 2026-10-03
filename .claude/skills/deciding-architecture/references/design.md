@@ -68,6 +68,10 @@ Core may not read the clock through jiff: `jiff::Timestamp::now` and `jiff::Zone
 join the bans in `crates/bunshin-core/clippy.toml` in the same change that adds jiff to
 core (a ban on an item clippy cannot resolve fails the clippy guard, so not before).
 
+Core's prompt module reuses the workspace's existing `serde_json` runtime dependency
+for structured context and strict answer parsing. Its version and features stay
+unchanged; the platform already ships it for persisted JSON. No crate is added.
+
 The binary's tests reuse the workspace's existing `bunshin-test-support` port
 fakes through a dev dependency. This shared test-only crate does not ship.
 
@@ -89,8 +93,9 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   messages, unprompted messages with their inbox states, fired and held triggers, the
   next planned look, the last unprompted time, the mute, yesterday's record. Its shape
   is a versioned type in core (`day::file`, deriving serde), so the format is tested
-  inside the floor; the adapter turns it into JSON with `serde_json`, which core uses
-  only in tests. A file with a higher `format` is refused, never overwritten;
+  inside the floor; the adapter turns it into JSON with `serde_json`, which core also
+  uses for prompt context and answer validation. A file with a higher `format` is
+  refused, never overwritten;
   an older one is migrated on read. The `--json` output of `bunshin today` is its own
   versioned view, not the file.
 - **Writing:** the whole day on every change, to a temporary file in `days/`, flushed

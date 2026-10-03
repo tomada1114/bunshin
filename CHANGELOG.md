@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Bounded owner-chat requests keep every open task within the estimated model
+  window. Valid model proposals share one undoable change set; invalid proposals
+  have typed refusals, and replies remain whole. The core API is ready for the
+  terminal chat flow.
+
 - A responsive main task screen with direct task keys, forms and help. Each change
   is saved before the next input; failed saves retain the day and retry on the next
   change. Startup refuses locked or invalid data before entering the terminal;
