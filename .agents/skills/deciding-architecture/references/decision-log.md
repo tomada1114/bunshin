@@ -194,3 +194,12 @@ why), and **Sources** where an external fact carried weight.
 - **Rejected:** reporting the post-rename failure as an ordinary failed write —
   falsely implies that the old file remains and can mislead retry and quit handling;
   treating the failure as success — hides the unconfirmed durability.
+
+### 2026-10-03 — Reuse existing serde_json for the public task output
+
+- **Decided:** the binary directly reuses the workspace's existing `serde_json`
+  to serialize the independently versioned core task view. The owner explicitly
+  accepted this reuse on 2026-10-03; no package, version or feature is introduced.
+- **Rejected:** serializing the persisted day object — exposes bookkeeping and
+  couples script output to storage; hand-written JSON formatting — duplicates
+  escaping and risks invalid output for complete owner titles.
