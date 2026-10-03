@@ -38,6 +38,16 @@ runs (`RUSTUP_AUTO_INSTALL`, on by default:
 install is reported with the command to run. `cargo run --locked -p bunshin -- tui` opens
 the full-screen view in the terminal you run it from; `q` quits.
 
+Read the saved logical day's tasks without opening a screen:
+
+```bash
+cargo run -p bunshin -- today
+cargo run -p bunshin -- today --json
+```
+
+These commands take no writer lock. Before 04:00 they read the previous day's file.
+A missing day prints nothing in plain output and an empty task list in JSON.
+
 ## Day data
 
 The DayStore foundation defines storage outside the checkout: on macOS in

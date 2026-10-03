@@ -13,6 +13,7 @@ bunshin-core = { workspace = true }
 bunshin-platform = { workspace = true }
 ratatui = { workspace = true }
 tracing = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

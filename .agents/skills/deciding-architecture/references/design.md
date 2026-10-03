@@ -68,6 +68,10 @@ Core may not read the clock through jiff: `jiff::Timestamp::now` and `jiff::Zone
 join the bans in `crates/bunshin-core/clippy.toml` in the same change that adds jiff to
 core (a ban on an item clippy cannot resolve fails the clippy guard, so not before).
 
+The binary directly uses the existing workspace `serde_json` to write the public
+`TodayView`. This adds no package, version or feature to the shipped dependency graph;
+the platform already uses the same crate for day JSON.
+
 Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
 
 ## Data

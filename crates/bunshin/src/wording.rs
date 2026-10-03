@@ -90,6 +90,60 @@ pub fn editor_error(error: EditorError) -> String {
     }
 }
 
+/// Help for the read-only task list.
+pub const TODAY_ABOUT: &str = "今日のタスクを読み取って表示する";
+/// Help for the stable public JSON view.
+pub const TODAY_JSON_HELP: &str = "形式バージョン付きの JSON を表示する";
+/// Missing HOME must not guess where to read owner data.
+pub const TODAY_HOME_MISSING: &str =
+    "HOME が設定されていないため、今日のデータの場所が分かりません。";
+/// One data-free Japanese line for each typed day-store failure.
+pub fn today_error(error: bunshin_core::day::store::DayStoreError) -> &'static str {
+    use bunshin_core::day::store::DayStoreError;
+    match error {
+        DayStoreError::Unavailable | DayStoreError::AlreadyLocked { pid: _ } => {
+            "今日のデータを読めませんでした（保存先を確認してください）"
+        }
+        DayStoreError::PublishedButNotDurable => {
+            "今日のデータを読めませんでした（保存の耐久性を確認できませんでした）"
+        }
+        DayStoreError::Unreadable => "今日のデータを読めませんでした（ファイルを確認してください）",
+        DayStoreError::NewerFormat { found: _ } => {
+            "今日のデータを読めませんでした（ファイルの形式が新しすぎます）"
+        }
+        DayStoreError::UnsupportedFormat { found: _ } => {
+            "今日のデータを読めませんでした（ファイルの形式に対応していません）"
+        }
+    }
+}
+/// A full task row; control characters become spaces in plain terminal output.
+pub fn today_row(task: &bunshin_core::day::today_view::TodayTask) -> String {
+    use bunshin_core::day::{TaskKind, TaskStatus};
+    let mark = match task.status {
+        TaskStatus::Open => "[ ]",
+        TaskStatus::Done => "[x]",
+        TaskStatus::Dropped => "[-]",
+        TaskStatus::CarriedOver => "[>]",
+    };
+    let time = task
+        .time
+        .map(|time| format!("{:02}:{:02}", time.hour(), time.minute()));
+    let time = match (task.kind, time) {
+        (TaskKind::Deadline, Some(time)) => format!("〜{time}"),
+        (TaskKind::Appointment, Some(time)) => format!("{time}  "),
+        (TaskKind::Untimed, Some(_))
+        | (TaskKind::Untimed | TaskKind::Deadline | TaskKind::Appointment, None) => {
+            "       ".into()
+        }
+    };
+    let title = task
+        .title
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>();
+    format!("{}  {mark}  {time}  {title}", task.number)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +221,39 @@ mod tests {
             ),
         ] {
             assert_eq!(editor_error(error), expected);
+        }
+    }
+
+    #[test]
+    fn today_store_failures_are_exhaustive_data_free_japanese_lines() {
+        use bunshin_core::day::store::DayStoreError;
+        for (error, expected) in [
+            (
+                DayStoreError::Unavailable,
+                "今日のデータを読めませんでした（保存先を確認してください）",
+            ),
+            (
+                DayStoreError::PublishedButNotDurable,
+                "今日のデータを読めませんでした（保存の耐久性を確認できませんでした）",
+            ),
+            (
+                DayStoreError::Unreadable,
+                "今日のデータを読めませんでした（ファイルを確認してください）",
+            ),
+            (
+                DayStoreError::NewerFormat { found: 2 },
+                "今日のデータを読めませんでした（ファイルの形式が新しすぎます）",
+            ),
+            (
+                DayStoreError::UnsupportedFormat { found: 0 },
+                "今日のデータを読めませんでした（ファイルの形式に対応していません）",
+            ),
+            (
+                DayStoreError::AlreadyLocked { pid: Some(123) },
+                "今日のデータを読めませんでした（保存先を確認してください）",
+            ),
+        ] {
+            assert_eq!(today_error(error), expected);
         }
     }
 }
