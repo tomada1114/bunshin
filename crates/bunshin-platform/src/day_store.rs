@@ -121,7 +121,8 @@ impl DayStore for JsonFileDayStore {
         self.read(day.date())?; // Refuse corrupt/future data before creating a replacement.
         let bytes = serde_json::to_vec_pretty(&DayFile::from(day))
             .map_err(|_| DayStoreError::Unreadable)?;
-        replace_file(&self.day_path(day.date()), |file| file.write_all(&bytes)).map_err(unavailable)
+        replace_file(&self.day_path(day.date()), |file| file.write_all(&bytes))
+            .map_err(ReplacementError::into_store_error)
     }
     fn last_before(&self, date: Date) -> Result<Option<Day>, DayStoreError> {
         self.validate_directories()?;
@@ -265,10 +266,35 @@ impl Drop for TemporaryFile {
         let _ = fs::remove_file(&self.path);
     }
 }
+#[derive(Debug)]
+enum ReplacementError {
+    BeforePublication(io::Error),
+    PublishedButNotDurable,
+}
+impl From<io::Error> for ReplacementError {
+    fn from(error: io::Error) -> Self {
+        Self::BeforePublication(error)
+    }
+}
+impl ReplacementError {
+    fn into_store_error(self) -> DayStoreError {
+        match self {
+            Self::BeforePublication(error) => unavailable(error),
+            Self::PublishedButNotDurable => DayStoreError::PublishedButNotDurable,
+        }
+    }
+}
 fn replace_file(
     destination: &Path,
     write: impl FnOnce(&mut File) -> io::Result<()>,
-) -> io::Result<()> {
+) -> Result<(), ReplacementError> {
+    replace_file_with_sync(destination, write, File::sync_all)
+}
+fn replace_file_with_sync(
+    destination: &Path,
+    write: impl FnOnce(&mut File) -> io::Result<()>,
+    sync_directory: impl FnOnce(&File) -> io::Result<()>,
+) -> Result<(), ReplacementError> {
     // Open before publication so an inaccessible directory cannot replace the old
     // day. Sync the directory entry after rename before reporting success.
     let parent = destination
@@ -280,12 +306,32 @@ fn replace_file(
     temp.file.flush()?;
     temp.file.sync_all()?;
     fs::rename(&temp.path, destination)?;
-    directory.sync_all()
+    sync_directory(&directory).map_err(|_| ReplacementError::PublishedButNotDurable)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_directory_sync_failure_reports_the_published_replacement() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let path = scratch.path().join("2026-10-02.json");
+        fs::write(&path, b"old complete day").expect("old file");
+        let result = replace_file_with_sync(
+            &path,
+            |file| file.write_all(b"new complete day"),
+            |_| Err(io::Error::from(io::ErrorKind::PermissionDenied)),
+        )
+        .map_err(ReplacementError::into_store_error);
+        assert_eq!(fs::read(&path).expect("published"), b"new complete day");
+        assert_eq!(result, Err(DayStoreError::PublishedButNotDurable));
+        assert_eq!(
+            fs::read_dir(scratch.path())
+                .expect("no temporary file")
+                .count(),
+            1
+        );
+    }
     #[test]
     fn contended_pid_is_read_from_the_validated_inode_not_its_replaced_path() {
         let scratch = tempfile::tempdir().expect("scratch");
@@ -329,7 +375,13 @@ mod tests {
                 file.write_all(b"partial replacement")?;
                 Err(io::Error::from(kind))
             });
-            assert_eq!(result.map_err(|error| error.kind()), Err(kind));
+            assert_eq!(
+                result.map_err(|error| match error {
+                    ReplacementError::BeforePublication(error) => error.kind(),
+                    ReplacementError::PublishedButNotDurable => panic!("partial write published"),
+                }),
+                Err(kind)
+            );
             assert_eq!(fs::read(&path).expect("preserved"), b"old complete day");
             assert_eq!(
                 fs::read_dir(scratch.path())

@@ -91,14 +91,25 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   an older one is migrated on read. The `--json` output of `bunshin today` is its own
   versioned view, not the file.
 - **Writing:** the whole day on every change, to a temporary file in `days/`, flushed
-  and `fsync`ed, then renamed over the old file. A reader such as `bunshin today` takes no lock and sees the
-  old file or the new one, never half (§3.7). A day is a few tens of KB at most.
+  and `fsync`ed, then renamed over the old file; the containing directory is then synced.
+  A reader such as `bunshin today` takes no lock and sees the old file or the new one,
+  never half (§3.7). There is no file-size cap. Reading and replacing a whole file can
+  exhaust memory or other resources for a very large day file; the owner chose to
+  retain this limitation instead of introducing a size rejection (2026-10-03).
 - **Failure:** a failed save keeps the day in memory, shows 「保存できません」, and
   retries on the next change; an unreadable day file stops the TUI with a message and is
   never overwritten (`docs/design/ux-guidelines.md`).
+  A failure before rename preserves the old file. A directory sync failure after
+  rename instead returns `PublishedButNotDurable`: the complete new data is already
+  visible, but crash durability is unconfirmed. Callers must distinguish this from
+  "not saved" and keep the in-memory day available for another save.
 - **The lock:** `bunshin tui` opens `tui.lock` and takes `File::try_lock` for its whole
   life and writes its PID into the file; `WouldBlock` means another screen runs, and the
-  refusal reads that PID for its message (§3.7, `docs/product/ux-flows.md` C4). The OS releases the lock when the
+  refusal reads that PID for its message (§3.7, `docs/product/ux-flows.md` C4). The PID
+  is advisory: it can be absent or contain the previous holder's PID between lock
+  acquisition and PID publication. Only the OS lock guarantees single-writer exclusion.
+  Writers cooperate by holding the lease; concurrent external file edits are unsupported.
+  The OS releases the lock when the
   file closes, crash included, so no stale lock is ever cleaned up
   (https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock, stable since 1.89,
   checked 2026-10-02).

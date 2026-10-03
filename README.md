@@ -51,6 +51,13 @@ fsync, and rename, so readers see a complete old or new day. Unreadable and newe
 files are refused without overwriting them. No day is deleted automatically; removing
 old files is the owner's decision. Session undo is not persisted.
 
+Day files have no size limit; whole-file reads and replacements can exhaust memory
+or other resources for very large files. The lock PID is advisory and can be absent
+or stale while a new holder publishes it; the OS lock guarantees exclusion. Saving
+syncs the containing directory after rename. If that sync fails,
+`PublishedButNotDurable` means the complete new file is visible but crash durability
+is unconfirmed; a pre-publication `Unavailable` leaves the old file intact.
+
 ## Design Philosophy
 
 Every choice below has a reason. If you disagree with one, you know what to change and

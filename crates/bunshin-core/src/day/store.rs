@@ -8,6 +8,8 @@ use serde::Serialize;
 pub trait DayLock: Send + Sync {}
 
 /// One date is saved atomically as a whole day. Constructors do no I/O.
+/// Day files have no size limit; reading and replacing large files may exhaust
+/// memory or other resources. Only cooperative writers holding a lease are supported.
 pub trait DayStore: Send + Sync {
     /// Load a date, or a new empty day if it has never been saved. Undo is session-only.
     /// # Errors
@@ -16,8 +18,10 @@ pub trait DayStore: Send + Sync {
     fn load(&self, date: Date) -> Result<Day, DayStoreError>;
     /// Replace the date's complete persistent state; undo is not persisted.
     /// # Errors
-    /// Never overwrite an unreadable/unsupported existing file. A failed write
-    /// returns `Unavailable` and leaves the previous file intact.
+    /// Never overwrite an unreadable/unsupported existing file. Before publication,
+    /// an I/O failure returns `Unavailable` and leaves the previous file intact.
+    /// `PublishedButNotDurable` means the complete new file is already visible,
+    /// but its directory sync failed, so crash durability remains unconfirmed.
     fn save(&self, day: &Day) -> Result<(), DayStoreError>;
     /// Latest stored day strictly before `date`, or none. No missing day is created.
     /// # Errors
@@ -26,7 +30,9 @@ pub trait DayStore: Send + Sync {
     /// Acquire the single-writer lock until the returned lease drops. The OS releases
     /// the real lock on process exit, including a crash. A refusal never changes PID.
     /// # Errors
-    /// `AlreadyLocked` with the holder's PID if readable, otherwise `Unavailable`.
+    /// `AlreadyLocked` with an advisory PID if readable; this can be absent or stale
+    /// between acquiring the OS lock and publishing the holder's PID. Other lock
+    /// failures return `Unavailable`. Only the OS lock determines exclusion.
     fn take_lock(&self) -> Result<Box<dyn DayLock>, DayStoreError>;
 }
 
@@ -37,6 +43,10 @@ pub enum DayStoreError {
     /// The directory or file could not be accessed/written.
     #[error("day store unavailable")]
     Unavailable,
+    /// The complete replacement is visible, but its directory could not be synced.
+    /// This does not mean that the previous file was preserved.
+    #[error("day published but durability unconfirmed")]
+    PublishedButNotDurable,
     /// Invalid JSON, invalid domain fields, or a mismatched logical date.
     #[error("day data unreadable")]
     Unreadable,
@@ -55,7 +65,7 @@ pub enum DayStoreError {
     /// Another screen owns the writer lease.
     #[error("day writer already locked")]
     AlreadyLocked {
-        /// Holder PID, absent if unreadable or not yet written.
+        /// Advisory PID, absent if unreadable, potentially stale before publication.
         pid: Option<u32>,
     },
 }
@@ -85,6 +95,13 @@ pub fn validate_date(day: Day, date: Date) -> Result<Day, DayStoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn published_without_confirmed_durability_has_a_distinct_error_code() {
+        assert_eq!(
+            serde_json::to_string(&DayStoreError::PublishedButNotDurable).expect("error JSON"),
+            r#"{"code":"publishedButNotDurable"}"#,
+        );
+    }
     #[test]
     fn file_failures_have_typed_data_free_store_errors() {
         for (file, store) in [
