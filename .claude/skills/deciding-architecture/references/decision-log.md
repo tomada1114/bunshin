@@ -194,3 +194,11 @@ why), and **Sources** where an external fact carried weight.
 - **Rejected:** reporting the post-rename failure as an ordinary failed write —
   falsely implies that the old file remains and can mislead retry and quit handling;
   treating the failure as success — hides the unconfirmed durability.
+
+### 2026-10-03 — Reuse shared port fakes in binary tests
+
+- **Decided:** the binary takes the existing workspace `bunshin-test-support`
+  as a dev dependency for TUI and CLI tests against the shared port fakes. The
+  owner explicitly accepted this reuse on 2026-10-03. It does not ship.
+- **Rejected:** duplicating fakes inside the binary — separates them from the
+  shared port contracts and creates a second implementation to keep consistent.

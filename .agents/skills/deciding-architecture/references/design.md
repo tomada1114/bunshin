@@ -68,6 +68,9 @@ Core may not read the clock through jiff: `jiff::Timestamp::now` and `jiff::Zone
 join the bans in `crates/bunshin-core/clippy.toml` in the same change that adds jiff to
 core (a ban on an item clippy cannot resolve fails the clippy guard, so not before).
 
+The binary's tests reuse the workspace's existing `bunshin-test-support` port
+fakes through a dev dependency. This shared test-only crate does not ship.
+
 Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
 
 ## Data
