@@ -6,15 +6,17 @@
 //! still builds and tests on Linux CI.
 
 mod clock;
+mod day_store;
 mod fm;
 mod logging;
 mod paths;
 
 pub use clock::SystemClock;
+pub use day_store::JsonFileDayStore;
 pub use logging::{LOG_FILES_KEPT, LoggingError, init_logging};
 pub use paths::{
-    BUNDLE_IDENTIFIER, XDG_APP_NAME, app_data_dir, home_dir, log_dir, macos_data_dir,
-    macos_log_dir, xdg_data_dir, xdg_log_dir,
+    BUNDLE_IDENTIFIER, XDG_APP_NAME, app_data_dir, days_dir, home_dir, lock_file, log_dir,
+    macos_data_dir, macos_log_dir, xdg_data_dir, xdg_log_dir,
 };
 
 #[cfg(target_os = "macos")]

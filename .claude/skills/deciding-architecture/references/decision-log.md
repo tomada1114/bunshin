@@ -166,3 +166,31 @@ why), and **Sources** where an external fact carried weight.
   subcommand) is removed by its own unit of work, before or with the first port.
 - **Rejected:** keeping it as a worked example — `design.md` and the real ports replace
   it, and a sample with no product meaning misleads the next reader.
+
+### 2026-10-03 — Lock PID is advisory
+
+- **Decided:** retain OS lock acquisition followed by PID publication. The owner
+  chose to document that a contending screen can see an absent or previous PID in
+  that interval. Only the OS lock guarantees exclusion; the displayed PID is a hint.
+- **Rejected:** changing the publication protocol to promise an exact holder PID —
+  unnecessary complexity for advisory startup guidance when the OS already prevents
+  two cooperating writers.
+
+### 2026-10-03 — Day files have no size cap
+
+- **Decided:** retain whole-file JSON reads and replacements without a size limit.
+  The owner chose to document that very large files can exhaust memory or other
+  resources; no maximum is introduced in `Tuning`.
+- **Rejected:** a 16 MiB maximum that refuses reads and saves while preserving the
+  file — changes the existing unlimited contract and adds a new rejection policy
+  the owner does not want in this version.
+
+### 2026-10-03 — Distinguish publication from confirmed durability
+
+- **Decided:** sync the parent directory after rename. If that sync fails, return
+  `PublishedButNotDurable`: the new complete data is already visible, but its crash
+  durability is unconfirmed. Keep `Unavailable` for failures before publication,
+  where the old file remains intact. The owner explicitly chose this distinction.
+- **Rejected:** reporting the post-rename failure as an ordinary failed write —
+  falsely implies that the old file remains and can mislead retry and quit handling;
+  treating the failure as success — hides the unconfirmed durability.
