@@ -20,6 +20,17 @@ pub trait InstructionsSource: Send + Sync {
     fn path(&self) -> PathBuf;
 }
 
+/// Symbolic file locations for a failure hint, without owner-specific path data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstructionsLocation {
+    /// The application's standard macOS data directory under the owner's home.
+    MacosHome,
+    /// The default Linux data directory under the owner's home.
+    LinuxHome,
+    /// A configured XDG data directory, referred to by its variable name.
+    XdgDataHome,
+}
+
 /// Why this call uses the owner's text or the shipped default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstructionsOrigin {

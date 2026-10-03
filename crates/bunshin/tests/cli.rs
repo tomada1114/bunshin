@@ -175,15 +175,18 @@ fn over_limit_instructions_print_the_complete_default_and_reason() {
 #[test]
 fn instructions_edit_without_an_editor_fails_without_creating_a_file() {
     let home = tempfile::tempdir().expect("home");
-    let path = bunshin_platform::app_data_dir(home.path()).join("instructions.md");
+    let path = if cfg!(target_os = "macos") {
+        "~/Library/Application Support/io.github.tomada1114.bunshin/instructions.md"
+    } else {
+        "~/.local/share/bunshin/instructions.md"
+    };
     let result = run(home.path(), &["instructions", "edit"]);
     assert_eq!(result.status.code(), Some(1));
     assert_eq!(stdout(&result), "");
     assert_eq!(
         stderr(&result),
         format!(
-            "error: エディタが設定されていません。VISUAL か EDITOR を設定するか、次のファイルを直接編集してください: {}\n",
-            path.display()
+            "error: エディタが設定されていません。VISUAL か EDITOR を設定するか、次のファイルを直接編集してください: {path}\n"
         )
     );
     assert_eq!(fs::read_dir(home.path()).expect("no files").count(), 0);
@@ -498,4 +501,38 @@ fn instructions_refuse_insecure_modes_without_changing_owner_data_or_permissions
             file_mode
         );
     }
+}
+
+#[test]
+fn the_no_editor_hint_does_not_disclose_the_private_home_path() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let home = scratch.path().join("private-owner-identity");
+    fs::create_dir(&home).expect("home");
+    let result = run(&home, &["instructions", "edit"]);
+    assert_eq!(result.status.code(), Some(1));
+    assert_eq!(stdout(&result), "");
+    assert!(!stderr(&result).contains("private-owner-identity"));
+    assert!(stderr(&result).contains("~/"));
+    assert!(stderr(&result).contains("instructions.md"));
+    assert_eq!(fs::read_dir(home).expect("no files").count(), 0);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_no_editor_hint_refers_to_custom_xdg_storage_without_its_private_value() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let home = scratch.path().join("private-owner");
+    fs::create_dir(&home).expect("home");
+    let data = scratch.path().join("private-data");
+    let result = command(&home, &["instructions", "edit"])
+        .env("XDG_DATA_HOME", &data)
+        .output()
+        .expect("run");
+    assert_eq!(result.status.code(), Some(1));
+    assert_eq!(stdout(&result), "");
+    assert!(!stderr(&result).contains("private-owner"));
+    assert!(!stderr(&result).contains("private-data"));
+    assert!(stderr(&result).contains("$XDG_DATA_HOME/bunshin/instructions.md"));
+    assert!(!data.exists());
+    assert_eq!(fs::read_dir(home).expect("no files").count(), 0);
 }

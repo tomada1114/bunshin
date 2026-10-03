@@ -265,3 +265,7 @@ Reading refuses linked or non-regular instructions and checks data-directory/fil
 modes without changing them. For a manually created file, set the app data directory
 to 0700 and instructions.md to 0600 before reading. An explicit edit also narrows
 these modes while preserving existing text.
+
+The no-editor hint names the instructions location symbolically with `~/` or
+`$XDG_DATA_HOME`, so its failure wording includes no private home/configured path.
+Normal `bunshin instructions` output still shows the resolved file path.

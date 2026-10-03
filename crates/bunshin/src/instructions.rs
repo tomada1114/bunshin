@@ -4,7 +4,9 @@ use bunshin_core::{
     Tuning,
     instructions::{InstructionsSource, InstructionsState, prepare_edit},
 };
-use bunshin_platform::{FileInstructions, app_data_dir, home_dir, owner_editor, run_editor};
+use bunshin_platform::{
+    FileInstructions, app_data_dir, home_dir, instructions_location, owner_editor, run_editor,
+};
 use std::{
     io::{self, Write},
     process::ExitCode,
@@ -15,10 +17,12 @@ pub fn run(edit: bool) -> ExitCode {
         eprintln!("error: {}", wording::INSTRUCTIONS_HOME_MISSING);
         return ExitCode::FAILURE;
     };
-    let source = FileInstructions::new(app_data_dir(&home));
+    let root = app_data_dir(&home);
+    let location = instructions_location(&home, &root);
+    let source = FileInstructions::new(root);
     if edit {
         let Some(editor) = owner_editor() else {
-            eprintln!("error: {}", wording::no_editor(&source.path()));
+            eprintln!("error: {}", wording::no_editor(location));
             return ExitCode::FAILURE;
         };
         if let Err(error) = prepare_edit(&source) {

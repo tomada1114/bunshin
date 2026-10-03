@@ -154,3 +154,27 @@ fn each_instructions_read_observes_owner_changes_and_initialization_preserves_th
         assert_eq!(prepare_edit(&failing), Err(error));
     }
 }
+
+#[test]
+fn instructions_error_codes_are_stable_and_carry_only_actionable_kinds() {
+    for (error, code) in [
+        (InstructionsError::Unavailable, "unavailable"),
+        (InstructionsError::Unreadable, "unreadable"),
+        (InstructionsError::UnsafeEntry, "unsafeEntry"),
+        (InstructionsError::Permissions, "permissions"),
+        (InstructionsError::MissingAfterEdit, "missingAfterEdit"),
+    ] {
+        assert_eq!(
+            serde_json::to_value(error).expect("serialize"),
+            serde_json::json!({"code":code})
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(InstructionsError::TooLong {
+            chars: 612,
+            limit: 600
+        })
+        .expect("serialize"),
+        serde_json::json!({"code":"tooLong", "chars":612, "limit":600})
+    );
+}

@@ -135,6 +135,8 @@ file adapter and in-memory fake share `instructions_contract`. Read-only access
 refuses non-regular/linked entries and modes other than 0700 for the application
 directory and 0600 for the file; typed errors distinguish these from invalid UTF-8.
 Only the explicit edit path repairs permissions, without rewriting existing text.
+No-editor failure guidance uses symbolic `~/` or `$XDG_DATA_HOME` locations as in UX
+flow C3, while the read-only source view displays the resolved path.
 
 `bunshin tui` is an empty-day shell, drawn with ratatui over its
 crossterm backend (reached only as `ratatui::crossterm`). The screen's state and what a
