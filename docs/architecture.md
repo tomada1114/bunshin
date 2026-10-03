@@ -100,8 +100,8 @@ a missing task from an invalid title. The binary owns each user-facing sentence 
 as data serializes as a typed code. Adapters translate OS failures at the boundary.
 
 `crates/bunshin/src/main.rs` is the composition root, the place that constructs real
-adapters and hands them to core. The current empty shell only initializes file logging;
-future day storage and model wiring belong here rather than in core.
+adapters and hands them to core. It constructs `JsonFileDayStore`, `SystemClock` and
+file logging for the task screen; model wiring belongs here rather than in core.
 
 The platform crate and the binary are outside the coverage floor. That is a
 constraint, not a licence: they translate, so they have no branch worth a numeric gate.
@@ -118,8 +118,8 @@ checkout, so it is a human's recipe. The command-line contract, which
   stderr: `error: <wording>` for a failed action, `warning: <wording>` for a degraded run
   (logging unavailable), and, in a debug build, a copy of each log line.
 - **Exit codes.** 0 on success (including `--help` and `--version`), 1 when the action
-  failed (missing terminal or `HOME`, terminal I/O), 2 on a usage error (clap's own code, with its
-  message and usage on stderr).
+  failed (missing terminal or `HOME`, terminal I/O, locked or invalid day data), 2 on a
+  usage error (clap's own code, with its message and usage on stderr).
 - **`--version`** prints `bunshin <version>`, the workspace version from `Cargo.toml`'s
   `[workspace.package]`.
 
@@ -139,14 +139,26 @@ Only the explicit edit path repairs permissions, without rewriting existing text
 No-editor failure guidance uses symbolic `~/` or `$XDG_DATA_HOME` locations as in UX
 flow C3, while the read-only source view displays the resolved path.
 
-`bunshin tui` is an empty-day shell, drawn with ratatui over its
-crossterm backend (reached only as `ratatui::crossterm`). The screen's state and what a
-key does are core's `ShellScreen`, `ShellAction`, and `ShellKey`, tested with plain values; `crates/bunshin/src/tui/` only enters and leaves the terminal, translates its key
-events, and draws (`view.rs`, tested against ratatui's `TestBackend`). It refuses with
-exit 1 unless standard input and standard output are both a terminal, logs to the file
-only while it owns the screen, and restores the terminal — raw mode off, the main screen
-back, the cursor shown — on a normal exit, on an error, and from a panic hook. No check
-runs the loop itself; a human running `bunshin tui` is its test.
+`bunshin tui` draws today's task screen with ratatui over its crossterm backend
+(reached only as `ratatui::crossterm`). Core's `MainScreen` owns focus, task forms,
+`ScreenKey` dispatch, save-result state and quit confirmation. Tab moves between input
+and tasks; `q` quits from tasks and Ctrl+C from anywhere. The binary executes each
+`Save` synchronously before reading another event, then reports its typed result to
+core. A failure retains the day, retries on the next change, and asks once before
+quit; a published replacement with unconfirmed durability has a distinct header and
+confirmation. The screen shows an error notice while full chat and model interaction
+are forthcoming.
+
+Startup refuses with exit 1 unless stdin and stdout are both terminals, before any
+file I/O. It then takes the writer lease and loads the logical day before entering
+raw mode. Locked, unreadable and unsupported data are refused without overwriting
+day bytes; stderr uses symbolic storage locations rather than private owner paths.
+The lease remains alive until the terminal is restored. Startup and save effects are
+tested headlessly with shared fakes and the real file adapter; the existing non-TTY
+CLI test proves no-I/O refusal. Tests never manufacture a terminal to get past that
+guard. Logging goes only to the file while the screen owns the terminal. Raw mode,
+the main screen and cursor are restored on a normal exit, an error and a panic hook.
+No check runs the loop itself; a human running `bunshin tui` is its test.
 
 ## Logging
 

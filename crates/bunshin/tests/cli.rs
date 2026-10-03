@@ -57,7 +57,7 @@ fn tui_without_a_terminal_fails_with_exit_code_1_and_touches_nothing() {
     assert_eq!(stdout(&result), "");
     assert_eq!(
         stderr(&result),
-        "error: tui needs an interactive terminal on standard input and standard output\n"
+        "error: bunshin tui は端末の中で実行してください\n"
     );
     assert_eq!(fs::read_dir(home.path()).unwrap().count(), 0);
 }

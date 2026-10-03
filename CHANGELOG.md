@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A responsive main task screen with direct task keys, forms and help. Each change
+  is saved before the next input; failed saves retain the day and retry on the next
+  change. Startup refuses locked or invalid data before entering the terminal;
+  quitting distinguishes unsaved changes from unconfirmed crash durability.
+
 - `bunshin instructions` shows the text in use and its source; `bunshin instructions
   edit` initializes an owner-only file and opens `VISUAL`, then `EDITOR`. Missing,
   empty or over-600-character text uses the shipped default without truncating the

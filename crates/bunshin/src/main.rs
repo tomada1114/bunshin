@@ -2,10 +2,14 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 mod instructions;
+mod startup;
 mod tui;
 mod wording;
 
-use bunshin_platform::{home_dir, init_logging, log_dir};
+use bunshin_core::{Clock, Tuning, logical_date};
+use bunshin_platform::{
+    JsonFileDayStore, SystemClock, app_data_dir, home_dir, init_logging, log_dir,
+};
 use clap::{Parser, Subcommand};
 use std::io::{self, IsTerminal};
 use std::process::ExitCode;
@@ -58,10 +62,22 @@ fn tui() -> ExitCode {
         eprintln!("error: {}", wording::HOME_MISSING);
         return ExitCode::FAILURE;
     };
+    let tuning = Tuning::default();
+    let clock = SystemClock;
+    let now = clock.now();
+    let store = JsonFileDayStore::new(app_data_dir(&home), tuning);
+    let (_lease, screen) = match startup::prepare(&store, now, tuning) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            let date = logical_date(now.local, tuning.day_boundary).to_string();
+            eprintln!("error: {}", wording::startup_error(error, &date));
+            return ExitCode::FAILURE;
+        }
+    };
     if init_logging(&log_dir(&home), env!("CARGO_PKG_NAME"), false).is_err() {
         eprintln!("warning: {}", wording::LOGGING_UNAVAILABLE);
     }
-    match tui::run() {
+    match tui::run(screen, &store, &clock) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(kind = ?error.kind(), "the terminal failed");
