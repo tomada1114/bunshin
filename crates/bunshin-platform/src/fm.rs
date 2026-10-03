@@ -561,7 +561,9 @@ printf '{}'"#,
         let (dir, model) = stub(
             r#"cd "$(dirname "$0")"
 printf '%s' "$$" >pid
-/bin/sh -c '/bin/sleep 1; printf completed >natural-end' <&0 >/dev/null 2>&1 &
+# Preserve stdin before an asynchronous shell list replaces fd 0 with /dev/null.
+exec 3<&0
+/bin/sh -c '/bin/sleep 1; printf completed >natural-end' <&3 >/dev/null 2>&1 &
 printf '{}'"#,
         );
         let mut req = request();
