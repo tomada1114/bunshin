@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Core check-in calls retain a ready batch in one bounded request, deliver notes
+  or questions with typed Bell/Save effects, and preserve tasks and undo. Deadline
+  failures have fixed notes; other failures retry once and unavailable events wait.
+  Same-task suppression and strict reply parsing precede the terminal integration.
+
 - Bounded owner-chat requests keep every open task within the estimated model
   window. Valid model proposals share one undoable change set; invalid proposals
   have typed refusals, and replies remain whole. The core API is ready for the

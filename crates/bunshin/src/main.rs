@@ -5,6 +5,9 @@ mod instructions;
 mod tui;
 mod wording;
 
+// Formatting entry points are kept available independently of the terminal worker.
+pub use wording::{fixed_deadline, unprompted_label};
+
 use bunshin_platform::{home_dir, init_logging, log_dir};
 use clap::{Parser, Subcommand};
 use std::io::{self, IsTerminal};

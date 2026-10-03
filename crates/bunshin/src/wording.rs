@@ -170,3 +170,137 @@ mod tests {
         }
     }
 }
+
+const DEADLINE_BEFORE: &str = "の締切が近づいています。";
+const DEADLINE_AFTER: &str = "の締切を過ぎました。";
+const DEADLINE_OPEN: &str = "（〜";
+const DEADLINE_CLOSE: &str = "）";
+const LABEL_NOTE: &str = "メモ";
+const LABEL_QUESTION: &str = "質問";
+const TRIGGER_BEFORE: &str = "締切30分前";
+const TRIGGER_AFTER: &str = "締切超過";
+const TRIGGER_PLANNED: &str = "予定の確認";
+const TRIGGER_DAY_START: &str = "日の開始";
+const TRIGGER_EVENING: &str = "夕方の振り返り";
+const TRIGGER_CATCH_UP: &str = "再開";
+const LABEL_OPEN: &str = "[";
+const LABEL_CLOSE: &str = "]";
+const LABEL_SEPARATOR: &str = " / ";
+const LABEL_TASK_SEPARATOR: &str = ": ";
+
+/// Render core's fixed deadline facts, preserving the complete task title.
+/// The time is supplied by the validated deadline task, never guessed here.
+#[must_use]
+pub fn fixed_deadline(note: &bunshin_core::checkin::calls::FixedDeadline) -> String {
+    use bunshin_core::checkin::calls::DeadlineNotice;
+    let suffix = match note.kind {
+        DeadlineNotice::Before => DEADLINE_BEFORE,
+        DeadlineNotice::After => DEADLINE_AFTER,
+    };
+    let time = note.task.time.map_or_else(String::new, |at| {
+        format!("{:02}:{:02}", at.hour(), at.minute())
+    });
+    format!(
+        "{}{DEADLINE_OPEN}{time}{DEADLINE_CLOSE}{suffix}",
+        note.task.title
+    )
+}
+/// Format the note/question and trigger tag for a later terminal renderer.
+/// Control characters in a supplied title cannot split or control the tag line.
+#[must_use]
+pub fn unprompted_label(
+    kind: bunshin_core::day::UnpromptedKind,
+    trigger: &bunshin_core::day::Trigger,
+    title: Option<&str>,
+) -> String {
+    use bunshin_core::day::{TriggerKind, UnpromptedKind};
+    let kind = match kind {
+        UnpromptedKind::Note => LABEL_NOTE,
+        UnpromptedKind::Question => LABEL_QUESTION,
+    };
+    let trigger = match trigger.kind {
+        TriggerKind::BeforeDeadline => TRIGGER_BEFORE,
+        TriggerKind::AfterDeadline => TRIGGER_AFTER,
+        TriggerKind::PlannedLook => TRIGGER_PLANNED,
+        TriggerKind::DayStart => TRIGGER_DAY_START,
+        TriggerKind::EveningReview => TRIGGER_EVENING,
+        TriggerKind::CatchUp => TRIGGER_CATCH_UP,
+    };
+    let task = title.map_or_else(String::new, |title| {
+        let title = title
+            .chars()
+            .map(|ch| if ch.is_control() { ' ' } else { ch })
+            .collect::<String>();
+        format!("{LABEL_TASK_SEPARATOR}{title}")
+    });
+    format!("{LABEL_OPEN}{kind}{LABEL_SEPARATOR}{trigger}{task}{LABEL_CLOSE}")
+}
+#[cfg(test)]
+mod checkin_tests {
+    use super::*;
+    use bunshin_core::{
+        Tuning, UnixMillis,
+        checkin::calls::{DeadlineNotice, FixedDeadline},
+        day::{Day, TaskKind, TaskOrigin, Trigger, TriggerKind, UnpromptedKind},
+    };
+    #[test]
+    fn fixed_deadline_notes_and_all_tags_use_literal_japanese_wording() {
+        let tuning = Tuning::default();
+        let day = Day::new("2026-10-03".parse().unwrap(), tuning)
+            .add(
+                "資料作成".into(),
+                TaskKind::Deadline,
+                Some("15:00".parse().unwrap()),
+                TaskOrigin::Key,
+                UnixMillis(0),
+            )
+            .unwrap()
+            .0;
+        let task = day.task_view().remove(0);
+        for (kind, trigger, expected) in [
+            (
+                DeadlineNotice::Before,
+                TriggerKind::BeforeDeadline,
+                "資料作成（〜15:00）の締切が近づいています。",
+            ),
+            (
+                DeadlineNotice::After,
+                TriggerKind::AfterDeadline,
+                "資料作成（〜15:00）の締切を過ぎました。",
+            ),
+        ] {
+            let note = FixedDeadline {
+                kind,
+                task: task.clone(),
+                trigger: Trigger {
+                    kind: trigger,
+                    task: Some(1),
+                    due_at: UnixMillis(0),
+                },
+            };
+            assert_eq!(fixed_deadline(&note), expected);
+        }
+        for (trigger, word) in [
+            (TriggerKind::BeforeDeadline, "締切30分前"),
+            (TriggerKind::AfterDeadline, "締切超過"),
+            (TriggerKind::PlannedLook, "予定の確認"),
+            (TriggerKind::DayStart, "日の開始"),
+            (TriggerKind::EveningReview, "夕方の振り返り"),
+            (TriggerKind::CatchUp, "再開"),
+        ] {
+            let trigger = Trigger {
+                kind: trigger,
+                task: Some(1),
+                due_at: UnixMillis(0),
+            };
+            assert_eq!(
+                unprompted_label(UnpromptedKind::Question, &trigger, Some("資料作成")),
+                format!("[質問 / {word}: 資料作成]")
+            );
+            assert_eq!(
+                unprompted_label(UnpromptedKind::Note, &trigger, None),
+                format!("[メモ / {word}]")
+            );
+        }
+    }
+}

@@ -86,6 +86,25 @@ share one visible change set and one undo entry. The complete reply is retained 
 when it exceeds the length requested in the model instructions. The caller remains
 responsible for persistence and for displaying the reply and refusals.
 
+`prompt::checkin::build_checkin` uses the same assembly with a 300-token answer
+reserve and mandatory compact trigger tuples. `checkin::calls::CheckinCalls`
+queues one request behind owner conversation and rejects stale worker tokens.
+Strict check-in parsing permits only silent, note or question; integer references
+outside the task domain become general messages and planned looks are clamped.
+Delivery preserves tasks and undo, records suppression without updating the last
+actual delivery time, and emits typed Bell/Save effects. Deadline failures use
+`FixedDeadline` facts with a pure formatter supplied by the binary; other failures
+retry once at a scheduler tick after completion. Unavailable non-deadline events
+remain held in day data until recovery. A caller marks `CallContext.is_tick` only
+when the scheduler evaluates, rather than on every terminal poll.
+
+The compact check-in trigger codes are private prompt encoding: b (before), a
+(after), p (planned), s (day start), e (evening), and c (catch-up). They retain all
+one hundred before/after events in the maximum fifty-task batch. No stored format
+or task transition changes. The binary's fixed sentences and note/question labels
+live in `wording.rs`; its pure formatting entry points precede worker wiring and
+terminal rendering in the dependent issues.
+
 `crates/bunshin-core/tests/contracts.rs` runs each contract against the fake, on Linux,
 inside the coverage floor. `crates/bunshin-platform/tests/contracts.rs` runs the same
 function against the real adapter, on the Linux and macOS CI runners when it needs only

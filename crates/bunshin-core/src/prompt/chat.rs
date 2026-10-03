@@ -3,7 +3,7 @@ use super::{budget::estimate, rules::operating_rules};
 use crate::{
     ModelRequest, Now, Tuning,
     day::{
-        Author, Day, InboxState, MessageKind, TaskKind, TaskStatus, TaskView, Trigger,
+        Author, Day, InboxState, MessageKind, TaskKind, TaskStatus, TaskView, Trigger, TriggerKind,
         UnpromptedKind,
     },
     instructions::InstructionsState,
@@ -115,6 +115,38 @@ struct HistoryRow {
     text: String,
 }
 #[derive(Clone, Serialize)]
+#[serde(untagged)]
+enum PromptTrigger {
+    Detail(Trigger),
+    Compact((&'static str, Option<u64>)),
+}
+impl PromptTrigger {
+    fn compact(trigger: &Trigger) -> Self {
+        let code = match trigger.kind {
+            TriggerKind::BeforeDeadline => "b",
+            TriggerKind::AfterDeadline => "a",
+            TriggerKind::PlannedLook => "p",
+            TriggerKind::DayStart => "s",
+            TriggerKind::EveningReview => "e",
+            TriggerKind::CatchUp => "c",
+        };
+        Self::Compact((code, trigger.task))
+    }
+}
+pub(crate) struct RequestSpec<'a> {
+    pub schema: &'static str,
+    pub rules: String,
+    pub answer_tokens: usize,
+    pub ready_triggers: Option<&'a [Trigger]>,
+}
+#[derive(Clone, Copy)]
+struct RequestBudget<'a> {
+    instructions: &'a str,
+    schema: &'static str,
+    answer_tokens: usize,
+    tuning: Tuning,
+}
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Context {
     date: String,
@@ -122,7 +154,7 @@ struct Context {
     yesterday: Option<String>,
     open_tasks: Vec<PromptTask>,
     unprompted_states: Vec<UnpromptedContext>,
-    triggers: Vec<Trigger>,
+    triggers: Vec<PromptTrigger>,
     closed_tasks: Vec<PromptTask>,
     chat: Vec<HistoryRow>,
     message: String,
@@ -130,12 +162,12 @@ struct Context {
 fn encode(context: &Context) -> Result<String, PromptError> {
     serde_json::to_string(context).map_err(|_| PromptError::EncodingFailed)
 }
-fn total(instructions: &str, prompt: &str, tuning: Tuning) -> usize {
-    let ratio = tuning.prompt.ascii_chars_per_token;
-    estimate(instructions, ratio)
+fn total(budget: RequestBudget<'_>, prompt: &str) -> usize {
+    let ratio = budget.tuning.prompt.ascii_chars_per_token;
+    estimate(budget.instructions, ratio)
         .saturating_add(estimate(prompt, ratio))
-        .saturating_add(estimate(CHAT_SCHEMA, ratio))
-        .saturating_add(tuning.prompt.chat_answer_tokens)
+        .saturating_add(estimate(budget.schema, ratio))
+        .saturating_add(budget.answer_tokens)
 }
 /// Build one bounded request. Drop oldest chat, then closed tasks, then shorten open
 /// titles in copies. Current input and every open identifier/time are mandatory.
@@ -152,6 +184,30 @@ pub fn build_chat(
     extras: ContextExtras<'_>,
     tuning: Tuning,
 ) -> Result<BuiltChat, PromptError> {
+    assemble(
+        day,
+        owner,
+        input,
+        now,
+        extras,
+        tuning,
+        &RequestSpec {
+            schema: CHAT_SCHEMA,
+            rules: operating_rules(tuning),
+            answer_tokens: tuning.prompt.chat_answer_tokens,
+            ready_triggers: None,
+        },
+    )
+}
+pub(crate) fn assemble(
+    day: &Day,
+    owner: &InstructionsState,
+    input: &str,
+    now: Now,
+    extras: ContextExtras<'_>,
+    tuning: Tuning,
+    spec: &RequestSpec<'_>,
+) -> Result<BuiltChat, PromptError> {
     let chars = input.chars().count();
     if chars > tuning.prompt.input_max_chars {
         return Err(PromptError::InputTooLong {
@@ -159,7 +215,13 @@ pub fn build_chat(
             limit: tuning.prompt.input_max_chars,
         });
     }
-    let instructions = format!("{}{}", owner.text, operating_rules(tuning));
+    let instructions = format!("{}{}", owner.text, spec.rules);
+    let budget = RequestBudget {
+        instructions: &instructions,
+        schema: spec.schema,
+        answer_tokens: spec.answer_tokens,
+        tuning,
+    };
     let limit = tuning.prompt.context_tokens.min(MODEL_WINDOW);
     let tasks = day.task_view();
     let mut context = Context {
@@ -173,7 +235,9 @@ pub fn build_chat(
             .map(PromptTask::from)
             .collect(),
         unprompted_states: Vec::new(),
-        triggers: Vec::new(),
+        triggers: spec.ready_triggers.map_or_else(Vec::new, |triggers| {
+            triggers.iter().map(PromptTrigger::compact).collect()
+        }),
         closed_tasks: Vec::new(),
         chat: Vec::new(),
         message: input.into(),
@@ -184,7 +248,7 @@ pub fn build_chat(
             task.title = "…".into();
         }
     }
-    if total(&instructions, &encode(&minimum)?, tuning) > limit {
+    if total(budget, &encode(&minimum)?) > limit {
         return Err(PromptError::RequiredContextTooLong);
     }
     let original = context
@@ -192,18 +256,17 @@ pub fn build_chat(
         .iter()
         .map(|task| task.title.clone())
         .collect::<Vec<_>>();
-    fill_yesterday(
-        &instructions,
-        &mut context,
-        &mut minimum,
-        extras.yesterday,
-        tuning,
-        limit,
-    )?;
+    fill_yesterday(budget, &mut context, &mut minimum, extras.yesterday, limit)?;
     // Open names precede recent states and triggers. Establish their available
     // title lengths before admitting either lower-priority optional block.
-    fit_tasks(&instructions, &mut context, &original, tuning, limit)?;
-    fill_lower_extras(&instructions, &mut context, extras, tuning, limit)?;
+    fit_tasks(budget, &mut context, &original, limit)?;
+    fill_lower_extras(
+        budget,
+        &mut context,
+        extras,
+        limit,
+        spec.ready_triggers.is_none(),
+    )?;
     context.closed_tasks = tasks
         .into_iter()
         .rev()
@@ -212,7 +275,7 @@ pub fn build_chat(
         .collect();
     let history = chat_history(day, input, now);
     let closed_count = context.closed_tasks.len();
-    fit_tasks(&instructions, &mut context, &original, tuning, limit)?;
+    fit_tasks(budget, &mut context, &original, limit)?;
     // Keep a newest-first prefix. All older rows are necessarily dropped once
     // one row fails to fit, avoiding repeated encoding of an unbounded history.
     for message in &history {
@@ -220,14 +283,14 @@ pub fn build_chat(
             author: message.author,
             text: message.text.clone(),
         });
-        if total(&instructions, &encode(&context)?, tuning) > limit {
+        if total(budget, &encode(&context)?) > limit {
             context.chat.pop();
             break;
         }
     }
     let prompt = encode(&context)?;
     let budget = BudgetReport {
-        estimated_tokens: total(&instructions, &prompt, tuning),
+        estimated_tokens: total(budget, &prompt),
         limit,
         open_tasks: context.open_tasks.len(),
         dropped_chat: history.len() - context.chat.len(),
@@ -240,7 +303,7 @@ pub fn build_chat(
             .count(),
     };
     Ok(BuiltChat {
-        request: ModelRequest::new(&instructions, &prompt, CHAT_SCHEMA, tuning),
+        request: ModelRequest::new(&instructions, &prompt, spec.schema, tuning),
         budget,
     })
 }
@@ -259,16 +322,21 @@ fn chat_history<'a>(day: &'a Day, input: &str, now: Now) -> Vec<&'a crate::day::
         })
         .map(|(_, message)| message)
         .filter(|message| {
+            message
+                .unprompted
+                .as_ref()
+                .is_none_or(|extra| extra.suppressed.is_none())
+        })
+        .filter(|message| {
             matches!(message.author, Author::You | Author::Bunshin)
                 && matches!(message.kind, MessageKind::Reply | MessageKind::Unprompted)
         })
         .collect::<Vec<_>>()
 }
 fn fit_tasks(
-    instructions: &str,
+    budget: RequestBudget<'_>,
     context: &mut Context,
     original: &[String],
-    tuning: Tuning,
     limit: usize,
 ) -> Result<(), PromptError> {
     let mut title_limit = original
@@ -276,7 +344,7 @@ fn fit_tasks(
         .map(|title| title.chars().count())
         .max()
         .unwrap_or(1);
-    while total(instructions, &encode(context)?, tuning) > limit {
+    while total(budget, &encode(context)?) > limit {
         if context.closed_tasks.pop().is_some() {
             continue;
         }
@@ -293,25 +361,25 @@ fn fit_tasks(
     Ok(())
 }
 fn fill_yesterday(
-    instructions: &str,
+    budget: RequestBudget<'_>,
     context: &mut Context,
     minimum: &mut Context,
     yesterday: Option<&str>,
-    tuning: Tuning,
     limit: usize,
 ) -> Result<(), PromptError> {
     if let Some(yesterday) = yesterday {
         let mut text = String::new();
         for character in yesterday.chars() {
             text.push(character);
-            if estimate(&text, tuning.prompt.ascii_chars_per_token) > tuning.prompt.yesterday_tokens
+            if estimate(&text, budget.tuning.prompt.ascii_chars_per_token)
+                > budget.tuning.prompt.yesterday_tokens
             {
                 text.pop();
                 break;
             }
         }
         minimum.yesterday = Some(text.clone());
-        if total(instructions, &encode(minimum)?, tuning) <= limit {
+        if total(budget, &encode(minimum)?) <= limit {
             context.yesterday = Some(text);
         } else {
             minimum.yesterday = None;
@@ -320,30 +388,37 @@ fn fill_yesterday(
     Ok(())
 }
 fn fill_lower_extras(
-    instructions: &str,
+    budget: RequestBudget<'_>,
     context: &mut Context,
     extras: ContextExtras<'_>,
-    tuning: Tuning,
     limit: usize,
+    optional_triggers: bool,
 ) -> Result<(), PromptError> {
     let mut candidate = context.clone();
     candidate.unprompted_states = extras
         .unprompted_states
         .iter()
         .rev()
-        .take(tuning.prompt.recent_unprompted)
+        .take(budget.tuning.prompt.recent_unprompted)
         .cloned()
         .collect();
-    if total(instructions, &encode(&candidate)?, tuning) <= limit {
+    if total(budget, &encode(&candidate)?) <= limit {
         context
             .unprompted_states
             .clone_from(&candidate.unprompted_states);
     } else {
         candidate.unprompted_states.clear();
     }
-    candidate.triggers = extras.triggers.to_vec();
-    if total(instructions, &encode(&candidate)?, tuning) <= limit {
-        context.triggers.clone_from(&candidate.triggers);
+    if optional_triggers {
+        candidate.triggers = extras
+            .triggers
+            .iter()
+            .cloned()
+            .map(PromptTrigger::Detail)
+            .collect();
+        if total(budget, &encode(&candidate)?) <= limit {
+            context.triggers.clone_from(&candidate.triggers);
+        }
     }
     Ok(())
 }

@@ -524,6 +524,23 @@ impl Day {
         self.data.held_triggers = held;
         ready
     }
+    pub(crate) fn append_unprompted(&mut self, message: Message) {
+        if message
+            .unprompted
+            .as_ref()
+            .is_some_and(|extra| extra.suppressed.is_none())
+        {
+            self.data.last_unprompted_at = Some(message.time);
+        }
+        self.data.messages.push(message);
+    }
+    pub(crate) fn hold_checkin_triggers(&mut self, triggers: &[Trigger]) {
+        for trigger in triggers {
+            if !self.data.held_triggers.contains(trigger) {
+                self.data.held_triggers.push(trigger.clone());
+            }
+        }
+    }
     pub(crate) fn schedule_look(&mut self, at: DateTime) {
         self.data.next_planned_look = Some(at);
     }
