@@ -8,6 +8,16 @@ fn system_clock_meets_the_clock_contract() {
 }
 
 #[test]
+fn file_instructions_meet_contract() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    bunshin_test_support::instructions_contract(|| {
+        Box::new(bunshin_platform::FileInstructions::new(
+            scratch.path().join("data"),
+        ))
+    });
+}
+
+#[test]
 fn json_file_day_store_meets_contract() {
     let scratch = tempfile::tempdir().expect("scratch directory");
     let mut count = 0;

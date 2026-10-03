@@ -123,6 +123,22 @@ checkout, so it is a human's recipe. The command-line contract, which
 - **`--version`** prints `bunshin <version>`, the workspace version from `Cargo.toml`'s
   `[workspace.package]`.
 
+`bunshin instructions` reads `InstructionsState`: the complete selected text goes to
+stdout unchanged, without adding a newline; its source, file path and owner-text
+length go to stderr. Reads create no
+files or logs. `bunshin instructions edit` initializes a missing `instructions.md`
+with core's default, launches the selected owner editor, waits, and validates the
+saved text. `VISUAL` precedes `EDITOR`; its shell text is trusted owner configuration,
+while the file path is passed as `$1` instead of interpolated. The file remains 0600,
+including when an editor replaces it. Missing, empty and over-limit reasons and the
+600-character Unicode scalar bound live in core, behind `InstructionsSource`; the
+file adapter and in-memory fake share `instructions_contract`. Read-only access
+refuses non-regular/linked entries and modes other than 0700 for the application
+directory and 0600 for the file; typed errors distinguish these from invalid UTF-8.
+Only the explicit edit path repairs permissions, without rewriting existing text.
+No-editor failure guidance uses symbolic `~/` or `$XDG_DATA_HOME` locations as in UX
+flow C3, while the read-only source view displays the resolved path.
+
 `bunshin tui` is an empty-day shell, drawn with ratatui over its
 crossterm backend (reached only as `ratatui::crossterm`). The screen's state and what a
 key does are core's `ShellScreen`, `ShellAction`, and `ShellKey`, tested with plain values; `crates/bunshin/src/tui/` only enters and leaves the terminal, translates its key

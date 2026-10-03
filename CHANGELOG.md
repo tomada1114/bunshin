@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `bunshin instructions` shows the text in use and its source; `bunshin instructions
+  edit` initializes an owner-only file and opens `VISUAL`, then `EDITOR`. Missing,
+  empty or over-600-character text uses the shipped default without truncating the
+  owner's file. Saved text is checked before the next call uses it.
+
 - A whole-day JSON store with private files, atomic replacement, and an OS-managed
   writer lease. `PublishedButNotDurable` distinguishes a visible replacement whose
   directory sync failed; day files remain unlimited and lock PIDs are advisory.

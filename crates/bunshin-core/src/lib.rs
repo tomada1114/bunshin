@@ -11,7 +11,9 @@
 
 pub mod checkin;
 pub mod day;
+pub mod instructions;
 pub mod model;
+pub mod prompt;
 pub mod screen;
 pub mod shell;
 pub mod time;
