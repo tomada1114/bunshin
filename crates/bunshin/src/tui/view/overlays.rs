@@ -71,6 +71,7 @@ fn draw_form(frame: &mut Frame, form: &TaskForm) {
         wording::FORM_TITLE,
         form.title(),
         form.field() == FormField::Title,
+        (form.field() == FormField::Title).then(|| form.cursor()),
     );
     let kinds = [TaskKind::Untimed, TaskKind::Deadline, TaskKind::Appointment]
         .into_iter()
@@ -89,6 +90,7 @@ fn draw_form(frame: &mut Frame, form: &TaskForm) {
         wording::FORM_KIND,
         &kinds,
         form.field() == FormField::Kind,
+        None,
     );
     if form.kind() != TaskKind::Untimed {
         draw_field(
@@ -97,6 +99,7 @@ fn draw_form(frame: &mut Frame, form: &TaskForm) {
             wording::FORM_TIME,
             form.time_text(),
             form.field() == FormField::Time,
+            (form.field() == FormField::Time).then(|| form.cursor()),
         );
     }
     if let Some(reason) = form.error() {
@@ -118,26 +121,28 @@ fn draw_form(frame: &mut Frame, form: &TaskForm) {
         })
         .collect::<Vec<_>>();
     frame.render_widget(Paragraph::new(binding_line(&keys)), help);
-    let (row, text) = match form.field() {
-        FormField::Title => (title_row, form.title()),
-        FormField::Time => (time_row, form.time_text()),
-        FormField::Kind => return,
-    };
-    let prefix = text.chars().take(form.cursor()).collect::<String>();
-    let offset = u16::try_from(Span::raw(prefix).width()).unwrap_or(u16::MAX);
-    let x = row
-        .x
-        .saturating_add(10)
-        .saturating_add(offset)
-        .min(row.right().saturating_sub(1));
-    frame.set_cursor_position((x, row.y));
 }
-fn draw_field(frame: &mut Frame, area: Rect, label: &str, text: &str, selected: bool) {
+
+fn draw_field(
+    frame: &mut Frame,
+    area: Rect,
+    label: &str,
+    text: &str,
+    selected: bool,
+    cursor: Option<usize>,
+) {
     let prefix = format!(
         "{label}{}",
         " ".repeat(10_usize.saturating_sub(Span::raw(label).width()))
     );
-    let text = truncate(text, usize::from(area.width).saturating_sub(10));
+    let width = usize::from(area.width).saturating_sub(10);
+    let (text, offset) = cursor.map_or_else(
+        || (truncate(text, width), None),
+        |cursor| {
+            let (text, offset) = field_window(text, cursor, width);
+            (text, Some(offset))
+        },
+    );
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(prefix, if selected { KEY_STYLE } else { BASE_STYLE }),
@@ -145,6 +150,75 @@ fn draw_field(frame: &mut Frame, area: Rect, label: &str, text: &str, selected: 
         ])),
         area,
     );
+    if let Some(offset) = offset
+        && width > 0
+    {
+        let offset = u16::try_from(offset).unwrap_or_default();
+        frame.set_cursor_position((area.x.saturating_add(10).saturating_add(offset), area.y));
+    }
+}
+fn field_window(text: &str, cursor: usize, width: usize) -> (String, usize) {
+    if width == 0 {
+        return (String::new(), 0);
+    }
+    let text = text
+        .chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect::<String>();
+    let span = Span::raw(&text);
+    let graphemes = span
+        .styled_graphemes(BASE_STYLE)
+        .map(|g| g.symbol.to_owned())
+        .collect::<Vec<_>>();
+    let mut chars = 0;
+    let mut cursor_index = graphemes.len();
+    for (index, grapheme) in graphemes.iter().enumerate() {
+        let end = chars + grapheme.chars().count();
+        if cursor < end {
+            cursor_index = index;
+            break;
+        }
+        chars = end;
+    }
+    let cursor_column = graphemes
+        .iter()
+        .take(cursor_index)
+        .map(|g| Span::raw(g).width())
+        .sum::<usize>();
+    let desired = if Span::raw(&text).width() < width {
+        0
+    } else {
+        cursor_column.saturating_sub(width / 2)
+    };
+    let mut start = 0;
+    let mut skipped = 0;
+    while start < cursor_index && skipped < desired {
+        skipped += Span::raw(&graphemes[start]).width();
+        start += 1;
+    }
+    let marker = usize::from(start > 0 && width > 1);
+    let mut visible = if marker > 0 {
+        "…".to_string()
+    } else {
+        String::new()
+    };
+    // Reserve the final cell for an insertion point or a right overflow marker.
+    let mut columns = marker;
+    let mut end = start;
+    while let Some(grapheme) = graphemes.get(end) {
+        let size = Span::raw(grapheme).width();
+        if columns + size > width.saturating_sub(1) {
+            break;
+        }
+        visible.push_str(grapheme);
+        columns += size;
+        end += 1;
+    }
+    let offset = marker + cursor_column.saturating_sub(skipped);
+    if end < graphemes.len() {
+        visible.push('…');
+    }
+    (visible, offset.min(width - 1))
 }
 fn draw_help(frame: &mut Frame) {
     let area = centered(frame.area(), 100, frame.area().height);

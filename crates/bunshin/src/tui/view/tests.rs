@@ -363,3 +363,70 @@ fn role_styles_use_named_colors_and_default_backgrounds() {
         );
     }
 }
+
+#[test]
+fn long_form_title_keeps_the_edit_cursor_and_surrounding_suffix_visible() {
+    let (screen, now) = empty();
+    let mut screen = screen
+        .update(ScreenKey::Tab, now)
+        .0
+        .update(ScreenKey::Char('a'), now)
+        .0;
+    for ch in format!("{}XYZ", "a".repeat(70)).chars() {
+        screen = screen.update(ScreenKey::Char(ch), now).0;
+    }
+    let buffer = render(&screen, now, 80, 24);
+    assert!(
+        line(&buffer, 8).contains("XYZ"),
+        "the suffix at the insertion point must be visible"
+    );
+    screen = screen
+        .update(ScreenKey::Left, now)
+        .0
+        .update(ScreenKey::Left, now)
+        .0
+        .update(ScreenKey::Char('!'), now)
+        .0;
+    assert!(line(&render(&screen, now, 80, 24), 8).contains("X!YZ"));
+    screen = screen.update(ScreenKey::Home, now).0;
+    assert!(line(&render(&screen, now, 80, 24), 8).contains("aaaaaaaaaa"));
+    assert!(!line(&render(&screen, now, 80, 24), 8).contains("XYZ"));
+    screen = screen
+        .update(ScreenKey::End, now)
+        .0
+        .update(ScreenKey::Backspace, now)
+        .0;
+    assert!(line(&render(&screen, now, 80, 24), 8).contains("X!Y"));
+}
+
+#[test]
+fn form_cursor_points_at_the_edited_suffix_and_wide_graphemes_stay_whole() {
+    let (screen, now) = empty();
+    let mut screen = screen
+        .update(ScreenKey::Tab, now)
+        .0
+        .update(ScreenKey::Char('a'), now)
+        .0;
+    for ch in format!("{}XYZ", "あ".repeat(70)).chars() {
+        screen = screen.update(ScreenKey::Char(ch), now).0;
+    }
+    screen = screen
+        .update(ScreenKey::Left, now)
+        .0
+        .update(ScreenKey::Left, now)
+        .0;
+    for width in [60, 80, 120] {
+        let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+        terminal.draw(|frame| draw(frame, &screen, now)).unwrap();
+        let cursor = terminal.get_cursor_position().unwrap();
+        assert_eq!(
+            terminal.backend().buffer()[(cursor.x, cursor.y)].symbol(),
+            "Y"
+        );
+        assert!(line(terminal.backend().buffer(), 8).contains("XYZ"));
+    }
+    assert_eq!(
+        screen.form().unwrap().title(),
+        format!("{}XYZ", "あ".repeat(70))
+    );
+}
