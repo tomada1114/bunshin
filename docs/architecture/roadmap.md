@@ -31,7 +31,7 @@ The outcomes being worked on, one to three of them. Each has its issues filed.
   Done when: in `bunshin tui` the owner adds, edits, completes, drops, deletes, and
   undoes tasks by key (requirements §3.2, §3.4); after quitting and reopening the list
   is the same; `bunshin today` and `bunshin today --json` print it (§3.9); a second
-  `bunshin tui` refuses to start (§3.7); and the template's counter is gone.
+  `bunshin tui` refuses to start (§3.7); and the template's sample is gone.
 - **Tell it the day in words** — the core interaction's first half.
   Issues: [#3](https://github.com/tomada1114/bunshin/issues/3), sub-issues [#12](https://github.com/tomada1114/bunshin/issues/12), [#13](https://github.com/tomada1114/bunshin/issues/13), [#14](https://github.com/tomada1114/bunshin/issues/14), [#15](https://github.com/tomada1114/bunshin/issues/15).
   Done when: a sentence such as 「15時までに資料」 adds a deadline task, 「会議終わった」

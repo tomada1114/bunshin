@@ -9,9 +9,6 @@ pub const BUNDLE_IDENTIFIER: &str = "io.github.tomada1114.bunshin";
 /// with the slug, and the justfile's `log_dir` uses the same name.
 pub const XDG_APP_NAME: &str = "bunshin";
 
-/// The counter's file name inside [`app_data_dir`].
-pub const COUNTER_FILE_NAME: &str = "counter.json";
-
 /// The user's home directory, from `HOME`. Tests point `HOME` at a temporary directory,
 /// so nothing they run touches the real home directory.
 #[must_use]
@@ -85,12 +82,6 @@ pub fn log_dir(home: &Path) -> PathBuf {
     }
 }
 
-/// Where the binary keeps the counter.
-#[must_use]
-pub fn counter_file(home: &Path) -> PathBuf {
-    app_data_dir(home).join(COUNTER_FILE_NAME)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,9 +152,5 @@ mod tests {
         let home = Path::new("/Users/someone");
         assert_eq!(app_data_dir(home), macos_data_dir(home));
         assert_eq!(log_dir(home), macos_log_dir(home));
-        assert_eq!(
-            counter_file(home),
-            macos_data_dir(home).join(COUNTER_FILE_NAME)
-        );
     }
 }

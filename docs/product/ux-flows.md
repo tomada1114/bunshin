@@ -37,7 +37,7 @@ the day is written on every change, so quitting loses nothing.
 | Wide (≥ 100 columns) | the task pane takes the left 36 columns at full height; the chat and the input share the right side |
 | Narrow (60–99 columns) | the task pane spans the width above the chat, as tall as its rows plus its border, at most 12 rows (10 tasks; beyond that it scrolls with the selection) |
 | Too small (< 60 × 18) | only the "too small" message; nothing panics (T1-e) |
-| Input | under the chat; one line of text growing to three as the text wraps; its title carries the reply target and a counter against 400 characters |
+| Input | under the chat; one line of text growing to three as the text wraps; its title carries the reply target and a length indicator against 400 characters |
 | Help line | the last row: the keys of the focused region, from core's key table, in the order of §4; in the task pane `? 全キー` comes first so a narrow terminal never cuts it off |
 | Focus | Tab and Shift+Tab move between the input and the task pane; the focused region has a heavy border; an overlay or the form takes focus until it closes |
 

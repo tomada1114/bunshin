@@ -36,44 +36,36 @@ translates and decides nothing (`AGENTS.md` › "Architecture").
 - One binary, `bunshin`, declared with clap's derive API in `crates/bunshin/src/main.rs`
   (<https://docs.rs/clap/latest/clap/_derive/index.html>). A `Parser` struct holds one
   `Subcommand` enum; a noun with several verbs gets its own nested enum, so the line
-  reads `bunshin <noun> <verb>`. In the sample: `Cli`, `Command::{Counter, Tui}`, and
-  `CounterAction::{Show, Increment}` give `bunshin counter show`.
-- The `///` comment on a variant is its line in `--help`, so it says what the command
-  does for its user, in one sentence ending with a period. `#[command(version)]` takes
-  the version from `[workspace.package]`, and with no `about` key clap uses the `///` on
-  the `Cli` struct as the first line of `bunshin --help` (without its final period;
-  `help_opens_with_the_tools_about_line` in `crates/bunshin/tests/cli.rs` pins it). A bare
-  `about` would take the crate's `Cargo.toml` `description` instead, which is written
-  for maintainers, not for the tool's user.
+  reads `bunshin <noun> <verb>`. The current `Command::Tui` opens the empty shell.
+- Keep `///` comments in English for maintainers; supply Japanese help from
+  `wording.rs` with explicit clap `about` and `help` attributes. The workspace version
+  supplies `--version`. Tests pin the help's opening line and command list.
 - A handler is translation only: build the service, call one core method, print the
   result or the error. A `match` arm that holds an `if` about the domain is a decision
-  in the wrong crate; move it into core, where the coverage floor sees it. In the
-  sample, `counter(action)` maps each `CounterAction` to one `CounterService` call.
+  in the wrong crate; move it into core, where the coverage floor sees it.
 - One composition root. The real adapters are built in one function and nowhere else,
-  so every subcommand and the TUI run against the same wiring. In the sample,
-  `compose(echo_logs)` finds `HOME`, starts logging (best effort: a warning, then the
-  action still runs), and returns the `CounterService` over `JsonFileCounterStore` and
-  `SystemClock`.
+  so every subcommand and the TUI run against the same wiring. The shell initializes logging
+  before entering the terminal, with stderr echo disabled.
 - Rendering a view is one small function per view, so every subcommand that prints it
-  prints the same line (`render(&CounterView)` in the sample).
+  prints the same line.
 
 Adding a subcommand, in order: the core method with its tests first (**REQUIRED:**
-`tdd`); the variant with its `///`; the arm in the handler; wording for any new error
+`tdd`); the variant with its help wording; the arm in the handler; wording for any new error
 variant; the tests in `crates/bunshin/tests/cli.rs`; then `docs/architecture.md` › "The
 binary" and a `CHANGELOG.md` entry, because a user can now type something new.
 
 ## stdout is data, stderr is everything else
 
 - **stdout** carries only the result, one value per line, nothing decorative, so
-  `bunshin counter show | …` works and a script never parses around a banner.
+  a data command can be piped and a script never parses around a banner.
 - **stderr** carries `error: <wording>` for a failed action, `warning: <wording>` for a
-  degraded run, and, in a debug build only, a copy of each log line (`compose(true)`).
+  degraded run, and, in a debug build only, a copy of each log line (when stderr echo is enabled).
   A test reads the diagnostic as the last stderr line for that reason.
 - Write stdout with `writeln!(io::stdout().lock(), …)` and handle the `Err`. `println!`
-  panics when stdout is closed (`bunshin counter show | true` once `true` has exited), and
+  panics when stdout is closed (for example, after a downstream reader exits), and
   under the release profile's `panic = "abort"` the process then prints only the panic
-  message and aborts: no `error: …` line and no exit 1 for a script to read. The sample
-  maps the failure to `wording::STDOUT_UNAVAILABLE` and exit 1.
+  message and aborts: no `error: …` line and no exit 1 for a script to read. Map that failure to
+  wording and exit 1.
 - No color and no terminal control in a subcommand's output: the workspace builds clap
   without its `color` feature (`Cargo.toml`'s `[workspace.dependencies]`), and logs are
   written with `with_ansi(false)`. Output that may land in a file or a pipe stays plain.
@@ -91,8 +83,8 @@ binary" and a `CHANGELOG.md` entry, because a user can now type something new.
 - `main` returns `ExitCode`; nothing calls `std::process::exit`, which ends the process
   without running destructors (<https://doc.rust-lang.org/std/process/fn.exit.html>), so
   a lock file or a buffered log line could be left behind.
-- A usage error touches nothing: parsing happens before `compose`, and
-  `a_usage_error_touches_nothing` in `cli.rs` asserts the temporary `HOME` stays empty.
+- A usage error touches nothing: parsing happens before logging or adapter setup, and
+  `invalid_arguments_are_usage_errors_and_touch_nothing` in `cli.rs` asserts the temporary `HOME` stays empty.
 - A distinct code per error kind is a change to the contract, not a refactor: say so in
   `CHANGELOG.md` and `docs/architecture.md` › "The binary", and test each code.
 
@@ -104,27 +96,26 @@ error line the `tui` screen shows. Core returns a variant and never a sentence
 
 - A fixed sentence is a `pub const` with a `///` saying when it prints
   (`HOME_MISSING`, `TERMINAL_MISSING`). An error enum gets one function that matches
-  every variant with no `_ =>` arm (`counter_error`, `storage_error`); `main.rs` denies
+  every variant with no `_ =>` arm; `main.rs` denies
   `clippy::wildcard_enum_match_arm`, so a new core variant does not compile until it
   has its words.
 - The style the sample keeps: lowercase, no final period, what failed and what it means
-  for the user ("the counter file holds data this version cannot read"). No path, no
+  for the user ("the file holds data this version cannot read"). No path, no
   file content, nothing the user typed: the line can be pasted into a public bug report.
 - Each variant's wording has its own test in the module's `#[cfg(test)] mod tests`, and
   `cli.rs` asserts the full `error: …` line for each failure a user can reach.
 
 ## `--json`, when a script reads the output
 
-The sample has no `--json`; add one only when a tool's output is consumed by a program.
+The shell has no `--json`; add one only when a tool's output is consumed by a program.
 
 - A flag on the subcommand that prints a view: one JSON document on stdout, the same
   exit codes, and diagnostics still on stderr. A failure stays `error: <wording>` on
   stderr with exit 1; if a script must branch on why, print the core error's code too,
   since core's error enums already serialize as `{ "code": … }`
-  (`crates/bunshin-core/tests/serialization.rs` pins the sample's).
+  (pin them with a literal JSON test when an error is exposed as data).
 - Decide which fields are promised. A field that only means something inside one
-  process stays out of the output (in the sample, `CounterView::revision` counts this
-  process's saves), which may mean an output type of its own.
+  process stays out of the output, which may mean an output type of its own.
 - The JSON is contract from its first release: pin it with a literal `json!({ … })` or
   string test in `cli.rs`, and add a field rather than rename one.
 - `bunshin` does not depend on `serde_json` today; adding it to `crates/bunshin/Cargo.toml`
@@ -164,5 +155,5 @@ reach, a usage error, and that a failure prints no data. `just test-core` and
 calling `Cli::command().debug_assert()` (`clap::CommandFactory`), which panics on a
 contradictory argument definition
 (<https://docs.rs/clap/latest/clap/struct.Command.html#method.debug_assert>, clap 4.6.7,
-checked 2026-10-01); the sample has none yet. **REQUIRED:** `writing-tests` for the
+checked 2026-10-01); the shell has none yet. **REQUIRED:** `writing-tests` for the
 assertions.

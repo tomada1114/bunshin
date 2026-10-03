@@ -40,42 +40,18 @@ just test-platform   # platform adapters and the bunshin binary against the real
 just logs            # the newest log file's last 50 lines, then exit
 ```
 
-- **A read-only subcommand** runs straight from the checkout:
+- **The available noninteractive commands** are `--help` and `--version`:
 
   ```bash
   cargo run --locked -p bunshin -- --version
-  cargo run --locked -p bunshin -- counter show
+  cargo run --locked -p bunshin -- --help
   ```
 
-  It reads the developer's own data and writes to their log directory: logging starts
-  as in any run, so it creates the directory if missing, appends a line, and lets the
-  appender delete the oldest files beyond `LOG_FILES_KEPT`. When even that should not
-  touch the developer's files, use a scratch `HOME` as below. A debug build also echoes
-  each log line to stderr, so the run itself shows what was logged:
-  `<UTC timestamp>  INFO <crate>: counter action succeeded action=Show value=1`, where
-  `<crate>` is the binary crate's name with underscores, the `tracing` target (observed
-  on this Mac with a debug build, 2026-10-01).
-- **A subcommand that writes** runs against a scratch `HOME`, so it changes a
-  throwaway store and log instead of the developer's own. Build first, then run the
-  binary directly: rustup and `mise`'s shims (which `just` runs through here) look for
-  their own files under `HOME` (observed on this Mac, 2026-10-01: `HOME="$scratch"
-  cargo --version` started downloading a whole toolchain into the scratch directory,
-  and `HOME="$scratch" just logs` stopped on mise's config). In the sample:
-
-  ```bash
-  cargo build --locked -p bunshin
-  scratch="$(mktemp -d)"
-  HOME="$scratch" target/debug/bunshin counter increment
-  HOME="$scratch" target/debug/bunshin counter show
-  find "$scratch" -type f    # the store and the one log file, nothing else
-  ```
-
-  `home_dir()` in `crates/bunshin-platform/src/paths.rs` reads `HOME`, and every data and
-  log path hangs off it (observed: the run above wrote only under the scratch
-  directory, 2026-10-01). On Linux, also unset `XDG_DATA_HOME` and `XDG_STATE_HOME`
-  for the run, which would otherwise move the files out of the scratch directory.
-  Read that run's log with `tail` on the file `find` listed, then remove the scratch
-  directory.
+  These return before file logging starts. Future data subcommands are run against
+  an isolated `HOME` when any log or application write is possible. Build first with
+  the normal environment, then launch the built binary: changing `HOME` for cargo
+  also changes where rustup looks for its toolchain. On Linux unset both
+  `XDG_DATA_HOME` and `XDG_STATE_HOME` to keep paths inside the scratch home.
 - **`just logs`** prints the tail of the newest `bunshin.YYYY-MM-DD.log` (dated in UTC)
   in the log directory `bunshin_platform::log_dir` picks: `~/Library/Logs/<bundle id>/`
   on macOS, `$XDG_STATE_HOME/bunshin/logs` (default `~/.local/state/bunshin/logs`) on
@@ -108,10 +84,9 @@ on macOS, `$scratch/.local/state/bunshin/logs/` on Linux); `just logs` reads the
 ## Putting the tool in a known state
 
 Do not add a flag or an environment switch only to look at a state. A state you only
-need to see is one a test can build directly: a core test or a `TestBackend` test hands
-the service a fake holding it (`InMemoryCounterStore::holding`,
-`FailingCounterStore::load_fails`), and a `cli.rs` test writes the file it needs into
-its temporary `HOME` (`write_counter_file`). For a human's run, write that file into a
+need to see is one a test can build directly: a core test or a `TestBackend` test constructs
+the state directly (`ShellScreen::default()` or a `day::Day` fixture), and a `cli.rs`
+test writes any legacy-file fixture into its temporary `HOME`. For a human's run, write that file into a
 scratch `HOME` the same way. A start state genuinely needed by hand as well as by tests
 is read once in the composition root and handed to core as a value, so a core test
 still reaches it; core never reads the environment (`designing-core-logic`).

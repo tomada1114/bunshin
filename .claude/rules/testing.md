@@ -47,14 +47,13 @@ The expected value comes from somewhere other than the code under test: a litera
 worked out by hand, a table pairing each input with its answer, or an invariant that
 must hold whatever the input (the value stays inside the range; a save then a load
 returns what went in). Never compute it by calling the implementation, and never
-re-derive it with the implementation's own formula: after `increment()` from 98 with a
-maximum of 99, `assert_eq!(counter.value(), 99)` catches a bug that
-`assert_eq!(counter.value(), (98 + 1).min(tuning.max))` shares with the code.
+re-derive it with the implementation's own formula: for a time just before 04:00, assert a
+literal previous date, rather than recomputing it with the same boundary formula.
 
 ## Fakes and the Contract Suite
 
 - A port is substituted in tests by a **fake** from `bunshin-test-support`
-  (`InMemoryCounterStore`, `FailingCounterStore`, `FixedClock`), never a mocking
+  (`FixedClock`), never a mocking
   framework. A fake is a real, working implementation that answers from data the test
   hands it and records what it was asked in a plain value the test reads afterwards.
   Every test of a port uses that one fake, so its test-time behavior is defined once.
@@ -71,10 +70,10 @@ maximum of 99, `assert_eq!(counter.value(), 99)` catches a bug that
 ## What to Test
 
 - Behavior and contracts, not implementation details: a test names the behavior it
-  proves (`increment_saves_the_new_value_with_the_clock_time`,
-  `the_error_line_shows_the_wording_for_the_bound`)
+  proves (`logical_date_changes_at_four_in_the_morning`,
+  `q_and_control_c_finish_an_open_shell`)
 - The happy path AND the error path of every public function and every subcommand
-- Assert the error variant (`Err(CounterError::AtMaximum)`), never its message text;
+- Assert the error variant (`Err(day::DayError::TaskNotFound)`), never its message text;
   the binary's tests assert the exit code and the last stderr line, which is the
   wording the user reads
 - Boundary values: at every bound, one step inside it, and one step outside it; repeated operations

@@ -10,21 +10,19 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 pub mod checkin;
-pub mod counter;
 pub mod day;
 pub mod model;
 pub mod screen;
+pub mod shell;
 pub mod time;
 pub mod tuning;
 pub use tuning::{CheckinTuning, DayTuning};
 
-pub use counter::{
-    Counter, CounterError, CounterScreen, CounterService, CounterView, ScreenAction, ScreenKey,
-    StorageError, StorageErrorKind, StoredCounter, Tuning, TuningError, store::CounterStore,
-};
+pub use shell::{ShellAction, ShellKey, ShellScreen};
 pub use time::{Clock, Now, UnixMillis, logical_date};
 
 pub use model::{
     Availability, CancelFlag, LanguageModel, ModelAnswer, ModelError, ModelRequest,
     UnavailableReason,
 };
+pub use tuning::Tuning;

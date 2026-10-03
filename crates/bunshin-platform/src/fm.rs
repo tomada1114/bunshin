@@ -527,8 +527,10 @@ printf '{"reply":"了解"}'"#,
     fn availability_uses_custom_tuning_timeout_and_reaps_child() {
         let (dir, model) =
             stub("printf '%s' \"$$\" >\"$(dirname \"$0\")/pid\"\nexec /bin/sleep 30");
-        let mut tuning = bunshin_core::Tuning::default();
-        tuning.model_timeout = Duration::from_millis(200);
+        let tuning = bunshin_core::Tuning {
+            model_timeout: Duration::from_millis(200),
+            ..bunshin_core::Tuning::default()
+        };
         let model = FmLanguageModel::with_tuning(model.executable_for_test(), tuning);
         assert_eq!(model.availability(), Err(ModelError::TimedOut));
         assert_reaped(&dir);

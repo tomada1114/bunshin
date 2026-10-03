@@ -4,12 +4,12 @@ description: >
   Covers how one Rust test is written: naming it after behavior, an expected value
   that is independent of the implementation, asserting an error variant (assert_eq! on
   an Err variant) instead of its message, the contract suite a port's fake and real
-  adapter share (<port>_contract in bunshin-test-support), fakes such as FixedClock,
-  InMemoryCounterStore, and FailingCounterStore instead of mocks, an injected clock and
+  adapter share (<port>_contract in bunshin-test-support), fakes such as FixedClock
+  instead of mocks, an injected clock and
   never a sleep, tempfile::tempdir per test, the built bunshin binary run with a
   temporary HOME (exit code, stdout, last stderr line), a TUI view drawn into ratatui's
   TestBackend (assert_buffer_lines, assert_buffer for styles), and keys as values
-  (KeyEvent::new_with_kind, ScreenKey). Use when writing or reviewing a #[test], a file
+  (KeyEvent::new_with_kind, ShellKey). Use when writing or reviewing a #[test], a file
   under crates/*/tests, a test module in crates/bunshin/src, the regression test for a
   bug, a flaky or ignored test, or the missing test a coverage floor asks for.
 ---
@@ -37,8 +37,7 @@ Worked examples of every pattern below are in
 - Cover the happy path and the error path of every public function and every
   subcommand.
 - Build a case's data with a helper that takes what varies, never a shared mutable
-  fixture another test can change. In the sample, `service_holding(2)` in
-  `crates/bunshin-core/tests/counter_screen.rs` builds a service whose store holds 2.
+  fixture another test can change. Build a fresh clock or day fixture for each case.
 
 ## Test through an interface
 
@@ -48,10 +47,10 @@ test green:
 - **Core's public API** from `crates/bunshin-core/tests/`, over fakes; a private helper
   from the inline `#[cfg(test)] mod tests` beside it.
 - **A TUI screen's behavior** through core's `…Screen::update`, with actions and keys
-  built as values; the sample's `after_keys` folds a list of `ScreenKey`s through
-  `ScreenAction::for_key` and `update` the way the binary's loop does.
+  built as values; fold a list of `ShellKey`s through
+  `ShellAction::for_key` and `update` the way the binary's loop does.
 - **The terminal's key translation** by building a crossterm `KeyEvent` with
-  `KeyEvent::new_with_kind` and asserting the `ScreenKey` it becomes (`tui/mod.rs`).
+  `KeyEvent::new_with_kind` and asserting the `ShellKey` it becomes (`tui/mod.rs`).
 - **A view** by drawing it into ratatui's `TestBackend` and comparing every cell
   (`tui/view.rs`; `building-tuis` › "Testing without a terminal").
 - **The `bunshin` binary** as a built executable (`env!("CARGO_BIN_EXE_bunshin")`) with
@@ -81,21 +80,19 @@ the fake drifting from the real thing.
 - Contract functions are library code, not tests: they compare with `assert_eq!` on the
   `Result` and a message naming the clause, never `unwrap`.
 - A new implementation adds a call; a quirk of one implementation (its file format, how
-  it reports a damaged file) gets its own test file beside it. In the sample,
-  `counter_store_contract` holds what every store does, and
-  `crates/bunshin-platform/tests/json_file_counter_store.rs` what only the JSON file does.
+  it reports a damaged file) gets its own test file beside it. `clock_contract` runs against
+  both `FixedClock` and `SystemClock`.
 
 ## Asserting errors and output
 
 - Assert the variant, never the `#[error]` message text: the message is for a
-  developer reading a log, and rewording it must not break a test. In the sample,
-  `assert_eq!(service.increment(), Err(CounterError::AtMaximum))`. When a type has no
+  developer reading a log, and rewording it must not break a test. For example, match
+  `Err(day::DayError::TaskNotFound)`. When a type has no
   `PartialEq`, use `assert!(matches!(result, Err(Kind::Variant)))`.
 - The user-facing sentence is asserted where it is the subject: once per variant in
   `wording.rs`'s tests, and as the whole `error: …` line in `cli.rs` and on the TUI's
   error line, because there the wording is the contract a user reads. The other
-  exception is a test proving a message carries no user data
-  (`error_messages_carry_no_data` in `crates/bunshin-core/tests/serialization.rs`).
+  exception is a test proving a message carries no user data.
 - From the binary, assert the exit code, stdout exactly (`"0\n"`, not "contains 0"),
   and the last stderr line, since a debug build echoes log lines to stderr first.
 - After a rejected change, assert that nothing changed as well: the store still holds
@@ -106,10 +103,10 @@ the fake drifting from the real thing.
 The expected value is a literal worked out by hand, a table pairing each input with
 its answer, or an invariant that holds whatever the input (a save then a load returns
 what went in). Never compute it with the code under test or re-derive it with the
-implementation's formula. In the sample, `assert_eq!(counter.value(), 99)` catches a bug
-that `assert_eq!(counter.value(), (98 + 1).min(tuning.max))` shares with the code.
+implementation's formula. Assert a literal previous date just before 04:00, rather than
+duplicating the logical-day formula.
 JSON that reaches disk or a script is pinned with a literal `json!({ … })`, independent
-of serde's derive (`crates/bunshin-core/tests/serialization.rs`), and a screen with its
+of serde's derive (`crates/bunshin-core/tests/day_file.rs`), and a screen with its
 lines written out, border included.
 
 ## Edge cases to sweep
@@ -127,9 +124,8 @@ small for the layout.
 
 A port is replaced in a test by its fake from `crates/bunshin-test-support`, never by a
 mocking framework. A fake is a working implementation, configured per case, that
-records what happened in a plain value the test reads afterwards. In the sample,
-`InMemoryCounterStore::holding(…)` and `FailingCounterStore::save_fails(…)` configure
-one, and `store.saved()` reads it. Every test of a port uses that one fake, so its
+records what happened in a plain value the test reads afterwards. `FixedClock::set` changes both
+clock views predictably. Every test of a port uses that one fake, so its
 test-time behavior is defined once. Assert the state the code produced, not the calls
 it made. Do not add a trait, or a fake for it, until something actually varies across
 it.

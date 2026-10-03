@@ -46,16 +46,14 @@ markers exist so a reader can tell "must load" from "may skip" at a glance).
 ## Deletable illustrations
 
 Write: "A state transition is a method that returns the new state or a typed error,
-never a mutation the caller has to read back. In the sample, `Counter::increment` takes
-`self` and returns `Result<Self, CounterError>`."
+never a mutation the caller has to read back. For example, `ShellScreen::update` takes `self`
+and returns the next screen."
 
-Avoid: "`Counter::increment` returns `Result<Self, CounterError>` instead of mutating, so
-state transitions are values." An app that deletes the counter must now rewrite this
-sentence from code it has not written yet; the first form loses one sentence and keeps
-the rule.
+Avoid making a rule depend on an illustration: name the principle first so an app can replace
+the example without losing its guidance.
 
-The same holds for a code block: introduce it as the example ("In the sample:"), and let
-the prose above it carry the rule. `rg -i 'counter'` is how an app finds what to delete,
+The same holds for a code block: introduce it as the example ("In the shell:"), and let
+the prose above it carry the rule. `rg` is how an app finds what to delete,
 so a sample mention that sits in its own sentence is one it can delete cleanly.
 
 ## Platform-skill scope
@@ -80,9 +78,6 @@ Write:
 
 - "Codex CLI scans `.agents/skills` from the working directory up to the repository root
   (https://learn.chatgpt.com/docs/build-skills, checked 2026-09-29)."
-- "A debug build echoes each log line to stderr with the binary crate's name as its
-  target: observed on this Mac with `cargo run --locked -p bunshin -- counter show`,
-  2026-10-01."
 - "E0382 is a use of a moved value (https://doc.rust-lang.org/error_codes/E0382.html)."
   (a concept link: no date needed)
 

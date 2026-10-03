@@ -27,16 +27,16 @@ decision (`deciding-architecture`); changing the lint that forbids `unsafe`
 
 ## The port comes first
 
-Every integration is the same pieces, and the sample ships one of each to copy
+Every integration follows the same split, illustrated by the existing clock
 (`docs/architecture.md` › "Ports and adapters"):
 
-| Piece | Where | In the sample |
+| Piece | Where | Clock example |
 |---|---|---|
-| Port: a synchronous `Send + Sync` trait over core's own types | `crates/bunshin-core` | `CounterStore`, `Clock` |
-| Adapter: the OS call, translation only | `crates/bunshin-platform` | `JsonFileCounterStore`, `SystemClock` |
-| Fake: a real implementation answering from test data | `crates/bunshin-test-support` | `InMemoryCounterStore`, `FixedClock` |
-| Contract: the port's promises, run against both | `crates/bunshin-test-support` | `counter_store_contract`, `clock_contract` |
-| Local-machine test: the adapter against a real, granted machine | `crates/bunshin-platform/tests/` | none (the sample needs no grant) |
+| Port: a synchronous `Send + Sync` trait over core's own types | `crates/bunshin-core` | `Clock` |
+| Adapter: the OS call, translation only | `crates/bunshin-platform` | `SystemClock` |
+| Fake: a real implementation answering from test data | `crates/bunshin-test-support` | `FixedClock` |
+| Contract: the port's promises, run against both | `crates/bunshin-test-support` | `clock_contract` |
+| Local-machine test: the adapter against a real, granted machine | `crates/bunshin-platform/tests/` | none (the clock needs no grant) |
 
 Write the port before the adapter. Its signature is where the OS type collapses into a
 value core owns; an adapter written first leaks one. A port is `Send + Sync` so the
@@ -52,8 +52,8 @@ in CI's `Rust Core` (Linux) and `macOS` jobs.
 
 | Adapter or function | macOS | Linux |
 |---|---|---|
-| `JsonFileCounterStore`, `SystemClock`, `init_logging` | yes | yes |
-| `app_data_dir`, `counter_file` | `~/Library/Application Support/<bundle id>` | `$XDG_DATA_HOME/bunshin`, default `~/.local/share/bunshin` |
+| `SystemClock`, `init_logging` | yes | yes |
+| `app_data_dir` | `~/Library/Application Support/<bundle id>` | `$XDG_DATA_HOME/bunshin`, default `~/.local/share/bunshin` |
 | `log_dir` | `~/Library/Logs/<bundle id>` | `$XDG_STATE_HOME/bunshin/logs`, default `~/.local/state/bunshin/logs` |
 
 The Linux paths follow the XDG Base Directory Specification
@@ -79,8 +79,7 @@ Take the first that answers the question. Each step down costs more: a binding c
 `unsafe`, a grant the user must give, and code one CI runner cannot compile.
 
 1. **The standard library or an existing dependency.** Files, directories, the clock,
-   the environment. In the sample, `JsonFileCounterStore` needs nothing else: even its
-   advisory lock is the standard library's `File::lock`, so one adapter serves both.
+   the environment.
 2. **A system command**, through `std::process::Command`: on macOS, `launchctl` for
    launchd jobs, `plutil` to read or convert a property list, `defaults` for
    preferences; on Linux, the distribution's own tool. No `unsafe`, no new crate, and

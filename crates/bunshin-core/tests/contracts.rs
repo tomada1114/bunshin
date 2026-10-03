@@ -1,14 +1,6 @@
-//! The port contracts from bunshin-test-support, run against its fakes. The same functions
-//! run against the real adapters in bunshin-platform's tests.
-
-use bunshin_test_support::{
-    FixedClock, InMemoryCounterStore, clock_contract, counter_store_contract,
-};
-
-#[test]
-fn in_memory_store_meets_the_counter_store_contract() {
-    counter_store_contract(|| Box::new(InMemoryCounterStore::default()));
-}
+//! The clock contract, shared by the fake and the OS adapter.
+use bunshin_test_support::FixedClock;
+use bunshin_test_support::clock_contract;
 
 #[test]
 fn fixed_clock_meets_the_clock_contract() {

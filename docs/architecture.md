@@ -53,20 +53,19 @@ review holds that line, so a screen's state machine stays testable with plain va
 Anything outside the process — the filesystem, the clock, and the on-device model —
 reaches core through a port. Each port has the same four pieces:
 
-| Piece | Where | `CounterStore` | `Clock` | `LanguageModel` |
-|---|---|---|---|---|
-| The port: a `Send + Sync` trait over types core owns | `crates/bunshin-core` | `counter::store::CounterStore` | `time::Clock` | `model::LanguageModel` |
-| The adapter: translates OS results into core's types and OS failures into core's error kinds, and decides nothing | `crates/bunshin-platform` | `JsonFileCounterStore` | `SystemClock` | `FmLanguageModel` (macOS), `UnavailableLanguageModel` (Linux) |
-| The fake: a real implementation answering from memory | `crates/bunshin-test-support` | `InMemoryCounterStore`, `FailingCounterStore` | `FixedClock` | `ScriptedLanguageModel` |
-| The contract: the behaviour every implementation must have | `crates/bunshin-test-support` | `counter_store_contract` | `clock_contract` | `language_model_contract` |
+| Piece | Where | `Clock` | `LanguageModel` |
+|---|---|---|---|
+| The port: a `Send + Sync` trait over types core owns | `crates/bunshin-core` | `time::Clock` | `model::LanguageModel` |
+| The adapter: translates OS results into core's types and OS failures into core's error kinds, and decides nothing | `crates/bunshin-platform` | `SystemClock` | `FmLanguageModel` (macOS), `UnavailableLanguageModel` (Linux) |
+| The fake: a real implementation answering from memory | `crates/bunshin-test-support` | `FixedClock` | `ScriptedLanguageModel` |
+| The contract: the behaviour every implementation must have | `crates/bunshin-test-support` | `clock_contract` | `language_model_contract` |
 
 `Clock::now` returns `Now` with both views of one millisecond-precision sample:
 `instant: UnixMillis` for gaps and `local: jiff::civil::DateTime` for dates and
 deadlines. `SystemClock` resolves the system zone, while `FixedClock` takes a fixed
 offset so tests never depend on the host's zone. Core's pure `logical_date` function
 uses the local view and `Tuning.day_boundary` (04:00 by default); a zone change cannot
-alter the instant used to measure a gap. The sample counter stores `now().instant`,
-keeping its persisted timestamp and JSON shape.
+alter the instant used to measure a gap.
 
 `LanguageModel` probes availability and answers one `ModelRequest` with JSON text or
 one typed `ModelError`. The macOS adapter passes the prompt unchanged on stdin and the
@@ -94,18 +93,15 @@ Ports are **synchronous**. Core is plain functions and state, so nothing in it i
 `async`, and the binary calls a port directly. A port that is inherently a stream is
 modelled as a callback or a channel the binary drives, never as async trait methods.
 
-Errors are one `thiserror` enum per port or per core module, with a variant per failure
-the caller can act on and no user data: `CounterError::{AtMaximum, AtMinimum, Storage {
-kind }}`, where `kind` is `Unavailable` or `Corrupt`. The binary maps each variant to
-wording in `crates/bunshin/src/wording.rs`, one `match` per enum with no wildcard arm and
-a test per variant, prints it on stderr, and exits 1; `bunshin tui` shows the same wording
-on its error line. Core never produces a user-facing sentence. An error that leaves the
-process as data also serializes as a typed code: `CounterError` already does
-(`{ "code": "atMaximum" }`, `{ "code": "storage", "kind": "corrupt" }`), ready for a
-`--json` form.
+Errors are one `thiserror` enum per port or core module, with a variant per failure
+the caller can act on, without user data. For example, `day::DayError` distinguishes
+a missing task from an invalid title. The binary owns each user-facing sentence in
+`wording.rs` and matches each variant without a wildcard. An error leaving the process
+as data serializes as a typed code. Adapters translate OS failures at the boundary.
 
-`crates/bunshin/src/main.rs` is the composition root: the only place that constructs an
-adapter and hands it to core (`CounterService::new(store, clock, Tuning::default())`).
+`crates/bunshin/src/main.rs` is the composition root, the place that constructs real
+adapters and hands them to core. The current empty shell only initializes file logging;
+future day storage and model wiring belong here rather than in core.
 
 The platform crate and the binary are outside the coverage floor. That is a
 constraint, not a licence: they translate, so they have no branch worth a numeric gate.
@@ -118,19 +114,18 @@ The moment one needs a decision, the decision moves into core behind the port.
 checkout, so it is a human's recipe. The command-line contract, which
 `crates/bunshin/tests/cli.rs` runs against the built binary with a temporary `HOME`:
 
-- **Streams.** Data — the counter's value — goes to stdout, one line; diagnostics go to
+- **Streams.** Data goes to stdout; diagnostics go to
   stderr: `error: <wording>` for a failed action, `warning: <wording>` for a degraded run
   (logging unavailable), and, in a debug build, a copy of each log line.
 - **Exit codes.** 0 on success (including `--help` and `--version`), 1 when the action
-  failed (at a bound, storage, no `HOME`), 2 on a usage error (clap's own code, with its
+  failed (missing terminal or `HOME`, terminal I/O), 2 on a usage error (clap's own code, with its
   message and usage on stderr).
 - **`--version`** prints `bunshin <version>`, the workspace version from `Cargo.toml`'s
   `[workspace.package]`.
 
-`bunshin tui` is the full-screen view of the same counter, drawn with ratatui over its
+`bunshin tui` is an empty-day shell, drawn with ratatui over its
 crossterm backend (reached only as `ratatui::crossterm`). The screen's state and what a
-key does are core's `CounterScreen`, `ScreenAction`, and `ScreenKey`, tested against the
-fakes; `crates/bunshin/src/tui/` only enters and leaves the terminal, translates its key
+key does are core's `ShellScreen`, `ShellAction`, and `ShellKey`, tested with plain values; `crates/bunshin/src/tui/` only enters and leaves the terminal, translates its key
 events, and draws (`view.rs`, tested against ratatui's `TestBackend`). It refuses with
 exit 1 unless standard input and standard output are both a terminal, logs to the file
 only while it owns the screen, and restores the terminal — raw mode off, the main screen
@@ -159,9 +154,9 @@ prints the newest file's last lines and exits.
 | A rule, a state change, a view a front end shows | `crates/bunshin-core` | unit tests and `crates/bunshin-core/tests/` (coverage-gated, Linux) |
 | Access to the OS or the filesystem | an adapter in `crates/bunshin-platform`, behind a port in core, with a fake and a contract function in `crates/bunshin-test-support` | the contract against the fake (core) and against the adapter (`just test-platform`, or `just test-local` when a human is needed) |
 | A subcommand, or the wording for a new error variant | `crates/bunshin` (wording in `src/wording.rs`) | `crates/bunshin/tests/cli.rs` (the built binary, a temporary `HOME`) and a test per variant in `wording.rs` |
-| A screen's state, an action, a key | core, beside the model it drives (`CounterScreen`, `ScreenAction`, `ScreenKey`) | core tests with keys and actions as values, over the fakes |
+| A screen's state, an action, a key | core, beside the model it drives (`ShellScreen`, `ShellAction`, `ShellKey`) | core tests with keys and actions as values, over the fakes |
 | How a screen is drawn | `crates/bunshin/src/tui/view.rs` | ratatui's `TestBackend` tests in the same file |
-| The terminal loop, wiring | `crates/bunshin/src/tui/mod.rs`, `crates/bunshin/src/main.rs` (`compose`) | no check runs the loop; a human runs `bunshin tui` |
+| The terminal loop, wiring | `crates/bunshin/src/tui/mod.rs`, `crates/bunshin/src/main.rs` (composition root) | no check runs the loop; a human runs `bunshin tui` |
 
 ## What is contract and what is private
 
@@ -172,10 +167,10 @@ private.
 
 | Contract | What depends on it | What changing it requires |
 |---|---|---|
-| **Core's public API** — public items reachable from `crates/bunshin-core/src/lib.rs`, including `day`'s transitions, `TaskView` and file DTOs, the shared `Tuning`, `LanguageModel`, `ModelRequest`, `ModelAnswer`, `Availability`, `UnavailableReason`, `ModelError`, `CancelFlag`, and the existing clock and sample APIs | `bunshin-platform`, `bunshin-test-support`, `bunshin`, and their tests | Update every caller in the same pull request; the compiler finds them. A new port is a recorded decision. |
+| **Core's public API** — public items reachable from `crates/bunshin-core/src/lib.rs`, including `day`'s transitions, `TaskView` and file DTOs, the shared `Tuning`, `LanguageModel`, `ModelRequest`, `ModelAnswer`, `Availability`, `UnavailableReason`, `ModelError`, `CancelFlag`, and the clock and shell APIs | `bunshin-platform`, `bunshin-test-support`, `bunshin`, and their tests | Update every caller in the same pull request; the compiler finds them. A new port is a recorded decision. |
 | **The data and log locations** — the bundle identifier `io.github.tomada1114.bunshin` (`BUNDLE_IDENTIFIER` in `crates/bunshin-platform/src/paths.rs` and `bundle_id` in the justfile) and the XDG directory name `bunshin` (`XDG_APP_NAME`) | Where the tool's files are on a machine that ran it: on macOS `~/Library/Application Support/io.github.tomada1114.bunshin/` and `~/Library/Logs/io.github.tomada1114.bunshin/` (and any privacy grant, keyed by the identifier); on Linux `$XDG_DATA_HOME/bunshin/` and `$XDG_STATE_HOME/bunshin/logs/` | Fixed once the tool has run anywhere but your checkout: a new name leaves the user's data behind under the old one. Changing it is a human's decision, recorded as a decision (`deciding-architecture`); the bootstrap sets both once. |
 | **On-disk file formats** — see below | Files already on a user's disk; `just logs` and anyone reading the logs | A new version still reads the old format: a format version and a migration, with a test that reads a sample of the previous format. |
-| **The command line** — `bunshin counter show`, `bunshin counter increment`, `bunshin tui`, `--help`, `--version`, what goes to stdout and what to stderr, and the exit codes (0 success, 1 the action failed, 2 a usage error) — see [The binary](#the-binary) | A person, a script, or a scheduled job that runs `bunshin` | Keep the old form working, or treat the change as breaking and say so in `CHANGELOG.md`. |
+| **The command line** — `bunshin tui`, `--help`, `--version`, what goes to stdout and what to stderr, and the exit codes (0 success, 1 the action failed, 2 a usage error) — see [The binary](#the-binary) | A person, a script, or a scheduled job that runs `bunshin` | Keep the old form working, or treat the change as breaking and say so in `CHANGELOG.md`. |
 
 ### On-disk file formats
 
@@ -196,34 +191,8 @@ Format one ignores unknown fields and validates task invariants when converted t
 `Day`. No older day format has shipped: zero is explicitly unsupported, with no guessed
 migration. A future format must define how to read format one before it can replace it.
 
-**`counter.json`**, in `~/Library/Application Support/io.github.tomada1114.bunshin/` on macOS and
-`$XDG_DATA_HOME/bunshin/` on Linux, shared by every `bunshin` process:
-
-```json
-{
-  "version": 1,
-  "counter": {
-    "value": 3,
-    "lastChangedAt": 1759017600000
-}
-}
-```
-
-`lastChangedAt` is milliseconds since the Unix epoch, or `null` before the first change.
-A save writes a temporary file named for its process and that save
-(`counter.json.<pid>-<n>-<random>.tmp`) in the same directory, syncs it, renames it over
-the old file, and syncs the directory, so a crash or a concurrent save leaves the old
-file or the new one, never half of each. Every save holds an advisory lock
-(`std::fs::File::lock`) on `counter.json.lock` beside it, which is created once, stays
-empty, and is never removed; an increment or decrement (`CounterStore::update`) holds it
-from the load to the save, so when two `bunshin` processes change the counter at once,
-neither change is lost. A load takes no lock. A save removes temporary files a crashed save left,
-including the fixed `counter.json.tmp` of earlier builds. A missing file is a
-fresh counter; an unreadable file or an unknown `version` is a `corrupt` storage error:
-showing, incrementing, and decrementing fail and leave it untouched, and only a reset
-— the user's explicit request to start over, `r` in `bunshin tui` — replaces it. A field
-is added with `#[serde(default)]`; renaming or removing one bumps `version`, and the
-reader keeps accepting the old version.
+Legacy sample files are ignored and never deleted. The empty shell reads no stored
+application state; future persistence adapters use the versioned day DTO above.
 
 **Log files**: `bunshin.YYYY-MM-DD.log` from the binary in
 `~/Library/Logs/io.github.tomada1114.bunshin/` on macOS and `$XDG_STATE_HOME/bunshin/logs/` on Linux,

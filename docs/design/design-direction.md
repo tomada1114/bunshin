@@ -61,7 +61,7 @@ Default means the terminal's own foreground on its own background (ratatui `Colo
 | Leftovers heading in the task pane | bold |
 | Help line and T3: the key | bold |
 | Dropped task 「[-]」 | crossed out (Terminal.app does not draw it; the mark carries the state) |
-| Input counter at 400/400 | red |
+| Input length indicator at 400/400 | red |
 
 **Never used:** green, yellow, or cyan for text (they fail on a light palette); bright
 black or the faint (DIM) modifier on any text (bright black fails on the owner's theme,

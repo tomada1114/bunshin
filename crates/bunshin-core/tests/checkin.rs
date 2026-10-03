@@ -923,8 +923,10 @@ fn checkin_undo_creation_preserves_consumption_and_never_reuses_its_identifier()
 }
 #[test]
 fn checkin_before_deadline_civil_subtraction_at_minimum_date_saturates() {
-    let mut tuning = Tuning::default();
-    tuning.day_boundary = time(0, 0, 0, 0);
+    let tuning = Tuning {
+        day_boundary: time(0, 0, 0, 0),
+        ..Tuning::default()
+    };
     let (day, _) = Day::new(jiff::civil::Date::MIN, tuning)
         .add(
             "first".into(),

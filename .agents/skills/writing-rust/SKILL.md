@@ -72,30 +72,26 @@ formats. None of them opens a window or takes over a terminal.
   terminal (https://doc.rust-lang.org/cargo/reference/profiles.html#panic, checked
   2026-09-29).
 - Return `Result<T, E>` and propagate with `?`. Turn an `Option` into an error with
-  `.ok_or(E)?` (`decided.ok_or(CounterError::Storage { … })` in
-  `CounterService::change`), or leave early with `let … else`
+  `.ok_or(E)?`, or leave early with `let … else`
   (`let Some(home) = home_dir() else { … }` in `crates/bunshin/src/main.rs`). Use
   `unwrap_or`, `unwrap_or_default`, or `map_or_else` only where the fallback is a
   correct answer, and say why in a comment (`SystemClock::now` in
   `crates/bunshin-platform/src/clock.rs`).
 - `?` converts the error through `From`. Where one error wraps another, an
   `impl From<Inner> for Outer` lets `?` do the conversion; without it the `?` fails with
-  E0277. In the sample, `impl From<StorageError> for CounterError` is what lets
-  `self.store.load()?` compile inside a method returning `CounterError`.
+  E0277.
 - Errors derive `thiserror::Error`; `anyhow` is not used. Which variants an enum has,
   and how the binary words each: **REQUIRED:** `designing-errors`, before adding or
   changing a variant.
 - Never swallow an error. `let _ = fallible();` carries a comment saying why the failure
-  does not matter. In the sample, `write_atomically` in
-  `crates/bunshin-platform/src/counter_store.rs` ignores a failed temp-file cleanup and says
-  why.
+  does not matter. The terminal panic hook ignores a failed restore because the original panic
+  must still be reported.
 
 ## `Option`
 
 `None` is an ordinary answer, not a failure: a store that holds nothing returns
 `Ok(None)`, and a value never set is `None`. Read it with `match`, `if let`, `map`,
-`ok_or`, or `let … else`, never `unwrap`. In JSON it is `null`; in the sample,
-`CounterView::last_changed_at` serializes as `"lastChangedAt": null`.
+`ok_or`, or `let … else`, never `unwrap`. In JSON it is `null`; an open task has no closing instant.
 
 ## Enums and `match`
 
@@ -111,9 +107,7 @@ formats. None of them opens a window or takes over a terminal.
   `#[non_exhaustive]` foreign enum needs a `_` arm (E0004), which the lint accepts once
   every variant is named before it; `std::io::ErrorKind` has unstable variants no match
   can name (E0658), so test it with `==` or `matches!` instead. In a crate without the
-  deny, a match on a `#[non_exhaustive]` foreign enum ends with `_ =>`. In the sample, `counter_error` in
-  `crates/bunshin/src/wording.rs` matches every `CounterError` and every
-  `StorageErrorKind` inside it.
+  deny, a match on a `#[non_exhaustive]` foreign enum ends with `_ =>`.
 
 ## Modules and visibility
 
@@ -125,8 +119,8 @@ formats. None of them opens a window or takes over a terminal.
   (`missing_docs`); a fallible `pub fn` has an `# Errors` section and one that can
   panic a `# Panics` section (clippy pedantic). Whether a change owes other
   documentation, and where, is `updating-docs`.
-- One module per concern: a directory with `mod.rs` when it has submodules. In the
-  sample, `crates/bunshin-core/src/counter/mod.rs` has `store.rs` beside it. A constant
+- One module per concern: a directory with `mod.rs` when it has submodules.
+  `crates/bunshin-core/src/day/` groups its model, change sets, and file DTOs. A constant
   sits beside the code that uses it; there is no `constants.rs` and no `static mut`. The
   Book on modules:
   https://doc.rust-lang.org/book/ch07-00-managing-growing-projects-with-packages-crates-and-modules.html

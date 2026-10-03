@@ -46,8 +46,7 @@ Ports core declares (all synchronous `Send + Sync` traits):
 | `InstructionsSource` | `FileInstructions` | `InMemoryInstructions` | read the owner's text (absent, empty, or text), write the default the first time, report the file's path for display |
 | `LanguageModel` | `FmLanguageModel` (macOS), `UnavailableLanguageModel` (Linux) | `ScriptedLanguageModel` (queued answers and errors) | report availability; answer one `ModelRequest` (instructions text, prompt text, schema JSON, timeout) with the answer's JSON or a typed `ModelError`, stopping early when a shared cancel flag is set |
 
-The counter sample (`CounterStore`, `JsonFileCounterStore`, the `counter` module) is
-removed once the first real port lands.
+The template sample has been removed; the day model and clock remain as the domain foundation.
 
 ## Dependencies
 
@@ -92,8 +91,7 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   an older one is migrated on read. The `--json` output of `bunshin today` is its own
   versioned view, not the file.
 - **Writing:** the whole day on every change, to a temporary file in `days/`, flushed
-  and `fsync`ed, then renamed over the old file — the same pattern as the template's
-  `JsonFileCounterStore`. A reader such as `bunshin today` takes no lock and sees the
+  and `fsync`ed, then renamed over the old file. A reader such as `bunshin today` takes no lock and sees the
   old file or the new one, never half (§3.7). A day is a few tens of KB at most.
 - **Failure:** a failed save keeps the day in memory, shows 「保存できません」, and
   retries on the next change; an unreadable day file stops the TUI with a message and is
@@ -168,9 +166,8 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   for both an invalid schema and a runtime model-service error (2026-10-02); they stay
   `Failed`, because the exit code alone does not identify the cause. Diagnostics never
   include the prompt. What a user message and a trigger do on each error is §3.5 and §4.
-- **Tests:** no routine check needs the real `fm`; responses failed in the observed
-  agent runs (2026-10-02), and it does not exist on a CI runner. The core and the binary
-  are tested against `ScriptedLanguageModel`;
+- **Tests:** no routine check needs the real `fm`, which is absent on a CI runner.
+  The core and the binary are tested against `ScriptedLanguageModel`;
   `FmLanguageModel`'s contract run is `#[ignore = "local machine: fm with Apple
   Intelligence enabled"]` and runs only in `just test-local`, a human's recipe.
 
@@ -245,14 +242,21 @@ In code it is a set of `const` `Style`s beside the labels in the view, asserted 
   A direct `fm respond --no-stream` without a schema or the app also returned the
   same error, while `fm available` returned 0. This remains `Failed`; neither its
   meaning nor whether it also occurs outside the agent's execution environment is
-  verified. A successful real-model contract is still unverified.
+  verified. On 2026-10-03, the owner authorized all `fm` execution: the real contract
+  passed with `mise exec -- just test-local` under approved execution permissions
+  (exit 0, one test), while the same command failed before and after in the restricted
+  environment (exit 100, typed `Failed`). A direct ordinary
+  `fm respond --no-stream` with a synthetic prompt succeeded (exit 0). These observations
+  satisfy the real adapter contract; they do not establish the cause of the earlier
+  error or the difference between execution environments.
 - Unverified: the exit codes and stderr of `fm respond` for a runtime model error
   (window exceeded, guardrail, rate limit). Until `just test-local` observes them, they
   map to `Failed`, and the budget is the only guard against an overflow. Apple's error
   cases name `exceededContextWindowSize`, `guardrailViolation`, `refusal`,
   `rateLimited`, and `concurrentRequests`
   (https://developer.apple.com/documentation/foundationmodels/languagemodelsession/generationerror,
-  checked 2026-10-02). Settled by the first local run of the adapter's contract.
+  checked 2026-10-02). A successful local contract does not exercise these failures;
+  their mappings need separate observed failure cases.
 - The language of the operating rules (Japanese or English prompt text). Settled by
   comparing both on real days; either way it is model input in core.
 - Whether `--greedy` sampling suits the check-in call. Settled the same way; a `Tuning`

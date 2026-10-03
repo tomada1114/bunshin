@@ -22,7 +22,7 @@ and **E0502, a mutable borrow while an immutable one is alive**
 reference while another part of the code changes the same value.
 
 - End the first borrow before the second begins: copy what you need out of it into a
-  local (`let value = counter.value();`), then mutate.
+  local (`let instant = clock.now().instant;`), then mutate.
 - Split the work into two statements instead of one expression that borrows twice.
 - Prefer a method that takes `self` and returns a new value over one that mutates
   through `&mut self`; most of these conflicts then disappear
@@ -69,7 +69,7 @@ written and the type produced differ. Two cases worth recognising here:
 - A function ends with `Ok(value);` — the trailing semicolon turns the result into
   `()`. Remove it.
 - The message names the same type through two paths (for example
-  `bunshin_core::Counter` and `crate::Counter`), or an E0277 says a fake does not
+  `bunshin_core::Clock` and `crate::Clock`), or an E0277 says a fake does not
   implement a core trait it plainly implements: an inline `#[cfg(test)]` module in core
   used a fake from `bunshin-test-support`, which links a second copy of core. Move that
   test to `crates/bunshin-core/tests/` (the `placing-tests` skill).

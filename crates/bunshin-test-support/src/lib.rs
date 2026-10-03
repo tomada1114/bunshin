@@ -10,10 +10,7 @@
 //! compare `Result`s with `assert_eq!` instead of unwrapping.
 
 mod clock;
-mod counter_store;
 mod language_model;
 
 pub use clock::{FixedClock, clock_contract};
-pub use counter_store::{FailingCounterStore, InMemoryCounterStore, counter_store_contract};
-
 pub use language_model::{ScriptedLanguageModel, language_model_contract};

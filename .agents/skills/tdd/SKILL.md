@@ -58,38 +58,16 @@ Cover the edge cases from the start: at each bound, one step inside, one step ou
 the operation repeated at a bound; the state after an error (nothing changed); both
 sides of every conditional.
 
-In the sample, a new counter rule starts as a unit test beside `Counter` in
-`crates/bunshin-core/src/counter/mod.rs`, and a new use case as a test of
-`CounterService` over the fakes in `crates/bunshin-core/tests/counter_service.rs`:
-
-```rust
-#[test]
-fn increment_by_stops_with_an_error_past_the_maximum() {
-    assert_eq!(Counter::new(2, TUNING).increment_by(5), Err(CounterError::AtMaximum));
-}
-```
-
-The layers above core start the same way, each with its own red test once core's is
-green. In the sample, a `bunshin counter decrement` subcommand would start in `cli.rs`:
-
-```rust
-#[test]
-fn decrement_at_the_minimum_fails_and_changes_nothing() {
-    let home = tempfile::tempdir().unwrap();
-    assert_runtime_error(
-        &run(home.path(), &["counter", "decrement"]),
-        "the counter is already at its minimum",
-    );
-}
-```
-
-and a new key or screen state as a `TestBackend` test in `crates/bunshin/src/tui/view.rs`
-with the expected lines written out.
+A new day rule starts beside its pure model for private details, or in
+`crates/bunshin-core/tests/` for public transitions and injected ports. Write literal
+expected task views and typed errors. A command-line change starts in `cli.rs` against
+the built binary, asserting streams and exit codes. A drawing change starts with a
+`TestBackend` test in `crates/bunshin/src/tui/view.rs`, with expected lines written out.
 
 ## Step 2: prove it fails
 
 ```bash
-just test-fast increment_by              # core: cargo nextest, filtered by test name
+just test-fast logical_date              # core: cargo nextest, filtered by test name
 ```
 
 For a test in `crates/bunshin`, the narrowest recipe is `just test-platform`. Read the
@@ -104,8 +82,8 @@ behavior. **Do not skip this run**: a test that has never failed may never be ab
 
 Write the smallest change in core that makes the test pass, following `writing-rust`
 (no `unwrap`, a typed error, `self` in and a new value out). Re-run the same filter,
-then a broader one that covers every test the change could touch; in the sample,
-`just test-fast counter`. All must pass, the new ones and the old. In the binary the
+then a broader one that covers every test the change could touch. All must pass, the new ones
+and the old. In the binary the
 smallest change is the arm, the wording, or the drawing the test drives, and never a
 domain rule (Step 0).
 
