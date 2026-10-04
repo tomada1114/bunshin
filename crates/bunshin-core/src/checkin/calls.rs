@@ -1,6 +1,6 @@
 //! A value queue for one model worker, with owner priority and typed delivery effects.
 use super::{
-    ReadyBatch,
+    BatchReason, ReadyBatch,
     answer::{CheckinKind, parse_checkin},
     plan_look, same_task_recent,
 };
@@ -34,7 +34,7 @@ pub struct CallContext {
 /// Front-end actions; terminal I/O and storage remain outside core.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckinEffect {
-    /// One terminal bell for all newly delivered rows in this transition.
+    /// One terminal bell for one newly delivered, unsuppressed row.
     Bell,
     /// Persist the returned day before the next event.
     Save,
@@ -178,6 +178,14 @@ impl CheckinCalls {
         }
         let before = day.data().clone();
         day.take_held_triggers_matching(&pending.batch.triggers);
+        let mut prompt_triggers = pending.batch.triggers.clone();
+        if matches!(pending.batch.reason, BatchReason::Open | BatchReason::Sleep) {
+            prompt_triggers.push(Trigger {
+                kind: TriggerKind::CatchUp,
+                task: None,
+                due_at: context.now.instant,
+            });
+        }
         match context.availability {
             Availability::Unavailable(reason) => self.failed(
                 day,
@@ -191,7 +199,7 @@ impl CheckinCalls {
                 &day,
                 owner,
                 context.now,
-                &pending.batch.triggers,
+                &prompt_triggers,
                 extras,
                 self.tuning,
             ) {
@@ -199,7 +207,7 @@ impl CheckinCalls {
                     let id = self.next_id;
                     self.next_id = self.next_id.saturating_add(1);
                     self.flight = Some(Flight { id, pending });
-                    let effects = save_effect(&day, &before, false);
+                    let effects = save_effect(&day, &before, 0);
                     CallUpdate {
                         day,
                         request: Some(CheckinRequest {
@@ -255,7 +263,7 @@ impl CheckinCalls {
                     CheckinKind::Note => Some(UnpromptedKind::Note),
                     CheckinKind::Question => Some(UnpromptedKind::Question),
                 };
-                let mut delivered = false;
+                let mut delivered = 0;
                 if let Some(kind) = kind {
                     let trigger = flight
                         .pending
@@ -266,15 +274,15 @@ impl CheckinCalls {
                         .or_else(|| flight.pending.batch.triggers.first())
                         .cloned();
                     if let Some(trigger) = trigger {
-                        delivered = append(
+                        delivered = usize::from(append(
                             &mut day,
                             kind,
-                            trigger,
+                            delivery_trigger(trigger, flight.pending.batch.reason),
                             answer.task,
                             answer.message,
                             now,
                             self.tuning,
-                        );
+                        ));
                     }
                 }
                 let effects = save_effect(&day, &before, delivered);
@@ -296,7 +304,7 @@ impl CheckinCalls {
         render: impl Fn(&FixedDeadline) -> String,
         before: &crate::day::file::DayData,
     ) -> CallUpdate {
-        let mut delivered = false;
+        let mut delivered = 0;
         // On catch-up, announce an elapsed deadline before an older before-event
         // for the same task. The ordinary same-task guard then records suppression.
         let mut triggers = pending.batch.triggers.iter().collect::<Vec<_>>();
@@ -322,15 +330,15 @@ impl CheckinCalls {
                     trigger: trigger.clone(),
                     task,
                 });
-                delivered |= append(
+                delivered += usize::from(append(
                     &mut day,
                     UnpromptedKind::Note,
-                    trigger.clone(),
+                    delivery_trigger(trigger.clone(), pending.batch.reason),
                     trigger.task,
                     text,
                     now,
                     self.tuning,
-                );
+                ));
             }
         }
         pending
@@ -407,11 +415,15 @@ fn append(
     });
     delivered
 }
-fn save_effect(day: &Day, before: &crate::day::file::DayData, bell: bool) -> Vec<CheckinEffect> {
-    let mut effects = Vec::new();
-    if bell {
-        effects.push(CheckinEffect::Bell);
+fn delivery_trigger(mut trigger: Trigger, reason: BatchReason) -> Trigger {
+    match reason {
+        BatchReason::Open | BatchReason::Sleep => trigger.kind = TriggerKind::CatchUp,
+        BatchReason::Tick | BatchReason::DayStart | BatchReason::EveningReview => {}
     }
+    trigger
+}
+fn save_effect(day: &Day, before: &crate::day::file::DayData, bells: usize) -> Vec<CheckinEffect> {
+    let mut effects = vec![CheckinEffect::Bell; bells];
     if day.data() != before {
         effects.push(CheckinEffect::Save);
     }

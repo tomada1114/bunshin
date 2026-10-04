@@ -260,14 +260,14 @@ const DEADLINE_BEFORE: &str = "の締切が近づいています。";
 const DEADLINE_AFTER: &str = "の締切を過ぎました。";
 const DEADLINE_OPEN: &str = "（〜";
 const DEADLINE_CLOSE: &str = "）";
-const LABEL_NOTE: &str = "メモ";
+const LABEL_NOTE: &str = "お知らせ";
 const LABEL_QUESTION: &str = "質問";
 const TRIGGER_BEFORE: &str = "締切30分前";
-const TRIGGER_AFTER: &str = "締切超過";
-const TRIGGER_PLANNED: &str = "予定の確認";
+const TRIGGER_AFTER: &str = "締切";
+const TRIGGER_PLANNED: &str = "予定した見回り";
 const TRIGGER_DAY_START: &str = "日の開始";
 const TRIGGER_EVENING: &str = "夕方の振り返り";
-const TRIGGER_CATCH_UP: &str = "再開";
+const TRIGGER_CATCH_UP: &str = "閉じている間に";
 const LABEL_OPEN: &str = "[";
 const LABEL_CLOSE: &str = "]";
 const LABEL_SEPARATOR: &str = " / ";
@@ -367,11 +367,11 @@ mod checkin_tests {
         }
         for (trigger, word) in [
             (TriggerKind::BeforeDeadline, "締切30分前"),
-            (TriggerKind::AfterDeadline, "締切超過"),
-            (TriggerKind::PlannedLook, "予定の確認"),
+            (TriggerKind::AfterDeadline, "締切"),
+            (TriggerKind::PlannedLook, "予定した見回り"),
             (TriggerKind::DayStart, "日の開始"),
             (TriggerKind::EveningReview, "夕方の振り返り"),
-            (TriggerKind::CatchUp, "再開"),
+            (TriggerKind::CatchUp, "閉じている間に"),
         ] {
             let trigger = Trigger {
                 kind: trigger,
@@ -384,7 +384,7 @@ mod checkin_tests {
             );
             assert_eq!(
                 unprompted_label(UnpromptedKind::Note, &trigger, None),
-                format!("[メモ / {word}]")
+                format!("[お知らせ / {word}]")
             );
         }
     }

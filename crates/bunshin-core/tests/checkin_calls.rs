@@ -7,6 +7,118 @@ use bunshin_core::{
 };
 
 #[test]
+fn checkin_open_and_sleep_batches_preserve_catchup_on_both_model_and_fixed_delivery() {
+    use bunshin_core::{
+        ModelAnswer, ModelError,
+        checkin::{BatchReason, ReadyBatch, calls::CheckinCalls},
+    };
+    for reason in [BatchReason::Open, BatchReason::Sleep] {
+        for result in [
+            Ok(ModelAnswer {
+                json: r#"{"kind":"note","task":1,"message":"確認"}"#.into(),
+            }),
+            Err(ModelError::TimedOut),
+        ] {
+            let (day, owner, _, now) = fixture(TriggerKind::AfterDeadline).unwrap();
+            let mut calls = CheckinCalls::new(Tuning::default());
+            calls.enqueue(
+                day.date(),
+                ReadyBatch {
+                    reason,
+                    triggers: vec![Trigger {
+                        kind: TriggerKind::AfterDeadline,
+                        task: Some(1),
+                        due_at: now.instant,
+                    }],
+                },
+            );
+            let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+            let update = calls.finish(start.day, start.request.unwrap().id, result, now, fixed);
+            let row = update.day.messages().last().unwrap();
+            assert_eq!(
+                row.unprompted.as_ref().unwrap().trigger.kind,
+                TriggerKind::CatchUp
+            );
+            assert_eq!(row.unprompted.as_ref().unwrap().task, Some(1));
+        }
+    }
+}
+
+#[test]
+fn checkin_fixed_batch_emits_one_bell_for_each_delivered_row_and_none_for_suppression() {
+    use bunshin_core::{
+        ModelError,
+        checkin::{
+            BatchReason, ReadyBatch,
+            calls::{CheckinCalls, CheckinEffect},
+        },
+    };
+    let (day, owner, _, now) = fixture(TriggerKind::AfterDeadline).unwrap();
+    let day = day
+        .add(
+            "資料作成".into(),
+            TaskKind::Deadline,
+            Some(jiff::civil::time(15, 0, 0, 0)),
+            TaskOrigin::Key,
+            now.instant,
+        )
+        .unwrap()
+        .0;
+    let mut calls = CheckinCalls::new(Tuning::default());
+    calls.enqueue(
+        day.date(),
+        ReadyBatch {
+            reason: BatchReason::Sleep,
+            triggers: vec![
+                Trigger {
+                    kind: TriggerKind::BeforeDeadline,
+                    task: Some(1),
+                    due_at: now.instant,
+                },
+                Trigger {
+                    kind: TriggerKind::AfterDeadline,
+                    task: Some(1),
+                    due_at: now.instant,
+                },
+                Trigger {
+                    kind: TriggerKind::AfterDeadline,
+                    task: Some(2),
+                    due_at: now.instant,
+                },
+            ],
+        },
+    );
+    let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+    let update = calls.finish(
+        start.day,
+        start.request.unwrap().id,
+        Err(ModelError::TimedOut),
+        now,
+        fixed,
+    );
+    assert_eq!(
+        update.effects,
+        vec![
+            CheckinEffect::Bell,
+            CheckinEffect::Bell,
+            CheckinEffect::Save
+        ]
+    );
+    assert_eq!(
+        update
+            .day
+            .messages()
+            .iter()
+            .filter(|m| m
+                .unprompted
+                .as_ref()
+                .is_some_and(|u| u.suppressed.is_none()))
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn checkin_request_retains_all_fifty_tasks_and_both_deadline_triggers_within_window() {
     let tuning = Tuning::default();
     let now = Now {
