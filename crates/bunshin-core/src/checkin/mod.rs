@@ -20,8 +20,12 @@ pub enum BatchReason {
     Sleep,
     /// The owner opened the screen; ordinary delivery guards are bypassed.
     Open,
+    /// Opening events combined with later routine events; ordinary guards apply.
+    GuardedOpen,
     /// A typed day-start hook bypasses ordinary delivery guards.
     DayStart,
+    /// Day-start events combined with later routine events; ordinary guards apply.
+    GuardedDayStart,
     /// An evening hook obeys ordinary delivery guards.
     EveningReview,
 }
@@ -217,7 +221,23 @@ impl Checkin {
             let reason = self
                 .opening_batch
                 .take()
-                .map_or(self.pending_reason, |batch| batch.reason);
+                .map_or(self.pending_reason, |batch| {
+                    if triggers.iter().all(|event| batch.triggers.contains(event)) {
+                        batch.reason
+                    } else {
+                        match batch.reason {
+                            BatchReason::Open | BatchReason::GuardedOpen => {
+                                BatchReason::GuardedOpen
+                            }
+                            BatchReason::DayStart | BatchReason::GuardedDayStart => {
+                                BatchReason::GuardedDayStart
+                            }
+                            BatchReason::Tick | BatchReason::Sleep | BatchReason::EveningReview => {
+                                batch.reason
+                            }
+                        }
+                    }
+                });
             Some(ReadyBatch { triggers, reason })
         } else if let Some(batch) = self.opening_batch.take() {
             // The exception belongs to the opening batch, never to routine events

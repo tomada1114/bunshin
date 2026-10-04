@@ -26,6 +26,253 @@ fn apply_delivery_guard(
 }
 
 #[test]
+fn scheduler_releases_during_a_call_cannot_remove_the_workers_persisted_events() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::{
+            Checkin,
+            calls::{CheckinCalls, CheckinEffect},
+        },
+    };
+    for completed in [false, true] {
+        let (day, owner, _, mut now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+        let scheduled = Checkin::new(now, Tuning::default()).open(day, now, false);
+        let batch = scheduled.ready.unwrap();
+        let events = batch.triggers.clone();
+        let mut calls = CheckinCalls::new(Tuning::default());
+        calls.enqueue(&scheduled.day, batch);
+        let start = calls.prepare(
+            scheduled.day,
+            &owner,
+            ContextExtras::default(),
+            context(now),
+            fixed,
+        );
+        let day = if completed {
+            calls
+                .finish(
+                    start.day,
+                    start.request.unwrap().id,
+                    Ok(ModelAnswer {
+                        json: r#"{"kind":"note","task":1,"message":"held answer"}"#.into(),
+                    }),
+                    bunshin_core::checkin::calls::CallContext {
+                        owner_waiting: true,
+                        ..context(now)
+                    },
+                    fixed,
+                )
+                .day
+        } else {
+            start.day
+        };
+        now.instant = UnixMillis(60_000);
+        now.local = now.local.date().at(14, 31, 0, 0);
+        let released = scheduled.checkin.tick(day, now, false);
+        calls.enqueue(&released.day, released.ready.unwrap());
+        let held = calls.prepare(
+            released.day,
+            &owner,
+            ContextExtras::default(),
+            bunshin_core::checkin::calls::CallContext {
+                owner_waiting: true,
+                ..context(now)
+            },
+            fixed,
+        );
+        assert_eq!(held.day.data().held_triggers, events);
+        assert_eq!(held.effects, vec![CheckinEffect::Save]);
+        assert!(held.request.is_none());
+    }
+}
+
+#[test]
+fn in_flight_deadlines_remain_persisted_and_can_be_recovered_after_restart() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::{
+            Checkin,
+            calls::{CheckinCalls, CheckinEffect},
+        },
+        day::file::DayFile,
+    };
+    let (day, owner, _, now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+    let scheduled = Checkin::new(now, Tuning::default()).open(day, now, false);
+    let batch = scheduled.ready.unwrap();
+    let events = batch.triggers.clone();
+    let mut calls = CheckinCalls::new(Tuning::default());
+    calls.enqueue(&scheduled.day, batch);
+    let start = calls.prepare(
+        scheduled.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
+    assert!(start.request.is_some());
+    assert_eq!(start.day.data().held_triggers, events);
+    assert!(start.effects.contains(&CheckinEffect::Save));
+    let restored = DayFile::from(&start.day)
+        .into_day(Tuning::default())
+        .unwrap();
+    let reopened = Checkin::new(now, Tuning::default()).open(restored, now, false);
+    let mut fresh = CheckinCalls::new(Tuning::default());
+    fresh.enqueue(&reopened.day, reopened.ready.unwrap());
+    let retry = fresh.prepare(
+        reopened.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
+    let done = fresh.finish(
+        retry.day,
+        retry.request.unwrap().id,
+        Ok(ModelAnswer {
+            json: r#"{"kind":"silent","message":""}"#.into(),
+        }),
+        context(now),
+        fixed,
+    );
+    assert!(done.day.data().held_triggers.is_empty());
+    assert_eq!(done.day.data().triggers_fired, events);
+}
+
+#[test]
+fn mixed_opening_batches_hold_routine_answers_after_hours_or_when_muted_during_the_call() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::{
+            Checkin,
+            calls::{CheckinCalls, CheckinEffect},
+        },
+    };
+    for (day_start, muted) in [(false, false), (false, true), (true, false), (true, true)] {
+        let (day, owner, _, mut now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+        let day = day
+            .edit(
+                1,
+                "資料作成".into(),
+                TaskKind::Deadline,
+                Some("21:00".parse().unwrap()),
+                now.instant,
+            )
+            .unwrap()
+            .0
+            .add(
+                "routine".into(),
+                TaskKind::Deadline,
+                Some("22:15".parse().unwrap()),
+                TaskOrigin::Key,
+                now.instant,
+            )
+            .unwrap()
+            .0;
+        now.local = now.local.date().at(21, 0, 0, 0);
+        let scheduler = Checkin::new(now, Tuning::default());
+        let opening = if day_start {
+            scheduler.day_start(day, now, true)
+        } else {
+            scheduler.open(day, now, true)
+        };
+        now.instant = UnixMillis(2_700_000);
+        now.local = now.local.date().at(21, 45, 0, 0);
+        let later = opening.checkin.tick(opening.day, now, true);
+        let released = later.checkin.release_held(later.day, now, false);
+        let mut calls = CheckinCalls::new(Tuning::default());
+        calls.enqueue(&released.day, released.ready.unwrap());
+        let start = calls.prepare(
+            released.day,
+            &owner,
+            ContextExtras::default(),
+            context(now),
+            fixed,
+        );
+        let day = if muted {
+            start.day.mute(UnixMillis(9_000_000), now.instant).0
+        } else {
+            now.local = now.local.date().at(22, 0, 20, 0);
+            start.day
+        };
+        let count = day.messages().len();
+        let held = calls.finish(
+            day,
+            start.request.unwrap().id,
+            Ok(ModelAnswer {
+                json: r#"{"kind":"note","task":2,"message":"routine answer"}"#.into(),
+            }),
+            context(now),
+            fixed,
+        );
+        assert_eq!(held.day.messages().len(), count);
+        assert!(!held.effects.contains(&CheckinEffect::Bell));
+        assert!(!held.day.data().held_triggers.is_empty());
+        assert!(
+            calls
+                .prepare(
+                    held.day,
+                    &owner,
+                    ContextExtras::default(),
+                    context(now),
+                    fixed
+                )
+                .request
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn successful_overdue_notes_choose_after_deadline_when_both_phases_are_ready() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::{BatchReason, ReadyBatch, calls::CheckinCalls},
+    };
+    let (day, owner, _, now) = fixture(TriggerKind::AfterDeadline).unwrap();
+    let mut calls = CheckinCalls::new(Tuning::default());
+    calls.enqueue(
+        &day,
+        ReadyBatch {
+            reason: BatchReason::Tick,
+            triggers: vec![
+                Trigger {
+                    kind: TriggerKind::BeforeDeadline,
+                    task: Some(1),
+                    due_at: now.instant,
+                },
+                Trigger {
+                    kind: TriggerKind::AfterDeadline,
+                    task: Some(1),
+                    due_at: now.instant,
+                },
+            ],
+        },
+    );
+    let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+    let done = calls.finish(
+        start.day,
+        start.request.unwrap().id,
+        Ok(ModelAnswer {
+            json: r#"{"kind":"note","task":1,"message":"overdue"}"#.into(),
+        }),
+        context(now),
+        fixed,
+    );
+    assert_eq!(
+        done.day
+            .messages()
+            .last()
+            .unwrap()
+            .unprompted
+            .as_ref()
+            .unwrap()
+            .trigger
+            .kind,
+        TriggerKind::AfterDeadline
+    );
+}
+
+#[test]
 fn title_only_edits_before_dispatch_keep_the_queued_deadline_with_its_current_title() {
     use bunshin_core::{Availability, UnavailableReason, checkin::calls::CallContext};
     for availability in [
@@ -138,6 +385,7 @@ fn opening_exempt_batches_cannot_carry_later_routine_events_past_delivery_guards
         ModelAnswer,
         checkin::{BatchReason, ReadyBatch},
     };
+    let extras = ContextExtras::default();
     for reason in [BatchReason::Open, BatchReason::DayStart] {
         for guard in ["hours", "mute", "gap"] {
             let (day, owner, _, mut now) = fixture(TriggerKind::PlannedLook).unwrap();
@@ -157,13 +405,13 @@ fn opening_exempt_batches_cannot_carry_later_routine_events_past_delivery_guards
                 &day,
                 ReadyBatch {
                     reason,
-                    triggers: vec![opening],
+                    triggers: vec![opening.clone()],
                 },
             );
             let held = calls.prepare(
                 day,
                 &owner,
-                ContextExtras::default(),
+                extras,
                 bunshin_core::checkin::calls::CallContext {
                     owner_waiting: true,
                     ..context(now)
@@ -177,14 +425,20 @@ fn opening_exempt_batches_cannot_carry_later_routine_events_past_delivery_guards
                     triggers: vec![routine.clone()],
                 },
             );
-            let start = calls.prepare(
-                held.day,
-                &owner,
-                ContextExtras::default(),
-                context(now),
-                fixed,
+            let start = calls.prepare(held.day, &owner, extras, context(now), fixed);
+            assert_eq!(
+                start.day.data().held_triggers,
+                vec![opening, routine.clone()]
             );
-            assert_eq!(start.day.data().held_triggers, vec![routine.clone()]);
+            assert!(
+                !start
+                    .request
+                    .as_ref()
+                    .unwrap()
+                    .request
+                    .prompt
+                    .contains("[\"p\",")
+            );
             let done = calls.finish(
                 start.day,
                 start.request.unwrap().id,
@@ -194,29 +448,17 @@ fn opening_exempt_batches_cannot_carry_later_routine_events_past_delivery_guards
                 context(now),
                 fixed,
             );
-            let blocked = calls.prepare(
-                done.day,
-                &owner,
-                ContextExtras::default(),
-                context(now),
-                fixed,
-            );
+            let blocked = calls.prepare(done.day, &owner, extras, context(now), fixed);
             assert!(blocked.request.is_none());
             now.instant = UnixMillis(3_600_001);
             now.local = now.local.date().at(14, 30, 0, 0);
-            let next = calls.prepare(
-                blocked.day,
-                &owner,
-                ContextExtras::default(),
-                context(now),
-                fixed,
-            );
+            let next = calls.prepare(blocked.day, &owner, extras, context(now), fixed);
             let expected = build_checkin(
                 &next.day,
                 &owner,
                 now,
                 &[routine],
-                ContextExtras::default(),
+                extras,
                 Tuning::default(),
             )
             .unwrap();
@@ -688,7 +930,7 @@ fn completed_checkins_wait_for_current_owner_input_and_queued_conversation_to_cl
                     .iter()
                     .all(|row| row.unprompted.is_none())
             );
-            assert_eq!(held.effects, vec![CheckinEffect::Save]);
+            assert_eq!(held.effects, vec![]);
             let still_held = calls.prepare(held.day, &owner, ContextExtras::default(), busy, fixed);
             assert!(still_held.request.is_none());
             assert!(
@@ -789,7 +1031,7 @@ fn checkin_completion_is_held_after_hours_or_during_mute_without_another_model_c
             };
             let held = calls.finish(day, id, result, context(now), fixed);
             assert_eq!(held.day.messages().len(), before);
-            assert_eq!(held.effects, vec![CheckinEffect::Save]);
+            assert_eq!(held.effects, vec![]);
             assert_eq!(held.day.data().held_triggers.len(), 1);
             let waiting = calls.prepare(
                 held.day,
@@ -866,7 +1108,7 @@ fn checkin_success_drops_messages_for_deadline_tasks_closed_dropped_or_deleted_d
 
 #[test]
 fn checkin_failed_non_deadline_is_saved_as_held_until_the_retry_is_spent() {
-    use bunshin_core::{ModelError, checkin::calls::CheckinEffect};
+    use bunshin_core::ModelError;
     let (day, owner, mut calls, now) = fixture(TriggerKind::PlannedLook).unwrap();
     let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
     let failed = calls.finish(
@@ -877,7 +1119,7 @@ fn checkin_failed_non_deadline_is_saved_as_held_until_the_retry_is_spent() {
         fixed,
     );
     assert_eq!(failed.day.data().held_triggers.len(), 1);
-    assert_eq!(failed.effects, vec![CheckinEffect::Save]);
+    assert_eq!(failed.effects, vec![]);
     let later = Now {
         instant: UnixMillis(now.instant.0 + 60_000),
         ..now
@@ -889,7 +1131,14 @@ fn checkin_failed_non_deadline_is_saved_as_held_until_the_retry_is_spent() {
         context(later),
         fixed,
     );
-    assert!(retry.day.data().held_triggers.is_empty());
+    assert_eq!(
+        retry.day.data().held_triggers,
+        vec![Trigger {
+            kind: TriggerKind::PlannedLook,
+            task: Some(1),
+            due_at: now.instant
+        }]
+    );
     let spent = calls.finish(
         retry.day,
         retry.request.unwrap().id,
@@ -1569,7 +1818,14 @@ fn checkin_unavailable_model_holds_other_triggers_and_recovers_without_duplicate
         fixed,
     );
     let id = recovered.request.unwrap().id;
-    assert!(recovered.day.data().held_triggers.is_empty());
+    assert_eq!(
+        recovered.day.data().held_triggers,
+        vec![Trigger {
+            kind: TriggerKind::PlannedLook,
+            task: Some(1),
+            due_at: now.instant
+        }]
+    );
     let done = calls.finish(
         recovered.day,
         id,
@@ -1605,7 +1861,7 @@ fn checkin_other_failures_retry_once_at_next_tick_and_then_schedule_default_look
         context(now),
         fixed,
     );
-    assert_eq!(failed.effects, vec![CheckinEffect::Save]);
+    assert_eq!(failed.effects, vec![]);
     assert_eq!(failed.day.data().held_triggers.len(), 1);
     let early = Now {
         instant: UnixMillis(59_999),
@@ -1878,7 +2134,7 @@ fn malformed_checkin_answer_falls_back_and_closed_tasks_are_not_announced_after_
                 .all(|row| !row.text.contains("秘密"))
         );
         if close {
-            assert!(update.effects.is_empty());
+            assert_eq!(update.effects, vec![CheckinEffect::Save]);
         } else {
             assert_eq!(
                 update.effects,

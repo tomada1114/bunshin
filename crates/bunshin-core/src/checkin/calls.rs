@@ -221,9 +221,7 @@ impl CheckinCalls {
         }
         let before = day.data().clone();
         self.prune_queued_deadlines(&mut day, context.now);
-        for pending in &self.pending {
-            day.hold_checkin_triggers(&pending.batch.triggers);
-        }
+        self.retain_held_work(&mut day);
         if context.owner_waiting || context.input_has_text || self.flight.is_some() {
             return waiting(day, &before);
         }
@@ -252,15 +250,7 @@ impl CheckinCalls {
         if matches!(pending.attempt, Attempt::NextTick) {
             pending.attempt = Attempt::Retry;
         }
-        day.take_held_triggers_matching(&pending.batch.triggers);
-        let mut prompt_triggers = pending.batch.triggers.clone();
-        if matches!(pending.batch.reason, BatchReason::Open | BatchReason::Sleep) {
-            prompt_triggers.push(Trigger {
-                kind: TriggerKind::CatchUp,
-                task: None,
-                due_at: context.now.instant,
-            });
-        }
+        let prompt_triggers = triggers_for_prompt(&pending, context.now);
         match context.availability {
             Availability::Unavailable(reason) => self.failed(
                 day,
@@ -310,6 +300,22 @@ impl CheckinCalls {
                     update
                 }
             },
+        }
+    }
+    fn retain_held_work(&self, day: &mut Day) {
+        let date = day.date();
+        for pending in self
+            .pending
+            .iter()
+            .chain(self.flight.iter().map(|flight| &flight.pending))
+            .chain(
+                self.completed
+                    .iter()
+                    .map(|completed| &completed.flight.pending),
+            )
+            .filter(|pending| pending.date == date)
+        {
+            day.hold_checkin_triggers(&pending.batch.triggers);
         }
     }
     fn prune_queued_deadlines(&mut self, day: &mut Day, now: Now) {
@@ -378,6 +384,7 @@ impl CheckinCalls {
             self.completed = Some(Completed { flight, result });
             return waiting(day, &before);
         }
+        day.take_held_triggers_matching(&flight.pending.batch.triggers);
         self.apply_result(day, flight, result, context.now, render, &before)
     }
     fn apply_result(
@@ -425,14 +432,7 @@ impl CheckinCalls {
                 };
                 let mut delivered = 0;
                 if let Some(kind) = kind {
-                    let trigger = flight
-                        .pending
-                        .batch
-                        .triggers
-                        .iter()
-                        .find(|t| t.task == answer.task)
-                        .or_else(|| flight.pending.batch.triggers.first())
-                        .cloned();
+                    let trigger = answer_trigger(&flight.pending.batch.triggers, answer.task);
                     if let Some(trigger) = trigger {
                         delivered = usize::from(append(
                             &mut day,
@@ -464,6 +464,7 @@ impl CheckinCalls {
         render: impl Fn(&FixedDeadline) -> String,
         before: &crate::day::file::DayData,
     ) -> CallUpdate {
+        day.take_held_triggers_matching(&pending.batch.triggers);
         let mut delivered = 0;
         // On catch-up, announce an elapsed deadline before an older before-event
         // for the same task. The ordinary same-task guard then records suppression.
@@ -549,6 +550,20 @@ impl CheckinCalls {
 fn delivery_allowed(pending: &Pending, day: &Day, now: Now, tuning: Tuning) -> bool {
     opening_exempt(pending) || super::delivery_guards_allow(day, now, tuning)
 }
+fn triggers_for_prompt(pending: &Pending, now: Now) -> Vec<Trigger> {
+    let mut triggers = pending.batch.triggers.clone();
+    if matches!(
+        pending.batch.reason,
+        BatchReason::Open | BatchReason::GuardedOpen | BatchReason::Sleep
+    ) {
+        triggers.push(Trigger {
+            kind: TriggerKind::CatchUp,
+            task: None,
+            due_at: now.instant,
+        });
+    }
+    triggers
+}
 fn opening_exempt(pending: &Pending) -> bool {
     matches!(pending.attempt, Attempt::First)
         && matches!(
@@ -614,10 +629,37 @@ fn append(
 }
 fn delivery_trigger(mut trigger: Trigger, reason: BatchReason) -> Trigger {
     match reason {
-        BatchReason::Open | BatchReason::Sleep => trigger.kind = TriggerKind::CatchUp,
-        BatchReason::Tick | BatchReason::DayStart | BatchReason::EveningReview => {}
+        BatchReason::Open | BatchReason::GuardedOpen | BatchReason::Sleep => {
+            trigger.kind = TriggerKind::CatchUp;
+        }
+        BatchReason::Tick
+        | BatchReason::DayStart
+        | BatchReason::GuardedDayStart
+        | BatchReason::EveningReview => {}
     }
     trigger
+}
+fn trigger_priority(kind: TriggerKind) -> u8 {
+    match kind {
+        TriggerKind::AfterDeadline => 0,
+        TriggerKind::BeforeDeadline => 1,
+        TriggerKind::PlannedLook
+        | TriggerKind::DayStart
+        | TriggerKind::EveningReview
+        | TriggerKind::CatchUp => 2,
+    }
+}
+fn answer_trigger(triggers: &[Trigger], task: Option<u64>) -> Option<Trigger> {
+    triggers
+        .iter()
+        .filter(|event| event.task == task)
+        .min_by_key(|event| trigger_priority(event.kind))
+        .or_else(|| {
+            triggers
+                .iter()
+                .min_by_key(|event| trigger_priority(event.kind))
+        })
+        .cloned()
 }
 fn save_effect(day: &Day, before: &crate::day::file::DayData, bells: usize) -> Vec<CheckinEffect> {
     let mut effects = vec![CheckinEffect::Bell; bells];

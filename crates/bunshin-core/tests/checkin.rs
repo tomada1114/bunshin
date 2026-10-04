@@ -1060,7 +1060,7 @@ fn checkin_opening_and_later_events_still_combine_when_all_guards_allow() {
                     due_at: UnixMillis(2_700_000)
                 }
             ],
-            BatchReason::Open
+            BatchReason::GuardedOpen
         ))
     );
     assert_eq!(released.day.data().held_triggers, vec![]);

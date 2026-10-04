@@ -105,8 +105,12 @@ dispatch, obsolete queued deadlines and their held facts are removed, including
 when an unavailable model would otherwise produce a fixed fallback.
 Same-day waiting events with the same delivery guards merge into one request,
 retaining each event's enqueue facts and retry allowance. Opening-exempt events
-stay separate from later routine events. Deadline events also recheck the
-current civil deadline before dispatch, including after a restart; an obsolete
+stay separate from later routine events.
+The scheduler marks an already mixed opening/routine batch as `GuardedOpen` or
+`GuardedDayStart`: it remains one request and ordinary guards also apply at
+completion. Pure opening batches retain their exemption.
+Deadline events also recheck the current civil deadline before dispatch,
+including after a restart; an obsolete
 held event is removed without rewriting the once-per-task/kind fired record.
 Renaming a queued task keeps its deadline event: dispatch uses the current title
 and validates the deadline-defining facts rather than an unused earlier title.
@@ -118,8 +122,13 @@ deleted or edited during the call; discarding them leaves the current planned
 look unchanged. A task created during the call cannot capture a reference unknown
 at dispatch; that reference remains general. Deadline fallbacks compare current task facts
 with the dispatch snapshot too, so an edited time, kind or title cannot produce
-a notice based on an obsolete deadline. Held facts remain saved while the worker or
-guards prevent dispatch. A previous-day flight occupies the
+a notice based on an obsolete deadline. Held facts remain saved throughout the
+worker call and are removed only when its matching result is applied; a restart
+can reconsider them. They also remain saved while guards prevent dispatch.
+Queue preparation restores current-day worker/completed facts if a scheduler
+release hands those same events back; the caller composes both transitions before
+persisting the resulting day.
+A previous-day flight occupies the
 worker until its matching completion, which releases it without applying old data.
 Deadline failures use `FixedDeadline` facts with a pure formatter supplied by the binary; other failures
 retry once at a scheduler tick after completion. Unavailable non-deadline events
