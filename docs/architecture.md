@@ -97,8 +97,12 @@ unsuppressed row. Queued routine calls and retries recheck the same
 active-hours, mute and minimum-gap guards as scheduling, including at worker
 completion. A completed answer waits in memory until delivery is allowed, without
 another model call; its trigger facts remain saved so a restart can reconsider
-them. Task-specific replies are discarded when a task known at dispatch was
-closed or deleted during the call. Held facts remain saved while the worker or
+them. Both dispatch and completion receive current owner-queue and unsent-input
+facts; a completed answer also waits until typing and owner work clear.
+Task-specific replies are discarded when a task known at dispatch was closed,
+deleted or edited during the call. Deadline fallbacks compare current task facts
+with the dispatch snapshot too, so an edited time, kind or title cannot produce
+a notice based on an obsolete deadline. Held facts remain saved while the worker or
 guards prevent dispatch. A previous-day flight occupies the
 worker until its matching completion, which releases it without applying old data.
 Deadline failures use `FixedDeadline` facts with a pure formatter supplied by the binary; other failures

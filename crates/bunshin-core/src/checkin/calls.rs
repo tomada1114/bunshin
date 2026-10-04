@@ -26,6 +26,8 @@ pub struct CallContext {
     pub now: Now,
     /// Owner conversation takes the worker first.
     pub owner_waiting: bool,
+    /// Current input contains unsent text; delivery waits until it is sent or cleared.
+    pub input_has_text: bool,
     /// True only for a scheduler tick; ordinary key/worker events cannot retry.
     pub is_tick: bool,
     /// Last model availability probe.
@@ -101,7 +103,7 @@ struct Pending {
 struct Flight {
     id: u64,
     pending: Pending,
-    known_tasks: Vec<u64>,
+    tasks_at_dispatch: Vec<TaskView>,
 }
 struct Completed {
     flight: Flight,
@@ -173,7 +175,7 @@ impl CheckinCalls {
         for pending in &self.pending {
             day.hold_checkin_triggers(&pending.batch.triggers);
         }
-        if context.owner_waiting || self.flight.is_some() {
+        if context.owner_waiting || context.input_has_text || self.flight.is_some() {
             return waiting(day, &before);
         }
         if let Some(completed) = self.completed.as_ref() {
@@ -233,7 +235,7 @@ impl CheckinCalls {
                     self.flight = Some(Flight {
                         id,
                         pending,
-                        known_tasks: day.tasks().iter().map(|task| task.number).collect(),
+                        tasks_at_dispatch: day.task_view(),
                     });
                     let effects = save_effect(&day, &before, 0);
                     CallUpdate {
@@ -272,12 +274,13 @@ impl CheckinCalls {
     }
     /// Apply exactly the matching worker completion to the current day. Schema
     /// failure follows the same deadline fallback/retry path as `Malformed`.
+    /// Supply current owner/input facts so a response can wait behind new typing.
     pub fn finish(
         &mut self,
         mut day: Day,
         id: u64,
         result: Result<ModelAnswer, ModelError>,
-        now: Now,
+        context: CallContext,
         render: impl Fn(&FixedDeadline) -> String,
     ) -> CallUpdate {
         if self.flight.as_ref().is_none_or(|f| f.id != id) {
@@ -290,32 +293,44 @@ impl CheckinCalls {
             return unchanged(day);
         }
         let before = day.data().clone();
-        if !delivery_allowed(&flight.pending, &day, now, self.tuning) {
+        if context.owner_waiting
+            || context.input_has_text
+            || !delivery_allowed(&flight.pending, &day, context.now, self.tuning)
+        {
             day.hold_checkin_triggers(&flight.pending.batch.triggers);
             self.completed = Some(Completed { flight, result });
             return waiting(day, &before);
         }
-        self.apply_result(day, flight, result, now, render, &before)
+        self.apply_result(day, flight, result, context.now, render, &before)
     }
     fn apply_result(
         &mut self,
         day: Day,
-        flight: Flight,
+        mut flight: Flight,
         result: Result<ModelAnswer, ModelError>,
         now: Now,
         render: impl Fn(&FixedDeadline) -> String,
         before: &crate::day::file::DayData,
     ) -> CallUpdate {
+        let old_count = flight.pending.batch.triggers.len();
+        flight.pending.batch.triggers.retain(|trigger| {
+            !deadline(trigger.kind)
+                || trigger
+                    .task
+                    .is_some_and(|number| current_task(number, &day, &flight.tasks_at_dispatch))
+        });
+        let invalid_deadline = flight.pending.batch.triggers.len() != old_count;
         match result.and_then(|answer| parse_checkin(&answer.json, &day, self.tuning)) {
             Err(error) => self.failed(day, flight.pending, error, now, render, before),
             Ok(answer) => {
                 let mut day = plan_look(day, now, Some(answer.next_look_minutes), self.tuning);
-                let stale_task = answer.requested_task.is_some_and(|number| {
-                    flight.known_tasks.contains(&number)
-                        && !day
-                            .tasks()
-                            .iter()
-                            .any(|task| task.number == number && task.status == TaskStatus::Open)
+                let stale_task = answer.requested_task.map_or(invalid_deadline, |number| {
+                    flight
+                        .tasks_at_dispatch
+                        .iter()
+                        .any(|task| task.number == number)
+                        && !current_task(number, &day, &flight.tasks_at_dispatch)
+                        || (answer.task.is_none() && invalid_deadline)
                 });
                 let kind = match answer.kind {
                     CheckinKind::Silent => None,
@@ -329,16 +344,8 @@ impl CheckinCalls {
                         .batch
                         .triggers
                         .iter()
-                        .filter(|trigger| current_trigger(trigger, &day))
                         .find(|t| t.task == answer.task)
-                        .or_else(|| {
-                            flight
-                                .pending
-                                .batch
-                                .triggers
-                                .iter()
-                                .find(|trigger| current_trigger(trigger, &day))
-                        })
+                        .or_else(|| flight.pending.batch.triggers.first())
                         .cloned();
                     if let Some(trigger) = trigger {
                         delivered = usize::from(append(
@@ -451,14 +458,19 @@ fn delivery_allowed(pending: &Pending, day: &Day, now: Now, tuning: Tuning) -> b
         );
     opening_exception || super::delivery_guards_allow(day, now, tuning)
 }
-fn current_trigger(trigger: &Trigger, day: &Day) -> bool {
-    !deadline(trigger.kind)
-        || day.tasks().iter().any(|task| {
-            Some(task.number) == trigger.task
-                && task.status == TaskStatus::Open
-                && task.kind == TaskKind::Deadline
-                && task.time.is_some()
-        })
+fn current_task(number: u64, day: &Day, dispatched: &[TaskView]) -> bool {
+    let before = dispatched.iter().find(|task| task.number == number);
+    let current = day.tasks().iter().find(|task| task.number == number);
+    match (before, current) {
+        (Some(before), Some(current)) => {
+            current.status == TaskStatus::Open
+                && current.title == before.title
+                && current.kind == before.kind
+                && current.time == before.time
+                && current.origin == before.origin
+        }
+        (None, _) | (Some(_), None) => false,
+    }
 }
 fn deadline(kind: TriggerKind) -> bool {
     match kind {

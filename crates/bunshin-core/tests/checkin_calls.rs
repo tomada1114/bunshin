@@ -7,6 +7,108 @@ use bunshin_core::{
 };
 
 #[test]
+fn completed_checkins_wait_for_current_owner_input_and_queued_conversation_to_clear() {
+    use bunshin_core::{
+        ModelAnswer, ModelError,
+        checkin::calls::{CallContext, CheckinEffect},
+    };
+    for failure in [false, true] {
+        for typing in [false, true] {
+            let (day, owner, mut calls, now) = fixture(TriggerKind::AfterDeadline).unwrap();
+            let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+            let busy = CallContext {
+                input_has_text: typing,
+                owner_waiting: !typing,
+                ..context(now)
+            };
+            let result = if failure {
+                Err(ModelError::TimedOut)
+            } else {
+                Ok(ModelAnswer {
+                    json: r#"{"kind":"note","task":1,"message":"retained answer"}"#.into(),
+                })
+            };
+            let held = calls.finish(start.day, start.request.unwrap().id, result, busy, fixed);
+            assert!(
+                held.day
+                    .messages()
+                    .iter()
+                    .all(|row| row.unprompted.is_none())
+            );
+            assert_eq!(held.effects, vec![CheckinEffect::Save]);
+            let still_held = calls.prepare(held.day, &owner, ContextExtras::default(), busy, fixed);
+            assert!(still_held.request.is_none());
+            assert!(
+                still_held
+                    .day
+                    .messages()
+                    .iter()
+                    .all(|row| row.unprompted.is_none())
+            );
+            let posted = calls.prepare(
+                still_held.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed,
+            );
+            assert!(posted.request.is_none());
+            assert_eq!(
+                posted.effects,
+                vec![CheckinEffect::Bell, CheckinEffect::Save]
+            );
+            assert_eq!(
+                posted.day.messages().last().unwrap().text,
+                if failure {
+                    "fixed AfterDeadline"
+                } else {
+                    "retained answer"
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn deadline_responses_and_fallbacks_are_discarded_after_a_time_title_or_kind_edit() {
+    use bunshin_core::{ModelAnswer, ModelError, checkin::calls::CheckinEffect};
+    for failure in [false, true] {
+        for (title, kind, time) in [
+            ("資料作成", TaskKind::Deadline, "17:00"),
+            ("別の資料", TaskKind::Deadline, "15:00"),
+            ("資料作成", TaskKind::Appointment, "15:00"),
+        ] {
+            let (day, owner, mut calls, now) = fixture(TriggerKind::AfterDeadline).unwrap();
+            let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+            let day = start
+                .day
+                .edit(
+                    1,
+                    title.into(),
+                    kind,
+                    Some(time.parse().unwrap()),
+                    now.instant,
+                )
+                .unwrap()
+                .0;
+            let count = day.messages().len();
+            let tasks = day.tasks().to_vec();
+            let result = if failure {
+                Err(ModelError::TimedOut)
+            } else {
+                Ok(ModelAnswer {
+                    json: r#"{"kind":"note","task":1,"message":"old deadline facts"}"#.into(),
+                })
+            };
+            let update = calls.finish(day, start.request.unwrap().id, result, context(now), fixed);
+            assert_eq!(update.day.messages().len(), count);
+            assert_eq!(update.day.tasks(), tasks);
+            assert!(!update.effects.contains(&CheckinEffect::Bell));
+        }
+    }
+}
+
+#[test]
 fn checkin_completion_is_held_after_hours_or_during_mute_without_another_model_call() {
     use bunshin_core::{ModelAnswer, ModelError, checkin::calls::CheckinEffect};
     for failure in [false, true] {
@@ -32,7 +134,7 @@ fn checkin_completion_is_held_after_hours_or_during_mute_without_another_model_c
                     json: r#"{"kind":"note","task":1,"message":"complete answer"}"#.into(),
                 })
             };
-            let held = calls.finish(day, id, result, now, fixed);
+            let held = calls.finish(day, id, result, context(now), fixed);
             assert_eq!(held.day.messages().len(), before);
             assert_eq!(held.effects, vec![CheckinEffect::Save]);
             assert_eq!(held.day.data().held_triggers.len(), 1);
@@ -90,7 +192,7 @@ fn checkin_success_drops_messages_for_deadline_tasks_closed_dropped_or_deleted_d
             Ok(ModelAnswer {
                 json: r#"{"kind":"question","task":1,"message":"stale deadline"}"#.into(),
             }),
-            now,
+            context(now),
             fixed,
         );
         assert_eq!(update.day.messages().len(), count);
@@ -118,7 +220,7 @@ fn checkin_failed_non_deadline_is_saved_as_held_until_the_retry_is_spent() {
         start.day,
         start.request.unwrap().id,
         Err(ModelError::TimedOut),
-        now,
+        context(now),
         fixed,
     );
     assert_eq!(failed.day.data().held_triggers.len(), 1);
@@ -139,7 +241,7 @@ fn checkin_failed_non_deadline_is_saved_as_held_until_the_retry_is_spent() {
         retry.day,
         retry.request.unwrap().id,
         Err(ModelError::TimedOut),
-        later,
+        context(later),
         fixed,
     );
     assert!(spent.day.data().held_triggers.is_empty());
@@ -193,7 +295,7 @@ fn checkin_retry_waits_for_active_hours_mute_and_delivery_gap_to_clear() {
         start.day,
         start.request.unwrap().id,
         Err(ModelError::TimedOut),
-        now,
+        context(now),
         fixed,
     );
     assert_eq!(done.effects, vec![CheckinEffect::Bell, CheckinEffect::Save]);
@@ -270,7 +372,7 @@ fn checkin_previous_day_worker_remains_busy_until_its_matching_completion() {
         Ok(ModelAnswer {
             json: r#"{"kind":"note","message":"yesterday"}"#.into(),
         }),
-        now,
+        context(now),
         fixed,
     );
     assert!(released.effects.is_empty());
@@ -316,7 +418,13 @@ fn checkin_open_and_sleep_batches_preserve_catchup_on_both_model_and_fixed_deliv
                 },
             );
             let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
-            let update = calls.finish(start.day, start.request.unwrap().id, result, now, fixed);
+            let update = calls.finish(
+                start.day,
+                start.request.unwrap().id,
+                result,
+                context(now),
+                fixed,
+            );
             let row = update.day.messages().last().unwrap();
             assert_eq!(
                 row.unprompted.as_ref().unwrap().trigger.kind,
@@ -376,7 +484,7 @@ fn checkin_fixed_batch_emits_one_bell_for_each_delivered_row_and_none_for_suppre
         start.day,
         start.request.unwrap().id,
         Err(ModelError::TimedOut),
-        now,
+        context(now),
         fixed,
     );
     assert_eq!(
@@ -547,15 +655,14 @@ fn checkin_queue_waits_behind_owner_and_delivers_one_question_without_changing_t
             reason: BatchReason::Tick,
         },
     );
-    let context = CallContext {
+    let owner_context = CallContext {
         now,
         owner_waiting: true,
+        input_has_text: false,
         is_tick: false,
         availability: Availability::Available,
     };
-    let waiting = calls.prepare(day, &owner, ContextExtras::default(), context, |_| {
-        "fixed".into()
-    });
+    let waiting = calls.prepare(day, &owner, ContextExtras::default(), owner_context, fixed);
     assert!(waiting.request.is_none());
     assert_eq!(waiting.effects, vec![CheckinEffect::Save]);
     assert_eq!(waiting.day.data().held_triggers.len(), 1);
@@ -565,9 +672,9 @@ fn checkin_queue_waits_behind_owner_and_delivers_one_question_without_changing_t
         ContextExtras::default(),
         CallContext {
             owner_waiting: false,
-            ..context
+            ..owner_context
         },
-        |_| "fixed".into(),
+        fixed,
     );
     let request = ready.request.unwrap();
     let busy = calls.prepare(
@@ -576,14 +683,14 @@ fn checkin_queue_waits_behind_owner_and_delivers_one_question_without_changing_t
         ContextExtras::default(),
         CallContext {
             owner_waiting: false,
-            ..context
+            ..owner_context
         },
-        |_| "fixed".into(),
+        fixed,
     );
     assert!(busy.request.is_none());
     let model=ScriptedLanguageModel::new([Ok(ModelAnswer{json:r#"{"kind":"question","task":1,"message":"資料、どこまで進んだ？","next_look_minutes":30}"#.into()})]);
     let result = model.respond(&request.request, &CancelFlag::default());
-    let update = calls.finish(busy.day, request.id, result, now, |_| "fixed".into());
+    let update = calls.finish(busy.day, request.id, result, context(now), fixed);
     assert_eq!(model.requests().len(), 1);
     assert_eq!(update.day.tasks(), before);
     assert_eq!(
@@ -663,6 +770,7 @@ fn context(now: Now) -> bunshin_core::checkin::calls::CallContext {
     bunshin_core::checkin::calls::CallContext {
         now,
         owner_waiting: false,
+        input_has_text: false,
         is_tick: true,
         availability: bunshin_core::Availability::Available,
     }
@@ -686,7 +794,13 @@ fn checkin_silent_only_plans_and_note_preserves_complete_model_text() {
         let request = start.request.unwrap();
         let text = "全".repeat(1000);
         let json = serde_json::json!({"kind":kind,"task":999,"message":text}).to_string();
-        let update = calls.finish(start.day, request.id, Ok(ModelAnswer { json }), now, fixed);
+        let update = calls.finish(
+            start.day,
+            request.id,
+            Ok(ModelAnswer { json }),
+            context(now),
+            fixed,
+        );
         assert_eq!(update.effects, expected);
         assert_eq!(update.day.tasks(), before);
         assert_eq!(
@@ -727,7 +841,7 @@ fn checkin_every_model_failure_posts_both_deadline_kinds_as_fixed_notes() {
             let before = day.tasks().to_vec();
             let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
             let id = start.request.unwrap().id;
-            let update = calls.finish(start.day, id, Err(error), now, fixed);
+            let update = calls.finish(start.day, id, Err(error), context(now), fixed);
             assert_eq!(update.error, Some(CallError::Model(error)));
             assert_eq!(
                 update.effects,
@@ -806,7 +920,7 @@ fn checkin_unavailable_model_holds_other_triggers_and_recovers_without_duplicate
         Ok(ModelAnswer {
             json: r#"{"kind":"silent","message":""}"#.into(),
         }),
-        now,
+        context(now),
         fixed,
     );
     assert!(
@@ -828,7 +942,13 @@ fn checkin_other_failures_retry_once_at_next_tick_and_then_schedule_default_look
     let (day, owner, mut calls, now) = fixture(TriggerKind::PlannedLook).unwrap();
     let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
     let id = start.request.unwrap().id;
-    let failed = calls.finish(start.day, id, Err(ModelError::TimedOut), now, fixed);
+    let failed = calls.finish(
+        start.day,
+        id,
+        Err(ModelError::TimedOut),
+        context(now),
+        fixed,
+    );
     assert_eq!(failed.effects, vec![CheckinEffect::Save]);
     assert_eq!(failed.day.data().held_triggers.len(), 1);
     let early = Now {
@@ -861,7 +981,13 @@ fn checkin_other_failures_retry_once_at_next_tick_and_then_schedule_default_look
         fixed,
     );
     let id = retry.request.unwrap().id;
-    let spent = calls.finish(retry.day, id, Err(ModelError::Refused), tick, fixed);
+    let spent = calls.finish(
+        retry.day,
+        id,
+        Err(ModelError::Refused),
+        context(tick),
+        fixed,
+    );
     assert_eq!(spent.effects, vec![CheckinEffect::Save]);
     assert_eq!(spent.day.messages().len(), 1);
     assert_eq!(
@@ -911,7 +1037,7 @@ fn checkin_same_task_suppression_does_not_ring_or_extend_delivered_time() {
             Ok(ModelAnswer {
                 json: r#"{"kind":"question","task":1,"message":"確認"}"#.into(),
             }),
-            current,
+            context(current),
             fixed,
         );
         let extra = result
@@ -948,7 +1074,7 @@ fn checkin_old_tokens_and_previous_day_completions_preserve_current_flight() {
         start.day,
         id + 1,
         Ok(ModelAnswer { json: "bad".into() }),
-        now,
+        context(now),
         fixed,
     );
     assert!(wrong.effects.is_empty());
@@ -959,7 +1085,7 @@ fn checkin_old_tokens_and_previous_day_completions_preserve_current_flight() {
         Ok(ModelAnswer {
             json: r#"{"kind":"silent","message":""}"#.into(),
         }),
-        now,
+        context(now),
         fixed,
     );
     assert!(done.error.is_none());
@@ -985,7 +1111,7 @@ fn checkin_old_tokens_and_previous_day_completions_preserve_current_flight() {
         waiting.day,
         old_id,
         Ok(ModelAnswer { json: "bad".into() }),
-        now,
+        context(now),
         fixed,
     );
     assert!(released.effects.is_empty());
@@ -1001,7 +1127,7 @@ fn checkin_old_tokens_and_previous_day_completions_preserve_current_flight() {
         fresh.day,
         old_id,
         Ok(ModelAnswer { json: "bad".into() }),
-        now,
+        context(now),
         fixed,
     );
     assert!(ignored.effects.is_empty());
@@ -1011,7 +1137,7 @@ fn checkin_old_tokens_and_previous_day_completions_preserve_current_flight() {
         Ok(ModelAnswer {
             json: r#"{"kind":"silent","message":""}"#.into(),
         }),
-        now,
+        context(now),
         fixed,
     );
     assert!(done.error.is_none());
@@ -1028,7 +1154,13 @@ fn checkin_retry_uses_the_next_scheduler_tick_after_a_slow_failure() {
         instant: UnixMillis(30_000),
         ..now
     };
-    let failed = calls.finish(start.day, id, Err(ModelError::TimedOut), finished, fixed);
+    let failed = calls.finish(
+        start.day,
+        id,
+        Err(ModelError::TimedOut),
+        context(finished),
+        fixed,
+    );
     let tick = Now {
         instant: UnixMillis(60_000),
         ..now
@@ -1079,7 +1211,7 @@ fn malformed_checkin_answer_falls_back_and_closed_tasks_are_not_announced_after_
             json: r#"{"kind":"note","message":"秘密","changes":[{"op":"done","task":1}]}"#.into(),
         })]);
         let result = model.respond(&request.request, &CancelFlag::default());
-        let update = calls.finish(day, request.id, result, now, fixed);
+        let update = calls.finish(day, request.id, result, context(now), fixed);
         assert_eq!(update.error, Some(CallError::Model(ModelError::Malformed)));
         assert_eq!(update.day.tasks(), before);
         assert!(
@@ -1150,7 +1282,7 @@ fn suppressed_checkin_rows_never_enter_visible_chat_history_sent_to_the_model() 
                 Ok(ModelAnswer {
                     json: r#"{"kind":"note","task":1,"message":"確認"}"#.into(),
                 }),
-                current,
+                context(current),
                 fixed,
             )
             .day;
@@ -1242,10 +1374,10 @@ fn checkin_retry_follows_a_rebased_scheduler_tick_after_clock_rollback() {
         start.day,
         id,
         Err(ModelError::TimedOut),
-        Now {
+        context(Now {
             instant: UnixMillis(30_000),
             ..now
-        },
+        }),
         fixed,
     );
     // The scheduler has already rebased its clock and now reports an actual tick.
