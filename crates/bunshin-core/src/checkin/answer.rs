@@ -20,6 +20,7 @@ pub struct CheckinAnswer {
     pub kind: CheckinKind,
     /// Known task reference, absent for general or unknown references.
     pub task: Option<u64>,
+    pub(crate) requested_task: Option<u64>,
     /// Complete model text; the model's requested length is advisory.
     pub message: String,
     /// Clamped delay including the configured missing-value default.
@@ -66,12 +67,11 @@ pub fn parse_checkin(json: &str, day: &Day, tuning: Tuning) -> Result<CheckinAns
             bounds.planned_max_minutes.max(bounds.planned_min_minutes),
         ));
     let next_look_minutes = u16::try_from(delay).map_err(|_| ModelError::Malformed)?;
+    let requested_task = raw.task.and_then(|number| u64::try_from(number).ok());
     Ok(CheckinAnswer {
         kind: raw.kind,
-        task: raw
-            .task
-            .and_then(|number| u64::try_from(number).ok())
-            .filter(|number| day.tasks().iter().any(|task| task.number == *number)),
+        requested_task,
+        task: requested_task.filter(|number| day.tasks().iter().any(|task| task.number == *number)),
         message: raw.message,
         next_look_minutes,
     })

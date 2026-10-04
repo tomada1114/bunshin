@@ -101,11 +101,18 @@ struct Pending {
 struct Flight {
     id: u64,
     pending: Pending,
+    known_tasks: Vec<u64>,
 }
-/// Session-only queue; unavailable triggers also remain held in persisted day data.
+struct Completed {
+    flight: Flight,
+    result: Result<ModelAnswer, ModelError>,
+}
+/// Session-only queue; held events remain persisted, while a completed answer
+/// waiting for delivery guards stays in memory without another model call.
 pub struct CheckinCalls {
     pending: VecDeque<Pending>,
     flight: Option<Flight>,
+    completed: Option<Completed>,
     next_id: u64,
     tuning: Tuning,
 }
@@ -116,6 +123,7 @@ impl CheckinCalls {
         Self {
             pending: VecDeque::new(),
             flight: None,
+            completed: None,
             next_id: 1,
             tuning,
         }
@@ -129,6 +137,10 @@ impl CheckinCalls {
                 .any(|p| p.date == date && p.batch.triggers.contains(trigger))
                 && !self.flight.as_ref().is_some_and(|f| {
                     f.pending.date == date && f.pending.batch.triggers.contains(trigger)
+                })
+                && !self.completed.as_ref().is_some_and(|c| {
+                    c.flight.pending.date == date
+                        && c.flight.pending.batch.triggers.contains(trigger)
                 })
         });
         if !batch.triggers.is_empty() {
@@ -150,6 +162,13 @@ impl CheckinCalls {
         render: impl Fn(&FixedDeadline) -> String,
     ) -> CallUpdate {
         self.pending.retain(|pending| pending.date == day.date());
+        if self
+            .completed
+            .as_ref()
+            .is_some_and(|c| c.flight.pending.date != day.date())
+        {
+            self.completed = None;
+        }
         let before = day.data().clone();
         for pending in &self.pending {
             day.hold_checkin_triggers(&pending.batch.triggers);
@@ -157,20 +176,23 @@ impl CheckinCalls {
         if context.owner_waiting || self.flight.is_some() {
             return waiting(day, &before);
         }
-        let Some(index) = self.pending.iter().position(|pending| {
-            let tick_allows = match pending.attempt {
-                Attempt::NextTick => context.is_tick,
-                Attempt::First | Attempt::Retry => true,
-            };
-            let opening_exception = matches!(pending.attempt, Attempt::First)
-                && matches!(
-                    pending.batch.reason,
-                    BatchReason::Open | BatchReason::DayStart
+        if let Some(completed) = self.completed.as_ref() {
+            if !delivery_allowed(&completed.flight.pending, &day, context.now, self.tuning) {
+                return waiting(day, &before);
+            }
+            if let Some(completed) = self.completed.take() {
+                day.take_held_triggers_matching(&completed.flight.pending.batch.triggers);
+                return self.apply_result(
+                    day,
+                    completed.flight,
+                    completed.result,
+                    context.now,
+                    render,
+                    &before,
                 );
-            tick_allows
-                && (opening_exception
-                    || super::delivery_guards_allow(&day, context.now, self.tuning))
-        }) else {
+            }
+        }
+        let Some(index) = self.ready_index(&day, context) else {
             return waiting(day, &before);
         };
         let Some(mut pending) = self.pending.remove(index) else {
@@ -208,7 +230,11 @@ impl CheckinCalls {
                 Ok(built) => {
                     let id = self.next_id;
                     self.next_id = self.next_id.saturating_add(1);
-                    self.flight = Some(Flight { id, pending });
+                    self.flight = Some(Flight {
+                        id,
+                        pending,
+                        known_tasks: day.tasks().iter().map(|task| task.number).collect(),
+                    });
                     let effects = save_effect(&day, &before, 0);
                     CallUpdate {
                         day,
@@ -235,11 +261,20 @@ impl CheckinCalls {
             },
         }
     }
+    fn ready_index(&self, day: &Day, context: CallContext) -> Option<usize> {
+        self.pending.iter().position(|pending| {
+            let tick_allows = match pending.attempt {
+                Attempt::NextTick => context.is_tick,
+                Attempt::First | Attempt::Retry => true,
+            };
+            tick_allows && delivery_allowed(pending, day, context.now, self.tuning)
+        })
+    }
     /// Apply exactly the matching worker completion to the current day. Schema
     /// failure follows the same deadline fallback/retry path as `Malformed`.
     pub fn finish(
         &mut self,
-        day: Day,
+        mut day: Day,
         id: u64,
         result: Result<ModelAnswer, ModelError>,
         now: Now,
@@ -255,24 +290,55 @@ impl CheckinCalls {
             return unchanged(day);
         }
         let before = day.data().clone();
+        if !delivery_allowed(&flight.pending, &day, now, self.tuning) {
+            day.hold_checkin_triggers(&flight.pending.batch.triggers);
+            self.completed = Some(Completed { flight, result });
+            return waiting(day, &before);
+        }
+        self.apply_result(day, flight, result, now, render, &before)
+    }
+    fn apply_result(
+        &mut self,
+        day: Day,
+        flight: Flight,
+        result: Result<ModelAnswer, ModelError>,
+        now: Now,
+        render: impl Fn(&FixedDeadline) -> String,
+        before: &crate::day::file::DayData,
+    ) -> CallUpdate {
         match result.and_then(|answer| parse_checkin(&answer.json, &day, self.tuning)) {
-            Err(error) => self.failed(day, flight.pending, error, now, render, &before),
+            Err(error) => self.failed(day, flight.pending, error, now, render, before),
             Ok(answer) => {
                 let mut day = plan_look(day, now, Some(answer.next_look_minutes), self.tuning);
+                let stale_task = answer.requested_task.is_some_and(|number| {
+                    flight.known_tasks.contains(&number)
+                        && !day
+                            .tasks()
+                            .iter()
+                            .any(|task| task.number == number && task.status == TaskStatus::Open)
+                });
                 let kind = match answer.kind {
                     CheckinKind::Silent => None,
                     CheckinKind::Note => Some(UnpromptedKind::Note),
                     CheckinKind::Question => Some(UnpromptedKind::Question),
                 };
                 let mut delivered = 0;
-                if let Some(kind) = kind {
+                if let Some(kind) = kind.filter(|_| !stale_task) {
                     let trigger = flight
                         .pending
                         .batch
                         .triggers
                         .iter()
+                        .filter(|trigger| current_trigger(trigger, &day))
                         .find(|t| t.task == answer.task)
-                        .or_else(|| flight.pending.batch.triggers.first())
+                        .or_else(|| {
+                            flight
+                                .pending
+                                .batch
+                                .triggers
+                                .iter()
+                                .find(|trigger| current_trigger(trigger, &day))
+                        })
                         .cloned();
                     if let Some(trigger) = trigger {
                         delivered = usize::from(append(
@@ -286,7 +352,7 @@ impl CheckinCalls {
                         ));
                     }
                 }
-                let effects = save_effect(&day, &before, delivered);
+                let effects = save_effect(&day, before, delivered);
                 CallUpdate {
                     day,
                     request: None,
@@ -376,6 +442,23 @@ impl CheckinCalls {
             error: Some(CallError::Model(error)),
         }
     }
+}
+fn delivery_allowed(pending: &Pending, day: &Day, now: Now, tuning: Tuning) -> bool {
+    let opening_exception = matches!(pending.attempt, Attempt::First)
+        && matches!(
+            pending.batch.reason,
+            BatchReason::Open | BatchReason::DayStart
+        );
+    opening_exception || super::delivery_guards_allow(day, now, tuning)
+}
+fn current_trigger(trigger: &Trigger, day: &Day) -> bool {
+    !deadline(trigger.kind)
+        || day.tasks().iter().any(|task| {
+            Some(task.number) == trigger.task
+                && task.status == TaskStatus::Open
+                && task.kind == TaskKind::Deadline
+                && task.time.is_some()
+        })
 }
 fn deadline(kind: TriggerKind) -> bool {
     match kind {

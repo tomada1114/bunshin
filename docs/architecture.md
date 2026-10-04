@@ -94,8 +94,12 @@ outside the task domain become general messages and planned looks are clamped.
 Delivery preserves tasks and undo, records suppression without updating the last
 actual delivery time, and emits typed Bell/Save effects with one Bell per
 unsuppressed row. Queued routine calls and retries recheck the same
-active-hours, mute and minimum-gap guards as scheduling; held facts remain saved
-while the worker or guards prevent dispatch. A previous-day flight occupies the
+active-hours, mute and minimum-gap guards as scheduling, including at worker
+completion. A completed answer waits in memory until delivery is allowed, without
+another model call; its trigger facts remain saved so a restart can reconsider
+them. Task-specific replies are discarded when a task known at dispatch was
+closed or deleted during the call. Held facts remain saved while the worker or
+guards prevent dispatch. A previous-day flight occupies the
 worker until its matching completion, which releases it without applying old data.
 Deadline failures use `FixedDeadline` facts with a pure formatter supplied by the binary; other failures
 retry once at a scheduler tick after completion. Unavailable non-deadline events

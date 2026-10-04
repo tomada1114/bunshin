@@ -7,6 +7,109 @@ use bunshin_core::{
 };
 
 #[test]
+fn checkin_completion_is_held_after_hours_or_during_mute_without_another_model_call() {
+    use bunshin_core::{ModelAnswer, ModelError, checkin::calls::CheckinEffect};
+    for failure in [false, true] {
+        for muted in [false, true] {
+            let (day, owner, mut calls, mut now) = fixture(TriggerKind::AfterDeadline).unwrap();
+            now.local = now.local.date().at(21, 59, 50, 0);
+            let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+            let id = start.request.unwrap().id;
+            let day = if muted {
+                start.day.mute(UnixMillis(600_000), now.instant).0
+            } else {
+                start.day
+            };
+            let before = day.messages().len();
+            now.instant.0 = 30_000;
+            if !muted {
+                now.local = now.local.date().at(22, 0, 20, 0);
+            }
+            let result = if failure {
+                Err(ModelError::TimedOut)
+            } else {
+                Ok(ModelAnswer {
+                    json: r#"{"kind":"note","task":1,"message":"complete answer"}"#.into(),
+                })
+            };
+            let held = calls.finish(day, id, result, now, fixed);
+            assert_eq!(held.day.messages().len(), before);
+            assert_eq!(held.effects, vec![CheckinEffect::Save]);
+            assert_eq!(held.day.data().held_triggers.len(), 1);
+            let waiting = calls.prepare(
+                held.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed,
+            );
+            assert!(waiting.request.is_none());
+            now.instant.0 = 600_000;
+            now.local = now.local.date().at(8, 0, 0, 0);
+            let delivered = calls.prepare(
+                waiting.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed,
+            );
+            assert!(delivered.request.is_none());
+            assert_eq!(
+                delivered.effects,
+                vec![CheckinEffect::Bell, CheckinEffect::Save]
+            );
+            assert!(delivered.day.data().held_triggers.is_empty());
+            assert_eq!(
+                delivered.day.messages().last().unwrap().text,
+                if failure {
+                    "fixed AfterDeadline"
+                } else {
+                    "complete answer"
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn checkin_success_drops_messages_for_deadline_tasks_closed_dropped_or_deleted_during_the_call() {
+    use bunshin_core::ModelAnswer;
+    for action in ["done", "drop", "delete"] {
+        let (day, owner, mut calls, now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+        let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+        let day = match action {
+            "done" => start.day.done(1, now.instant).unwrap().0,
+            "drop" => start.day.drop(1, now.instant).unwrap().0,
+            "delete" => start.day.delete(1, now.instant).unwrap().0,
+            _ => panic!("fixture action"),
+        };
+        let count = day.messages().len();
+        let update = calls.finish(
+            day,
+            start.request.unwrap().id,
+            Ok(ModelAnswer {
+                json: r#"{"kind":"question","task":1,"message":"stale deadline"}"#.into(),
+            }),
+            now,
+            fixed,
+        );
+        assert_eq!(update.day.messages().len(), count);
+        assert!(
+            update
+                .day
+                .messages()
+                .iter()
+                .all(|m| !m.text.contains("stale deadline"))
+        );
+        assert!(
+            !update
+                .effects
+                .contains(&bunshin_core::checkin::calls::CheckinEffect::Bell)
+        );
+    }
+}
+
+#[test]
 fn checkin_failed_non_deadline_is_saved_as_held_until_the_retry_is_spent() {
     use bunshin_core::{ModelError, checkin::calls::CheckinEffect};
     let (day, owner, mut calls, now) = fixture(TriggerKind::PlannedLook).unwrap();
