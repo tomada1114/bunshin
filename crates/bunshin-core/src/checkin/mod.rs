@@ -219,18 +219,7 @@ impl Checkin {
         input_has_text: bool,
         before: &crate::day::file::DayData,
     ) -> CheckinUpdate {
-        let tuning = self.tuning.checkin;
-        let active =
-            now.local.time() >= tuning.active_start && now.local.time() < tuning.active_end;
-        let muted = day
-            .data()
-            .muted_until
-            .is_some_and(|until| now.instant < until);
-        let gap = day
-            .data()
-            .last_unprompted_at
-            .is_some_and(|last| elapsed(now.instant, last) < minutes(tuning.minimum_gap_minutes));
-        let guards_allow = active && !muted && !gap;
+        let guards_allow = delivery_guards_allow(&day, now, self.tuning);
         let ready = if input_has_text || day.data().held_triggers.is_empty() {
             None
         } else if guards_allow {
@@ -267,6 +256,19 @@ impl Checkin {
             save,
         }
     }
+}
+pub(crate) fn delivery_guards_allow(day: &Day, now: Now, tuning: Tuning) -> bool {
+    let tuning = tuning.checkin;
+    let active = now.local.time() >= tuning.active_start && now.local.time() < tuning.active_end;
+    let muted = day
+        .data()
+        .muted_until
+        .is_some_and(|until| now.instant < until);
+    let gap = day
+        .data()
+        .last_unprompted_at
+        .is_some_and(|last| elapsed(now.instant, last) < minutes(tuning.minimum_gap_minutes));
+    active && !muted && !gap
 }
 fn spent(day: &Day, kind: TriggerKind, task: Option<u64>) -> bool {
     day.data()

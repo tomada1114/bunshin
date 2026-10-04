@@ -150,33 +150,35 @@ impl CheckinCalls {
         render: impl Fn(&FixedDeadline) -> String,
     ) -> CallUpdate {
         self.pending.retain(|pending| pending.date == day.date());
-        if self
-            .flight
-            .as_ref()
-            .is_some_and(|flight| flight.pending.date != day.date())
-        {
-            self.flight = None;
+        let before = day.data().clone();
+        for pending in &self.pending {
+            day.hold_checkin_triggers(&pending.batch.triggers);
         }
         if context.owner_waiting || self.flight.is_some() {
-            return unchanged(day);
+            return waiting(day, &before);
         }
-        let Some(index) = self
-            .pending
-            .iter()
-            .position(|pending| match pending.attempt {
+        let Some(index) = self.pending.iter().position(|pending| {
+            let tick_allows = match pending.attempt {
                 Attempt::NextTick => context.is_tick,
                 Attempt::First | Attempt::Retry => true,
-            })
-        else {
-            return unchanged(day);
+            };
+            let opening_exception = matches!(pending.attempt, Attempt::First)
+                && matches!(
+                    pending.batch.reason,
+                    BatchReason::Open | BatchReason::DayStart
+                );
+            tick_allows
+                && (opening_exception
+                    || super::delivery_guards_allow(&day, context.now, self.tuning))
+        }) else {
+            return waiting(day, &before);
         };
         let Some(mut pending) = self.pending.remove(index) else {
-            return unchanged(day);
+            return waiting(day, &before);
         };
         if matches!(pending.attempt, Attempt::NextTick) {
             pending.attempt = Attempt::Retry;
         }
-        let before = day.data().clone();
         day.take_held_triggers_matching(&pending.batch.triggers);
         let mut prompt_triggers = pending.batch.triggers.clone();
         if matches!(pending.batch.reason, BatchReason::Open | BatchReason::Sleep) {
@@ -243,16 +245,15 @@ impl CheckinCalls {
         now: Now,
         render: impl Fn(&FixedDeadline) -> String,
     ) -> CallUpdate {
-        if !self
-            .flight
-            .as_ref()
-            .is_some_and(|f| f.id == id && f.pending.date == day.date())
-        {
+        if self.flight.as_ref().is_none_or(|f| f.id != id) {
             return unchanged(day);
         }
         let Some(flight) = self.flight.take() else {
             return unchanged(day);
         };
+        if flight.pending.date != day.date() {
+            return unchanged(day);
+        }
         let before = day.data().clone();
         match result.and_then(|answer| parse_checkin(&answer.json, &day, self.tuning)) {
             Err(error) => self.failed(day, flight.pending, error, now, render, &before),
@@ -358,6 +359,7 @@ impl CheckinCalls {
                 | ModelError::Failed => match pending.attempt {
                     Attempt::First => {
                         pending.attempt = Attempt::NextTick;
+                        day.hold_checkin_triggers(&pending.batch.triggers);
                         self.pending.push_back(pending);
                     }
                     Attempt::NextTick | Attempt::Retry => {
@@ -434,6 +436,15 @@ fn unchanged(day: Day) -> CallUpdate {
         day,
         request: None,
         effects: Vec::new(),
+        error: None,
+    }
+}
+fn waiting(day: Day, before: &crate::day::file::DayData) -> CallUpdate {
+    let effects = save_effect(&day, before, 0);
+    CallUpdate {
+        day,
+        request: None,
+        effects,
         error: None,
     }
 }

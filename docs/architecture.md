@@ -92,8 +92,12 @@ queues one request behind owner conversation and rejects stale worker tokens.
 Strict check-in parsing permits only silent, note or question; integer references
 outside the task domain become general messages and planned looks are clamped.
 Delivery preserves tasks and undo, records suppression without updating the last
-actual delivery time, and emits typed Bell/Save effects. Deadline failures use
-`FixedDeadline` facts with a pure formatter supplied by the binary; other failures
+actual delivery time, and emits typed Bell/Save effects with one Bell per
+unsuppressed row. Queued routine calls and retries recheck the same
+active-hours, mute and minimum-gap guards as scheduling; held facts remain saved
+while the worker or guards prevent dispatch. A previous-day flight occupies the
+worker until its matching completion, which releases it without applying old data.
+Deadline failures use `FixedDeadline` facts with a pure formatter supplied by the binary; other failures
 retry once at a scheduler tick after completion. Unavailable non-deadline events
 remain held in day data until recovery. A caller marks `CallContext.is_tick` only
 when the scheduler evaluates, rather than on every terminal poll.

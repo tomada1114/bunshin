@@ -7,6 +7,186 @@ use bunshin_core::{
 };
 
 #[test]
+fn checkin_failed_non_deadline_is_saved_as_held_until_the_retry_is_spent() {
+    use bunshin_core::{ModelError, checkin::calls::CheckinEffect};
+    let (day, owner, mut calls, now) = fixture(TriggerKind::PlannedLook).unwrap();
+    let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+    let failed = calls.finish(
+        start.day,
+        start.request.unwrap().id,
+        Err(ModelError::TimedOut),
+        now,
+        fixed,
+    );
+    assert_eq!(failed.day.data().held_triggers.len(), 1);
+    assert_eq!(failed.effects, vec![CheckinEffect::Save]);
+    let later = Now {
+        instant: UnixMillis(now.instant.0 + 60_000),
+        ..now
+    };
+    let retry = calls.prepare(
+        failed.day,
+        &owner,
+        ContextExtras::default(),
+        context(later),
+        fixed,
+    );
+    assert!(retry.day.data().held_triggers.is_empty());
+    let spent = calls.finish(
+        retry.day,
+        retry.request.unwrap().id,
+        Err(ModelError::TimedOut),
+        later,
+        fixed,
+    );
+    assert!(spent.day.data().held_triggers.is_empty());
+    assert!(spent.day.data().next_planned_look.is_some());
+    assert!(
+        calls
+            .prepare(
+                spent.day,
+                &owner,
+                ContextExtras::default(),
+                context(later),
+                fixed
+            )
+            .request
+            .is_none()
+    );
+}
+
+#[test]
+fn checkin_retry_waits_for_active_hours_mute_and_delivery_gap_to_clear() {
+    use bunshin_core::{
+        ModelError,
+        checkin::{
+            BatchReason, ReadyBatch,
+            calls::{CheckinCalls, CheckinEffect},
+        },
+    };
+    let (day, owner, _, mut now) = fixture(TriggerKind::AfterDeadline).unwrap();
+    now.local = now.local.date().at(21, 59, 0, 0);
+    let mut calls = CheckinCalls::new(Tuning::default());
+    calls.enqueue(
+        day.date(),
+        ReadyBatch {
+            reason: BatchReason::Tick,
+            triggers: vec![
+                Trigger {
+                    kind: TriggerKind::AfterDeadline,
+                    task: Some(1),
+                    due_at: now.instant,
+                },
+                Trigger {
+                    kind: TriggerKind::PlannedLook,
+                    task: None,
+                    due_at: now.instant,
+                },
+            ],
+        },
+    );
+    let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+    let done = calls.finish(
+        start.day,
+        start.request.unwrap().id,
+        Err(ModelError::TimedOut),
+        now,
+        fixed,
+    );
+    assert_eq!(done.effects, vec![CheckinEffect::Bell, CheckinEffect::Save]);
+    let start = calls.prepare(
+        done.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
+    assert!(
+        start.request.is_none(),
+        "the deadline fallback starts the minimum gap"
+    );
+    now.instant.0 += 60_000;
+    now.local = now.local.date().at(22, 0, 0, 0);
+    let night = calls.prepare(
+        start.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
+    assert!(night.request.is_none());
+    now.instant.0 += 600_000;
+    now.local = now.local.date().at(8, 0, 0, 0);
+    let day = night
+        .day
+        .mute(UnixMillis(now.instant.0 + 60_000), now.instant)
+        .0;
+    let muted = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+    assert!(muted.request.is_none());
+    now.instant.0 += 60_000;
+    assert!(
+        calls
+            .prepare(
+                muted.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed
+            )
+            .request
+            .is_some()
+    );
+}
+
+#[test]
+fn checkin_previous_day_worker_remains_busy_until_its_matching_completion() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::{BatchReason, ReadyBatch},
+    };
+    let (day, owner, mut calls, now) = fixture(TriggerKind::PlannedLook).unwrap();
+    let old = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+    let old_id = old.request.unwrap().id;
+    let new = Day::new(jiff::civil::date(2026, 10, 4), Tuning::default());
+    calls.enqueue(
+        new.date(),
+        ReadyBatch {
+            reason: BatchReason::DayStart,
+            triggers: vec![Trigger {
+                kind: TriggerKind::DayStart,
+                task: None,
+                due_at: now.instant,
+            }],
+        },
+    );
+    let waiting = calls.prepare(new, &owner, ContextExtras::default(), context(now), fixed);
+    assert!(waiting.request.is_none());
+    let released = calls.finish(
+        waiting.day,
+        old_id,
+        Ok(ModelAnswer {
+            json: r#"{"kind":"note","message":"yesterday"}"#.into(),
+        }),
+        now,
+        fixed,
+    );
+    assert!(released.effects.is_empty());
+    assert!(released.day.messages().is_empty());
+    assert!(
+        calls
+            .prepare(
+                released.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed
+            )
+            .request
+            .is_some()
+    );
+}
+
+#[test]
 fn checkin_open_and_sleep_batches_preserve_catchup_on_both_model_and_fixed_delivery() {
     use bunshin_core::{
         ModelAnswer, ModelError,
@@ -274,7 +454,8 @@ fn checkin_queue_waits_behind_owner_and_delivers_one_question_without_changing_t
         "fixed".into()
     });
     assert!(waiting.request.is_none());
-    assert!(waiting.effects.is_empty());
+    assert_eq!(waiting.effects, vec![CheckinEffect::Save]);
+    assert_eq!(waiting.day.data().held_triggers.len(), 1);
     let ready = calls.prepare(
         waiting.day,
         &owner,
@@ -503,11 +684,15 @@ fn checkin_unavailable_model_holds_other_triggers_and_recovers_without_duplicate
         TriggerKind::PlannedLook,
         now.instant,
     );
+    let recovered_now = Now {
+        instant: UnixMillis(now.instant.0 + 300_000),
+        ..now
+    };
     let recovered = calls.prepare(
         waiting.day,
         &owner,
         ContextExtras::default(),
-        context(now),
+        context(recovered_now),
         fixed,
     );
     let id = recovered.request.unwrap().id;
@@ -541,7 +726,8 @@ fn checkin_other_failures_retry_once_at_next_tick_and_then_schedule_default_look
     let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
     let id = start.request.unwrap().id;
     let failed = calls.finish(start.day, id, Err(ModelError::TimedOut), now, fixed);
-    assert!(failed.effects.is_empty());
+    assert_eq!(failed.effects, vec![CheckinEffect::Save]);
+    assert_eq!(failed.day.data().held_triggers.len(), 1);
     let early = Now {
         instant: UnixMillis(59_999),
         ..now
@@ -690,7 +876,23 @@ fn checkin_old_tokens_and_previous_day_completions_preserve_current_flight() {
     let old_id = old.request.unwrap().id;
     let next = Day::new(now.local.date().tomorrow().unwrap(), Tuning::default());
     queue(&mut calls, &next, TriggerKind::PlannedLook, now.instant);
-    let fresh = calls.prepare(next, &owner, ContextExtras::default(), context(now), fixed);
+    let waiting = calls.prepare(next, &owner, ContextExtras::default(), context(now), fixed);
+    assert!(waiting.request.is_none());
+    let released = calls.finish(
+        waiting.day,
+        old_id,
+        Ok(ModelAnswer { json: "bad".into() }),
+        now,
+        fixed,
+    );
+    assert!(released.effects.is_empty());
+    let fresh = calls.prepare(
+        released.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
     let new_id = fresh.request.unwrap().id;
     let ignored = calls.finish(
         fresh.day,
@@ -822,7 +1024,7 @@ fn checkin_prompt_refusal_sends_no_request_and_uses_typed_fallback_facts() {
 fn suppressed_checkin_rows_never_enter_visible_chat_history_sent_to_the_model() {
     use bunshin_core::{ModelAnswer, prompt::chat::build_chat};
     let (mut day, owner, mut calls, now) = fixture(TriggerKind::BeforeDeadline).unwrap();
-    for at in [0, 60_000] {
+    for at in [0, 300_000] {
         let current = Now {
             instant: UnixMillis(at),
             ..now
