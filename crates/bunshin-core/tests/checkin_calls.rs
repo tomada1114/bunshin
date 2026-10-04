@@ -26,6 +26,90 @@ fn apply_delivery_guard(
 }
 
 #[test]
+fn deadline_only_failures_schedule_a_default_look_without_replacing_an_existing_one() {
+    use bunshin_core::{
+        Availability, ModelError, UnavailableReason,
+        checkin::{
+            calls::{CheckinCalls, CheckinEffect},
+            plan_look,
+        },
+    };
+    for default_minutes in [120, 45] {
+        let mut tuning = Tuning::default();
+        tuning.checkin.planned_default_minutes = default_minutes;
+        for kind in [TriggerKind::BeforeDeadline, TriggerKind::AfterDeadline] {
+            for error in [
+                ModelError::Unavailable(UnavailableReason::NotInstalled),
+                ModelError::TimedOut,
+                ModelError::Cancelled,
+                ModelError::Refused,
+                ModelError::Malformed,
+                ModelError::Failed,
+            ] {
+                for preserve in [false, true] {
+                    let (day, owner, _, now) = fixture(kind).unwrap();
+                    let day = if preserve {
+                        plan_look(day, now, Some(7), tuning)
+                    } else {
+                        day
+                    };
+                    let tasks = day.tasks().to_vec();
+                    let mut calls = CheckinCalls::new(tuning);
+                    queue(&mut calls, &day, kind, now.instant);
+                    let update = if let ModelError::Unavailable(reason) = error {
+                        calls.prepare(
+                            day,
+                            &owner,
+                            ContextExtras::default(),
+                            bunshin_core::checkin::calls::CallContext {
+                                availability: Availability::Unavailable(reason),
+                                ..context(now)
+                            },
+                            fixed,
+                        )
+                    } else {
+                        let start = calls.prepare(
+                            day,
+                            &owner,
+                            ContextExtras::default(),
+                            context(now),
+                            fixed,
+                        );
+                        calls.finish(
+                            start.day,
+                            start.request.unwrap().id,
+                            Err(error),
+                            context(now),
+                            fixed,
+                        )
+                    };
+                    let delay = if preserve { 7 } else { default_minutes };
+                    assert_eq!(
+                        update.day.data().next_planned_look,
+                        Some(
+                            now.local
+                                .checked_add(jiff::SignedDuration::from_mins(i64::from(delay)))
+                                .unwrap()
+                        )
+                    );
+                    assert_eq!(
+                        update.day.messages().last().unwrap().text,
+                        format!("fixed {kind:?}")
+                    );
+                    assert_eq!(
+                        update.effects,
+                        vec![CheckinEffect::Bell, CheckinEffect::Save]
+                    );
+                    assert_eq!(update.day.tasks(), tasks);
+                    assert!(update.day.data().held_triggers.is_empty());
+                    assert!(update.request.is_none());
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn mixed_batch_keeps_general_answers_but_discards_references_to_the_expired_deadline() {
     use bunshin_core::{
         ModelAnswer,

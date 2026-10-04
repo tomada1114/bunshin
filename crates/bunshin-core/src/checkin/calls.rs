@@ -480,8 +480,7 @@ impl CheckinCalls {
     ) -> CallUpdate {
         day.take_held_triggers_matching(&pending.batch.triggers);
         let mut delivered = 0;
-        // On catch-up, announce an elapsed deadline before an older before-event
-        // for the same task. The ordinary same-task guard then records suppression.
+        // Overdue notices precede upcoming notices in a fallback batch.
         let mut triggers = pending.batch.triggers.iter().collect::<Vec<_>>();
         triggers.sort_by_key(|trigger| trigger.kind == TriggerKind::BeforeDeadline);
         for trigger in triggers {
@@ -516,6 +515,7 @@ impl CheckinCalls {
                 ));
             }
         }
+        day = ensure_deadline_look(day, &pending.batch.triggers, now, self.tuning);
         pending
             .batch
             .triggers
@@ -563,6 +563,16 @@ impl CheckinCalls {
 }
 fn delivery_allowed(pending: &Pending, day: &Day, now: Now, tuning: Tuning) -> bool {
     opening_exempt(pending) || super::delivery_guards_allow(day, now, tuning)
+}
+fn ensure_deadline_look(day: Day, triggers: &[Trigger], now: Now, tuning: Tuning) -> Day {
+    if day.data().next_planned_look.is_none()
+        && !triggers.is_empty()
+        && triggers.iter().all(|event| deadline(event.kind))
+    {
+        plan_look(day, now, None, tuning)
+    } else {
+        day
+    }
 }
 fn triggers_for_prompt(pending: &Pending, now: Now) -> Vec<Trigger> {
     let mut triggers = pending.batch.triggers.clone();

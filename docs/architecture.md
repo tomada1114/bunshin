@@ -135,7 +135,9 @@ release hands those same events back; the caller composes both transitions befor
 persisting the resulting day.
 A previous-day flight occupies the
 worker until its matching completion, which releases it without applying old data.
-Deadline failures use `FixedDeadline` facts with a pure formatter supplied by the binary; other failures
+Deadline failures use `FixedDeadline` facts with a pure formatter supplied by the binary.
+Consuming a deadline-only fallback preserves an existing planned look or schedules
+the configured default when no look exists. Non-deadline failures
 retry once at a scheduler tick after completion. Unavailable non-deadline events
 remain held in day data until recovery. A caller marks `CallContext.is_tick` only
 when the scheduler evaluates, rather than on every terminal poll.
