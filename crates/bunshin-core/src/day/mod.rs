@@ -316,6 +316,12 @@ impl Day {
     pub fn messages(&self) -> &[Message] {
         &self.data.messages
     }
+    pub(crate) fn inbox_messages_mut(&mut self) -> &mut [Message] {
+        &mut self.data.messages
+    }
+    pub(crate) const fn tuning(&self) -> Tuning {
+        self.tuning
+    }
     pub(crate) fn append_message(&mut self, message: Message) {
         self.data.messages.push(message);
     }
@@ -455,6 +461,9 @@ impl Day {
         let snapshot = self.snapshot();
         let before = self.data.muted_until;
         self.data.muted_until = Some(until);
+        if until > at {
+            self.react_to_mute(at);
+        }
         self.record(
             snapshot,
             vec![Change::Mute {
@@ -605,6 +614,9 @@ impl Day {
             Some(at)
         };
         let after = self.data.tasks[index].clone();
+        if matches!(status, TaskStatus::Done | TaskStatus::Dropped) {
+            self.close_task_inbox(number, at);
+        }
         Ok(self.record(
             snapshot,
             vec![Change::Task {

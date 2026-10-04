@@ -1,5 +1,6 @@
 //! Pure task-pane state: keys change one Day or request an effect, never call a model.
 pub mod help;
+mod inbox;
 pub mod keys;
 mod persistence;
 pub mod task_form;
@@ -51,6 +52,8 @@ pub struct MainScreen {
     finished: bool,
     save_state: SaveState,
     confirming_quit: bool,
+    inbox_selected: Option<usize>,
+    reply_target: Option<u64>,
 }
 impl MainScreen {
     /// Start in the input with the first display row selected, without reading I/O.
@@ -72,6 +75,8 @@ impl MainScreen {
             finished: false,
             save_state: SaveState::Saved,
             confirming_quit: false,
+            inbox_selected: None,
+            reply_target: None,
         }
     }
     /// Day to render or persist after a Save effect.
@@ -124,6 +129,9 @@ impl MainScreen {
                 return (self, vec![Effect::Quit]);
             }
             return (self, Vec::new());
+        }
+        if let Some(effects) = self.handle_inbox_key(command_key, now) {
+            return (self, effects);
         }
         let action = action_for(command_key, KeyRegion::Anywhere).or_else(|| match self.focus {
             Focus::Input => action_for(command_key, KeyRegion::Main),

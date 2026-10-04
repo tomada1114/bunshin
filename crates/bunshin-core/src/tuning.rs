@@ -13,6 +13,8 @@ pub struct Tuning {
     pub prompt: PromptTuning,
     /// Check-in scheduling and guard bounds.
     pub checkin: CheckinTuning,
+    /// Reaction window for implicit answers, mute reactions and ignored reporting.
+    pub inbox_reaction_minutes: u16,
     /// One hour of quiet from the task-pane mute key, shared with check-in logic.
     pub key_mute_minutes: u16,
     /// Task limits and session undo capacity.
@@ -31,6 +33,7 @@ impl Default for Tuning {
             prompt: PromptTuning::default(),
             checkin: CheckinTuning::shipped(),
             key_mute_minutes: 60,
+            inbox_reaction_minutes: 15,
             day: DayTuning::shipped(),
             day_boundary: DEFAULT_DAY_BOUNDARY,
             model_timeout: DEFAULT_MODEL_TIMEOUT,

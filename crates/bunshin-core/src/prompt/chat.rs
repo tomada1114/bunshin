@@ -17,7 +17,7 @@ const MODEL_WINDOW: usize = 4096;
 /// synthetic request on the local model (observed 2026-10-03).
 pub const CHAT_SCHEMA: &str = r##"{"type":"object","properties":{"changes":{"type":"array","items":{"$ref":"#/$defs/Change"}},"reply":{"type":"string"}},"required":["changes","reply"],"additionalProperties":false,"title":"ChatAnswer","x-order":["reply","changes"],"$defs":{"Change":{"type":"object","properties":{"op":{"type":"string","enum":["add","done","drop","reopen","changeTime","rename","mute"]},"task":{"type":"integer"},"title":{"type":"string"},"kind":{"type":"string","enum":["untimed","deadline","appointment"]},"time":{"type":"string"},"minutes":{"type":"integer"}},"required":["op"],"additionalProperties":false,"title":"Change","x-order":["op","task","title","kind","time","minutes"]}}}"##;
 
-/// A future inbox caller supplies state facts rather than message text.
+/// Reaction facts passed to the model rather than private message text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UnpromptedContext {
     /// The referenced task, absent for a general note.
@@ -32,7 +32,8 @@ pub struct UnpromptedContext {
 pub struct ContextExtras<'a> {
     /// Deterministic previous-day record, capped by its estimated token bound.
     pub yesterday: Option<&'a str>,
-    /// States in chronological order; at most the configured newest states are included.
+    /// Fallback states in chronological order when the day has no delivered check-ins.
+    /// Persisted inbox reactions take precedence; newest states are bounded by tuning.
     pub unprompted_states: &'a [UnpromptedContext],
     /// A caller's trigger facts, included as a whole block when they fit.
     pub triggers: &'a [Trigger],
@@ -266,6 +267,8 @@ pub(crate) fn assemble(
         extras,
         limit,
         spec.ready_triggers.is_none(),
+        day,
+        now,
     )?;
     context.closed_tasks = tasks
         .into_iter()
@@ -393,7 +396,18 @@ fn fill_lower_extras(
     extras: ContextExtras<'_>,
     limit: usize,
     optional_triggers: bool,
+    day: &Day,
+    now: Now,
 ) -> Result<(), PromptError> {
+    let states = day.inbox_context(now.instant);
+    let extras = ContextExtras {
+        unprompted_states: if states.is_empty() {
+            extras.unprompted_states
+        } else {
+            &states
+        },
+        ..extras
+    };
     let mut candidate = context.clone();
     candidate.unprompted_states = extras
         .unprompted_states
