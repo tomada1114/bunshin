@@ -103,8 +103,12 @@ facts; a completed answer also waits until typing and owner work clear.
 Enqueuing captures task facts when the scheduler batch is consumed. Before
 dispatch, obsolete queued deadlines and their held facts are removed, including
 when an unavailable model would otherwise produce a fixed fallback.
-Same-day waiting events merge into one request, retaining each event's enqueue
-facts and retry allowance. A failed in-flight batch also joins events queued
+Same-day waiting events with the same delivery guards merge into one request,
+retaining each event's enqueue facts and retry allowance. Opening-exempt events
+stay separate from later routine events. Deadline events also recheck the
+current civil deadline before dispatch, including after a restart; an obsolete
+held event is removed without rewriting the once-per-task/kind fired record.
+A failed in-flight batch also joins eligible events queued
 during its call; a retry waits for an actual tick, and fresh events retain their
 own single retry even when sent alongside a previously failed event.
 Task-specific replies are discarded when a task known at dispatch was closed,

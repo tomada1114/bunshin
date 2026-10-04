@@ -6,6 +6,187 @@ use bunshin_core::{
     prompt::{chat::ContextExtras, checkin::build_checkin},
 };
 
+fn apply_delivery_guard(
+    mut day: Day,
+    now: &mut Now,
+    guard: &str,
+) -> Result<Day, bunshin_core::day::file::DayFileError> {
+    if guard == "hours" {
+        now.local = now.local.date().at(7, 0, 0, 0);
+    }
+    if guard == "mute" {
+        day = day.mute(UnixMillis(3_600_000), now.instant).0;
+    }
+    if guard == "gap" {
+        let mut data = day.data().clone();
+        data.last_unprompted_at = Some(now.instant);
+        day = bunshin_core::day::file::DayFile { format: 1, data }.into_day(Tuning::default())?;
+    }
+    Ok(day)
+}
+
+#[test]
+fn opening_exempt_batches_cannot_carry_later_routine_events_past_delivery_guards() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::{BatchReason, ReadyBatch},
+    };
+    for reason in [BatchReason::Open, BatchReason::DayStart] {
+        for guard in ["hours", "mute", "gap"] {
+            let (day, owner, _, mut now) = fixture(TriggerKind::PlannedLook).unwrap();
+            let day = apply_delivery_guard(day, &mut now, guard).unwrap();
+            let opening = Trigger {
+                kind: TriggerKind::DayStart,
+                task: None,
+                due_at: now.instant,
+            };
+            let routine = Trigger {
+                kind: TriggerKind::PlannedLook,
+                task: None,
+                due_at: UnixMillis(1),
+            };
+            let mut calls = bunshin_core::checkin::calls::CheckinCalls::new(Tuning::default());
+            calls.enqueue(
+                &day,
+                ReadyBatch {
+                    reason,
+                    triggers: vec![opening],
+                },
+            );
+            let held = calls.prepare(
+                day,
+                &owner,
+                ContextExtras::default(),
+                bunshin_core::checkin::calls::CallContext {
+                    owner_waiting: true,
+                    ..context(now)
+                },
+                fixed,
+            );
+            calls.enqueue(
+                &held.day,
+                ReadyBatch {
+                    reason: BatchReason::Tick,
+                    triggers: vec![routine.clone()],
+                },
+            );
+            let start = calls.prepare(
+                held.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed,
+            );
+            assert_eq!(start.day.data().held_triggers, vec![routine.clone()]);
+            let done = calls.finish(
+                start.day,
+                start.request.unwrap().id,
+                Ok(ModelAnswer {
+                    json: r#"{"kind":"silent","message":""}"#.into(),
+                }),
+                context(now),
+                fixed,
+            );
+            let blocked = calls.prepare(
+                done.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed,
+            );
+            assert!(blocked.request.is_none());
+            now.instant = UnixMillis(3_600_001);
+            now.local = now.local.date().at(14, 30, 0, 0);
+            let next = calls.prepare(
+                blocked.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed,
+            );
+            let expected = build_checkin(
+                &next.day,
+                &owner,
+                now,
+                &[routine],
+                ContextExtras::default(),
+                Tuning::default(),
+            )
+            .unwrap();
+            assert_eq!(
+                next.request.unwrap().request.prompt,
+                expected.request.prompt
+            );
+        }
+    }
+}
+
+#[test]
+fn restarted_held_deadlines_moved_into_the_future_are_removed_before_model_or_fallback() {
+    use bunshin_core::{
+        Availability, UnavailableReason,
+        checkin::{BatchReason, ReadyBatch, calls::CheckinEffect},
+    };
+    for kind in [TriggerKind::BeforeDeadline, TriggerKind::AfterDeadline] {
+        for availability in [
+            Availability::Available,
+            Availability::Unavailable(UnavailableReason::NotInstalled),
+        ] {
+            let (day, owner, _, now) = fixture(kind).unwrap();
+            let event = Trigger {
+                kind,
+                task: Some(1),
+                due_at: now.instant,
+            };
+            let mut data = day.data().clone();
+            data.held_triggers = vec![event.clone()];
+            data.triggers_fired = vec![event.clone()];
+            data.tasks[0].triggers_fired = vec![event.clone()];
+            let day = bunshin_core::day::file::DayFile { format: 1, data }
+                .into_day(Tuning::default())
+                .unwrap()
+                .edit(
+                    1,
+                    "資料作成".into(),
+                    TaskKind::Deadline,
+                    Some("17:00".parse().unwrap()),
+                    now.instant,
+                )
+                .unwrap()
+                .0;
+            let restored = bunshin_core::day::file::DayFile {
+                format: 1,
+                data: day.data().clone(),
+            }
+            .into_day(Tuning::default())
+            .unwrap();
+            let mut calls = bunshin_core::checkin::calls::CheckinCalls::new(Tuning::default());
+            calls.enqueue(
+                &restored,
+                ReadyBatch {
+                    reason: BatchReason::Open,
+                    triggers: vec![event],
+                },
+            );
+            let count = restored.messages().len();
+            let update = calls.prepare(
+                restored,
+                &owner,
+                ContextExtras::default(),
+                bunshin_core::checkin::calls::CallContext {
+                    availability,
+                    ..context(now)
+                },
+                fixed,
+            );
+            assert!(update.request.is_none());
+            assert_eq!(update.day.messages().len(), count);
+            assert!(update.day.data().held_triggers.is_empty());
+            assert_eq!(update.effects, vec![CheckinEffect::Save]);
+        }
+    }
+}
+
 #[test]
 fn a_trigger_queued_during_a_call_joins_its_failed_trigger_at_the_next_tick() {
     use bunshin_core::{ModelAnswer, ModelError};
@@ -1095,10 +1276,13 @@ fn fixture(
     bunshin_core::day::DayError,
 > {
     let tuning = Tuning::default();
-    let now = Now {
+    let mut now = Now {
         instant: UnixMillis(0),
         local: jiff::civil::date(2026, 10, 3).at(14, 30, 0, 0),
     };
+    if kind == TriggerKind::AfterDeadline {
+        now.local = now.local.date().at(15, 0, 1, 0);
+    }
     let day = Day::new(now.local.date(), tuning)
         .add(
             "資料作成".into(),
@@ -1673,7 +1857,8 @@ fn checkin_overdue_catchup_announces_the_passed_deadline_before_suppressing_the_
     use bunshin_core::{
         Availability, UnavailableReason, checkin::calls::CheckinEffect, day::SuppressionReason,
     };
-    let (day, owner, mut calls, now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+    let (day, owner, mut calls, mut now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+    now.local = now.local.date().at(15, 0, 1, 0);
     // One scheduler batch contains the elapsed before/after events for this task.
     let mut calls2 = bunshin_core::checkin::calls::CheckinCalls::new(Tuning::default());
     calls2.enqueue(

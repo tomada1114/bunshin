@@ -171,21 +171,16 @@ impl CheckinCalls {
         }
     }
     fn queue_pending(&mut self, incoming: Pending) {
-        if let Some(pending) = self.pending.iter_mut().find(|p| p.date == incoming.date) {
-            let incoming_open = matches!(incoming.attempt, Attempt::First)
-                && matches!(
-                    incoming.batch.reason,
-                    BatchReason::Open | BatchReason::DayStart
-                );
-            let pending_open = matches!(pending.attempt, Attempt::First)
-                && matches!(
-                    pending.batch.reason,
-                    BatchReason::Open | BatchReason::DayStart
-                );
+        let incoming_open = opening_exempt(&incoming);
+        if let Some(pending) = self
+            .pending
+            .iter_mut()
+            .find(|p| p.date == incoming.date && opening_exempt(p) == incoming_open)
+        {
             if incoming_open {
                 pending.batch.reason = incoming.batch.reason;
                 pending.attempt = Attempt::First;
-            } else if !pending_open {
+            } else {
                 if matches!(pending.batch.reason, BatchReason::Tick)
                     || matches!(incoming.batch.reason, BatchReason::Sleep)
                 {
@@ -225,7 +220,7 @@ impl CheckinCalls {
             self.completed = None;
         }
         let before = day.data().clone();
-        self.prune_queued_deadlines(&mut day);
+        self.prune_queued_deadlines(&mut day, context.now);
         for pending in &self.pending {
             day.hold_checkin_triggers(&pending.batch.triggers);
         }
@@ -317,7 +312,8 @@ impl CheckinCalls {
             },
         }
     }
-    fn prune_queued_deadlines(&mut self, day: &mut Day) {
+    fn prune_queued_deadlines(&mut self, day: &mut Day, now: Now) {
+        let tuning = self.tuning;
         self.pending.retain_mut(|pending| {
             let obsolete = pending
                 .batch
@@ -325,10 +321,11 @@ impl CheckinCalls {
                 .iter()
                 .filter(|trigger| {
                     deadline(trigger.kind)
-                        && !pending.tasks_at_enqueue.iter().any(|(event, task)| {
-                            event == *trigger
-                                && current_task(task.number, day, std::slice::from_ref(task))
-                        })
+                        && (!super::deadline_is_due(day, trigger, now, tuning)
+                            || !pending.tasks_at_enqueue.iter().any(|(event, task)| {
+                                event == *trigger
+                                    && current_task(task.number, day, std::slice::from_ref(task))
+                            }))
                 })
                 .cloned()
                 .collect::<Vec<_>>();
@@ -541,12 +538,14 @@ impl CheckinCalls {
     }
 }
 fn delivery_allowed(pending: &Pending, day: &Day, now: Now, tuning: Tuning) -> bool {
-    let opening_exception = matches!(pending.attempt, Attempt::First)
+    opening_exempt(pending) || super::delivery_guards_allow(day, now, tuning)
+}
+fn opening_exempt(pending: &Pending) -> bool {
+    matches!(pending.attempt, Attempt::First)
         && matches!(
             pending.batch.reason,
             BatchReason::Open | BatchReason::DayStart
-        );
-    opening_exception || super::delivery_guards_allow(day, now, tuning)
+        )
 }
 fn current_task(number: u64, day: &Day, dispatched: &[TaskView]) -> bool {
     let before = dispatched.iter().find(|task| task.number == number);

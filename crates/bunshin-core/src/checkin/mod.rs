@@ -8,7 +8,7 @@ use crate::{
 };
 use jiff::{
     SignedDuration,
-    civil::{Date, DateTime},
+    civil::{Date, DateTime, Time},
 };
 
 /// How one consolidated batch became ready.
@@ -174,17 +174,7 @@ impl Checkin {
             let Some(time) = task.time else {
                 continue;
             };
-            let date = if time < self.tuning.day_boundary {
-                day.date().tomorrow().unwrap_or(Date::MAX)
-            } else {
-                day.date()
-            };
-            let deadline = date.to_datetime(time);
-            let before_due = deadline
-                .checked_sub(SignedDuration::from_mins(i64::from(
-                    self.tuning.checkin.before_deadline_minutes,
-                )))
-                .unwrap_or(DateTime::MIN);
+            let (deadline, before_due) = deadline_times(day.date(), time, self.tuning);
             for (kind, is_due) in [
                 (TriggerKind::BeforeDeadline, now.local >= before_due),
                 (TriggerKind::AfterDeadline, now.local > deadline),
@@ -255,6 +245,41 @@ impl Checkin {
             ready,
             save,
         }
+    }
+}
+fn deadline_times(date: Date, time: Time, tuning: Tuning) -> (DateTime, DateTime) {
+    let date = if time < tuning.day_boundary {
+        date.tomorrow().unwrap_or(Date::MAX)
+    } else {
+        date
+    };
+    let deadline = date.to_datetime(time);
+    let before = deadline
+        .checked_sub(SignedDuration::from_mins(i64::from(
+            tuning.checkin.before_deadline_minutes,
+        )))
+        .unwrap_or(DateTime::MIN);
+    (deadline, before)
+}
+pub(crate) fn deadline_is_due(day: &Day, trigger: &Trigger, now: Now, tuning: Tuning) -> bool {
+    let Some(task) = day.tasks().iter().find(|task| {
+        Some(task.number) == trigger.task
+            && task.kind == TaskKind::Deadline
+            && task.status == TaskStatus::Open
+    }) else {
+        return false;
+    };
+    let Some(time) = task.time else {
+        return false;
+    };
+    let (deadline, before) = deadline_times(day.date(), time, tuning);
+    match trigger.kind {
+        TriggerKind::BeforeDeadline => now.local >= before,
+        TriggerKind::AfterDeadline => now.local > deadline,
+        TriggerKind::PlannedLook
+        | TriggerKind::DayStart
+        | TriggerKind::EveningReview
+        | TriggerKind::CatchUp => false,
     }
 }
 pub(crate) fn delivery_guards_allow(day: &Day, now: Now, tuning: Tuning) -> bool {
