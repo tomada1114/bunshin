@@ -53,6 +53,7 @@ pub struct ChatRequest {
 struct Pending {
     index: usize,
     text: String,
+    question_before: Option<(u64, crate::day::InboxState, UnixMillis)>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Flight {
@@ -149,12 +150,25 @@ impl MainScreen {
                 }
                 let text = self.chat.input.take();
                 let index = self.day.messages().len();
+                let before = self.day.clone();
                 self.day = self
                     .day
                     .clone()
                     .record_owner_message(&text, self.reply_target(), at);
                 self.reply_target = None;
-                self.chat.queue.push_back(Pending { index, text });
+                let question_before = self.day.messages()[index].answers_question.and_then(|id| {
+                    let row = before
+                        .messages()
+                        .get(usize::try_from(id).ok()?)?
+                        .unprompted
+                        .as_ref()?;
+                    Some((id, row.inbox_state, row.state_changed_at))
+                });
+                self.chat.queue.push_back(Pending {
+                    index,
+                    text,
+                    question_before,
+                });
                 vec![Effect::Save]
             }
             ScreenKey::Esc => {
@@ -162,8 +176,11 @@ impl MainScreen {
                     && !flight.cancelled
                 {
                     flight.cancelled = true;
-                    self.day.cancel_owner_message(flight.pending.index);
+                    let target = self
+                        .day
+                        .cancel_owner_message(flight.pending.index, flight.pending.question_before);
                     if self.chat.input.text().is_empty() {
+                        self.reply_target = target;
                         for character in flight.pending.text.chars() {
                             self.chat.input.edit(
                                 ScreenKey::Char(character),
@@ -208,8 +225,10 @@ impl MainScreen {
     /// Reread instructions before preparing a call or opening the read-only view.
     #[must_use]
     pub fn record_instructions(mut self, owner: InstructionsState) -> (Self, Vec<Effect>) {
-        let changed = self.chat.instructions.as_ref() != Some(&owner);
-        let notice = changed && owner.origin != crate::instructions::InstructionsOrigin::Owner;
+        let revision = (owner.origin != crate::instructions::InstructionsOrigin::Owner)
+            .then(|| owner.notice_revision());
+        let changed = self.day.record_instructions_notice(revision);
+        let notice = changed && revision.is_some();
         let origin = owner.origin;
         let failure = owner.failure;
         self.chat.instructions = Some(owner);
@@ -221,6 +240,8 @@ impl MainScreen {
                 )),
                 Effect::Save,
             ]
+        } else if changed {
+            vec![Effect::Save]
         } else {
             Vec::new()
         };
@@ -343,6 +364,7 @@ impl MainScreen {
                     outcome.reply,
                     now.instant,
                 );
+                self.day.link_chat_reply(flight.pending.index);
                 let mut effects = outcome
                     .refused
                     .into_iter()
@@ -436,6 +458,7 @@ impl MainScreen {
             answers_question: None,
             change_set: None,
             cancelled: false,
+            in_reply_to: None,
         });
     }
 }

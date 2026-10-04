@@ -62,6 +62,12 @@ pub struct InstructionsState {
     source_revision: u64,
 }
 impl InstructionsState {
+    pub(crate) fn notice_revision(&self) -> u64 {
+        revision_bytes(
+            self.source_revision,
+            format!("{:?}:{:?}", self.origin, self.failure).as_bytes(),
+        )
+    }
     /// Choose complete owner text or the default with an explicit reason.
     #[must_use]
     pub fn resolve(text: Option<&str>, path: PathBuf, tuning: Tuning) -> Self {

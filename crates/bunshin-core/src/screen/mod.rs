@@ -67,6 +67,7 @@ pub struct MainScreen {
     reply_target: Option<u64>,
     chat: chat::ChatState,
     instructions_scroll: usize,
+    instructions_scroll_limit: usize,
 }
 impl MainScreen {
     /// Start in the input with the first display row selected, without reading I/O.
@@ -92,6 +93,7 @@ impl MainScreen {
             reply_target: None,
             chat: chat::ChatState::default(),
             instructions_scroll: 0,
+            instructions_scroll_limit: 0,
         }
     }
     /// Day to render or persist after a Save effect.
@@ -202,12 +204,8 @@ impl MainScreen {
                 self.instructions_scroll = self.instructions_scroll.saturating_sub(1);
             }
             ScreenAction::InstructionsDown => {
-                let limit = self
-                    .chat
-                    .instructions
-                    .as_ref()
-                    .map_or(0, |state| state.text.chars().count());
-                self.instructions_scroll = (self.instructions_scroll + 1).min(limit);
+                self.instructions_scroll =
+                    (self.instructions_scroll + 1).min(self.instructions_scroll_limit);
             }
             ScreenAction::Quit => {
                 if self.save_state == SaveState::Saved {
@@ -277,6 +275,13 @@ impl MainScreen {
                 self.focus = Focus::Tasks;
             }
         }
+    }
+    /// Clamp instruction scrolling to the rows measured by the drawing adapter.
+    #[must_use]
+    pub fn record_instructions_layout(mut self, rows: usize, height: usize) -> Self {
+        self.instructions_scroll_limit = rows.saturating_sub(height);
+        self.instructions_scroll = self.instructions_scroll.min(self.instructions_scroll_limit);
+        self
     }
     /// Read-only instructions scroll position in wrapped display rows.
     #[must_use]

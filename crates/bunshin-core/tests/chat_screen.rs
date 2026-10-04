@@ -71,7 +71,7 @@ fn instructions_default_notices_repeat_only_after_the_file_contents_or_failure_c
     }
     source.replace_text(Some("次の呼び出しで使う指示".into()));
     let (screen, effects) = screen.reload_instructions(&source);
-    assert!(effects.is_empty());
+    assert_eq!(effects, vec![Effect::Save]);
     assert_eq!(
         screen.instructions().unwrap().text,
         "次の呼び出しで使う指示"
@@ -359,6 +359,7 @@ fn sending_chat_answers_the_recent_question_before_queuing_a_model_call() {
         answers_question: None,
         change_set: None,
         cancelled: false,
+        in_reply_to: None,
         unprompted: Some(UnpromptedMessage {
             kind: UnpromptedKind::Question,
             trigger: Trigger {
@@ -408,6 +409,7 @@ fn idle_escape_clears_a_selected_reply_target_and_does_not_answer_an_old_questio
         answers_question: None,
         change_set: None,
         cancelled: false,
+        in_reply_to: None,
         unprompted: Some(UnpromptedMessage {
             kind: UnpromptedKind::Question,
             trigger: Trigger {
@@ -442,5 +444,180 @@ fn idle_escape_clears_a_selected_reply_target_and_does_not_answer_an_old_questio
     assert_eq!(
         screen.day().messages().last().unwrap().answers_question,
         None
+    );
+}
+
+#[test]
+fn queued_turns_keep_owner_reply_pairs_in_later_prompts_and_after_reload() {
+    use bunshin_core::day::file::DayFile;
+    let tuning = Tuning::default();
+    let now = FixedClock::default().now();
+    let owner = InstructionsState::resolve(Some("rules"), "instructions.md".into(), tuning);
+    let mut screen = MainScreen::new(Day::new(now.local.date(), tuning), tuning);
+    for text in ["owner1", "owner2", "owner3"] {
+        screen = type_text(screen, text, now).update(ScreenKey::Enter, now).0;
+    }
+    for reply in ["reply1", "reply2"] {
+        let (next, request, _) = screen.prepare_chat(&owner, now);
+        screen = next;
+        screen = screen
+            .finish_chat(
+                request.unwrap().id,
+                Ok(ModelAnswer {
+                    json: format!(r#"{{"changes":[],"reply":"{reply}"}}"#),
+                }),
+                now,
+            )
+            .0;
+    }
+    let (_, request, _) = screen.clone().prepare_chat(&owner, now);
+    let context: serde_json::Value =
+        serde_json::from_str(&request.unwrap().request.prompt).unwrap();
+    assert_eq!(
+        context["chat"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["text"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["reply2", "owner2", "reply1", "owner1"]
+    );
+    let day = serde_json::from_value::<DayFile>(
+        serde_json::to_value(DayFile::from(screen.day())).unwrap(),
+    )
+    .unwrap()
+    .into_day(tuning)
+    .unwrap();
+    let screen = type_text(MainScreen::new(day, tuning), "owner4", now)
+        .update(ScreenKey::Enter, now)
+        .0;
+    let (_, request, _) = screen.prepare_chat(&owner, now);
+    let context: serde_json::Value =
+        serde_json::from_str(&request.unwrap().request.prompt).unwrap();
+    assert_eq!(
+        context["chat"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["text"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["owner3", "reply2", "owner2", "reply1", "owner1"]
+    );
+}
+
+#[test]
+fn instruction_fallback_notice_is_not_repeated_after_reloading_the_same_day() {
+    use bunshin_core::day::file::DayFile;
+    use bunshin_test_support::InMemoryInstructions;
+    let tuning = Tuning::default();
+    let now = FixedClock::default().now();
+    let source = InMemoryInstructions::new("instructions.md".into(), None);
+    let screen = MainScreen::new(Day::new(now.local.date(), tuning), tuning);
+    let (screen, effects) = screen.reload_instructions(&source);
+    assert!(!effects.is_empty());
+    let day = serde_json::from_value::<DayFile>(
+        serde_json::to_value(DayFile::from(screen.day())).unwrap(),
+    )
+    .unwrap()
+    .into_day(tuning)
+    .unwrap();
+    let (screen, effects) = MainScreen::new(day, tuning).reload_instructions(&source);
+    assert!(effects.is_empty());
+    source.replace_text(Some("rules changed".into()));
+    let (screen, _) = screen.reload_instructions(&source);
+    source.replace_text(None);
+    assert!(!screen.reload_instructions(&source).1.is_empty());
+}
+
+#[test]
+fn cancelling_an_explicit_old_question_restores_its_state_and_reply_target() {
+    use bunshin_core::day::{
+        Author, InboxState, Message, MessageKind, Trigger, TriggerKind, UnpromptedKind,
+        UnpromptedMessage, file::DayFile,
+    };
+    let tuning = Tuning::default();
+    let now = FixedClock::default().now();
+    let mut data = Day::new(now.local.date(), tuning).data().clone();
+    data.messages.push(Message {
+        author: Author::Bunshin,
+        text: "synthetic question".into(),
+        time: now.instant,
+        kind: MessageKind::Unprompted,
+        answers_question: None,
+        change_set: None,
+        cancelled: false,
+        in_reply_to: None,
+        unprompted: Some(UnpromptedMessage {
+            kind: UnpromptedKind::Question,
+            trigger: Trigger {
+                kind: TriggerKind::PlannedLook,
+                task: None,
+                due_at: now.instant,
+            },
+            task: None,
+            inbox_state: InboxState::Open,
+            state_changed_at: now.instant,
+            suppressed: None,
+        }),
+    });
+    let day = (DayFile { format: 1, data }).into_day(tuning).unwrap();
+    let screen = MainScreen::new(day, tuning)
+        .update(ScreenKey::Tab, now)
+        .0
+        .open_inbox()
+        .update(ScreenKey::Enter, now)
+        .0;
+    assert_eq!(screen.reply_target(), Some(0));
+    let mut later = now;
+    later.instant.0 += 900_000;
+    let owner =
+        InstructionsState::resolve(Some("synthetic"), PathBuf::from("instructions.md"), tuning);
+    let screen = type_text(screen, "synthetic answer", later)
+        .update(ScreenKey::Enter, later)
+        .0;
+    let (screen, request, _) = screen.prepare_chat(&owner, later);
+    let screen = screen.update(ScreenKey::Esc, later).0;
+    let question = screen.day().messages()[0].unprompted.as_ref().unwrap();
+    assert_eq!(question.inbox_state, InboxState::Open);
+    assert_eq!(question.state_changed_at, now.instant);
+    assert_eq!(screen.reply_target(), Some(0));
+    assert_eq!(screen.input().text(), "synthetic answer");
+    let screen = screen
+        .finish_chat(
+            request.unwrap().id,
+            Err(bunshin_core::ModelError::Cancelled),
+            later,
+        )
+        .0;
+    let screen = screen.update(ScreenKey::Enter, later).0;
+    assert_eq!(
+        screen.day().messages().last().unwrap().answers_question,
+        Some(0)
+    );
+}
+
+#[test]
+fn instructions_scroll_clamps_to_measured_rows_and_reclamps_after_resize() {
+    let tuning = Tuning::default();
+    let now = FixedClock::default().now();
+    let mut screen = MainScreen::new(Day::new(now.local.date(), tuning), tuning)
+        .update(ScreenKey::Tab, now)
+        .0
+        .update(ScreenKey::Char('p'), now)
+        .0
+        .record_instructions_layout(30, 10);
+    for _ in 0..100 {
+        screen = screen.update(ScreenKey::Down, now).0;
+    }
+    assert_eq!(screen.instructions_scroll(), 20);
+    screen = screen.record_instructions_layout(30, 25);
+    assert_eq!(screen.instructions_scroll(), 5);
+    screen = screen.update(ScreenKey::Up, now).0;
+    assert_eq!(screen.instructions_scroll(), 4);
+    assert_eq!(
+        screen
+            .record_instructions_layout(3, 10)
+            .instructions_scroll(),
+        0
     );
 }

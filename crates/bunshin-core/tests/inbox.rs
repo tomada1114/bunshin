@@ -23,6 +23,7 @@ fn fixture(kinds: &[UnpromptedKind]) -> Day {
             answers_question: None,
             change_set: None,
             cancelled: false,
+            in_reply_to: None,
             unprompted: Some(UnpromptedMessage {
                 kind: *kind,
                 trigger: Trigger {

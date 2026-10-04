@@ -317,6 +317,12 @@ the planned look uses a civil datetime, and elapsed-gap timestamps use Unix mill
 The next task number survives deletion and undo; one less than it is the day's consumed
 creation budget. The default limit of fifty creations therefore also survives deletion,
 undo, and reload. Visible change and undo rows persist; the session's undo stack does not.
+Completed replies may carry `inReplyTo`, the stable owner-row index; prompt assembly
+uses this association to pair queued turns without moving append-only stored rows.
+The optional day field `lastInstructionsNotice` fingerprints the last fallback
+revision, preventing repeated notices after reloading the same day. It stores no
+instruction text and clears when owner instructions become usable.
+
 A message may carry `cancelled: true` for a stopped owner call. Older format-one
 files omit this field and decode it as false; false values remain omitted on save.
 Loading requires current or historical task snapshots to account for every consumed

@@ -12,7 +12,7 @@ use std::{
 };
 
 enum Job {
-    Probe,
+    Probe(CancelFlag),
     Respond(ChatRequest, CancelFlag),
 }
 pub(super) enum Completion {
@@ -35,7 +35,9 @@ impl ModelWorker {
             .spawn(move || {
                 while let Ok(job) = input.recv() {
                     let completion = match job {
-                        Job::Probe => Completion::Availability(model.availability()),
+                        Job::Probe(cancel) => {
+                            Completion::Availability(model.availability_with_cancel(&cancel))
+                        }
                         Job::Respond(request, cancel) => {
                             Completion::Answer(request.id, model.respond(&request.request, &cancel))
                         }
@@ -57,7 +59,10 @@ impl ModelWorker {
         self.busy
     }
     pub(super) fn probe(&mut self) -> io::Result<()> {
-        self.send(Job::Probe)
+        let cancel = CancelFlag::default();
+        self.send(Job::Probe(cancel.clone()))?;
+        self.cancel = Some(cancel);
+        Ok(())
     }
     pub(super) fn respond(&mut self, request: ChatRequest) -> io::Result<()> {
         let cancel = CancelFlag::default();
@@ -122,6 +127,22 @@ mod tests {
     use bunshin_core::{ModelRequest, Tuning};
     use bunshin_test_support::ScriptedLanguageModel;
     use std::time::Duration;
+
+    #[test]
+    fn quitting_cancels_and_joins_a_running_availability_probe() {
+        let (model, started) = ScriptedLanguageModel::new([]).with_probe_cancel_gate();
+        let mut worker = ModelWorker::start(Arc::new(model)).expect("worker");
+        worker.probe().expect("probe");
+        started
+            .recv_timeout(Duration::from_secs(5))
+            .expect("probe entered");
+        worker.shutdown().expect("cancel and join probe");
+        match worker.results.recv().expect("probe completed") {
+            Completion::Availability(result) => assert_eq!(result, Err(ModelError::Cancelled)),
+            Completion::Answer(_, _) => panic!("expected probe"),
+        }
+        worker.shutdown().expect("idempotent shutdown");
+    }
 
     #[test]
     fn cancelling_and_quitting_join_a_running_model_call_without_a_real_terminal() {

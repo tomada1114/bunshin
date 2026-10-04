@@ -56,6 +56,9 @@ pub struct DayData {
     pub held_triggers: Vec<Trigger>,
     /// Summary retained from the previous logical day.
     pub yesterday_record: Option<YesterdayRecord>,
+    /// Fingerprint of the last fallback notice, so restart does not repeat it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_instructions_notice: Option<u64>,
 }
 impl DayData {
     pub(super) fn empty(date: Date) -> Self {
@@ -70,6 +73,7 @@ impl DayData {
             triggers_fired: Vec::new(),
             held_triggers: Vec::new(),
             yesterday_record: None,
+            last_instructions_notice: None,
         }
     }
 }

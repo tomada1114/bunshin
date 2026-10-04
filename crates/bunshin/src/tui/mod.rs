@@ -121,7 +121,7 @@ fn event_loop(
                 }
             }
         }
-        let mut metrics = (0, 0);
+        let mut metrics = (0, 0, None);
         let times = screen
             .day()
             .messages()
@@ -132,6 +132,9 @@ fn event_loop(
             metrics = view::draw_with_metrics(frame, &screen, now, &times);
         })?;
         screen = screen.record_chat_layout(metrics.0, metrics.1);
+        if let Some((rows, height)) = metrics.2 {
+            screen = screen.record_instructions_layout(rows, height);
+        }
         // A timeout updates the header clock. Saving always completes before another read.
         if event::poll(tuning.chat.poll_interval)?
             && let Event::Key(key) = event::read()?

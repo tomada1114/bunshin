@@ -51,7 +51,7 @@ pub(super) fn draw_with_metrics(
     screen: &MainScreen,
     now: Now,
     times: &[Option<Now>],
-) -> (usize, usize) {
+) -> (usize, usize, Option<(usize, usize)>) {
     let area = frame.area();
     if area.width < 60 || area.height < 18 {
         let message = Rect::new(
@@ -68,7 +68,7 @@ pub(super) fn draw_with_metrics(
             .alignment(Alignment::Center),
             message,
         );
-        return (0, 0);
+        return (0, 0, None);
     }
     let [header, body, footer] = Layout::vertical([
         Constraint::Length(1),
@@ -116,8 +116,8 @@ pub(super) fn draw_with_metrics(
             footer,
         );
     }
-    overlays::draw(frame, screen);
-    metrics
+    let instructions = overlays::draw(frame, screen);
+    (metrics.0, metrics.1, instructions)
 }
 fn draw_header(frame: &mut Frame, screen: &MainScreen, now: Now, area: Rect) {
     let mut spans = vec![
@@ -336,6 +336,50 @@ fn draw_chat(
     }
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let mut rows = persisted_chat_rows(screen, times);
+    if let Some(ScreenError::Day(error)) = screen.error() {
+        rows.push((
+            Line::from(vec![
+                Span::styled(format!("{}  ", wording::ERROR_SPEAKER), ERROR_LABEL_STYLE),
+                Span::styled(wording::day_error(error), ERROR_STYLE),
+            ]),
+            8,
+        ));
+    }
+    match screen.chat_status(now.instant) {
+        ChatStatus::Thinking => rows.push((
+            Line::styled(
+                format!("{}  {}", wording::APP_NAME, wording::THINKING_ROW),
+                BUNSHIN_STYLE,
+            ),
+            0,
+        )),
+        ChatStatus::LongWait => rows.push((
+            Line::styled(
+                format!("{}  {}", wording::APP_NAME, wording::LONG_WAIT),
+                BUNSHIN_STYLE,
+            ),
+            0,
+        )),
+        ChatStatus::Idle | ChatStatus::Waiting => {}
+    }
+    // Wrap by measured grapheme widths so the complete history has a stable row count
+    // and long responses can later be scrolled without truncating stored text.
+    let rows = wrap_chat_rows(rows, usize::from(inner.width));
+    let metrics = (rows.len(), usize::from(inner.height));
+    let last = rows.len().saturating_sub(usize::from(inner.height));
+    let start = if screen.chat_follows_latest() {
+        last
+    } else {
+        screen.chat_scroll_top().min(last)
+    };
+    frame.render_widget(
+        Paragraph::new(rows.into_iter().skip(start).collect::<Vec<_>>()),
+        inner,
+    );
+    metrics
+}
+fn persisted_chat_rows(screen: &MainScreen, times: &[Option<Now>]) -> Vec<(Line<'static>, usize)> {
     let mut rows = Vec::new();
     for (index, message) in screen.day().messages().iter().enumerate() {
         if message
@@ -375,64 +419,45 @@ fn draw_chat(
             text
         };
         let clock = wording::chat_timestamp(times.get(index).copied().flatten());
-        let prefix = format!("{clock} {speaker}  ");
+        let speaker = format!(
+            "{speaker}{}",
+            " ".repeat(8_usize.saturating_sub(Span::raw(speaker).width()))
+        );
+        let prefix = format!("{clock} {speaker}");
+        let indent = Span::raw(&prefix).width();
         let mut parts = text.lines();
-        rows.push(Line::from(vec![
-            Span::styled(format!("{clock} "), BASE_STYLE),
-            Span::styled(format!("{speaker}  "), style.add_modifier(Modifier::BOLD)),
-            Span::styled(sanitize(parts.next().unwrap_or_default()), style),
-        ]));
+        rows.push((
+            Line::from(vec![
+                Span::styled(format!("{clock} "), BASE_STYLE),
+                Span::styled(speaker, style.add_modifier(Modifier::BOLD)),
+                Span::styled(sanitize(parts.next().unwrap_or_default()), style),
+            ]),
+            indent,
+        ));
         for part in parts {
-            rows.push(Line::from(vec![
-                Span::raw(" ".repeat(Span::raw(&prefix).width())),
-                Span::styled(sanitize(part), style),
-            ]));
+            rows.push((
+                Line::from(vec![
+                    Span::raw(" ".repeat(indent)),
+                    Span::styled(sanitize(part), style),
+                ]),
+                indent,
+            ));
         }
     }
-    if let Some(ScreenError::Day(error)) = screen.error() {
-        rows.push(Line::from(vec![
-            Span::styled(format!("{}  ", wording::ERROR_SPEAKER), ERROR_LABEL_STYLE),
-            Span::styled(wording::day_error(error), ERROR_STYLE),
-        ]));
-    }
-    match screen.chat_status(now.instant) {
-        ChatStatus::Thinking => rows.push(Line::styled(
-            format!("{}  {}", wording::APP_NAME, wording::THINKING_ROW),
-            BUNSHIN_STYLE,
-        )),
-        ChatStatus::LongWait => rows.push(Line::styled(
-            format!("{}  {}", wording::APP_NAME, wording::LONG_WAIT),
-            BUNSHIN_STYLE,
-        )),
-        ChatStatus::Idle | ChatStatus::Waiting => {}
-    }
-    // Wrap by measured grapheme widths so the complete history has a stable row count
-    // and long responses can later be scrolled without truncating stored text.
-    let rows = wrap_chat_rows(rows, usize::from(inner.width));
-    let metrics = (rows.len(), usize::from(inner.height));
-    let last = rows.len().saturating_sub(usize::from(inner.height));
-    let start = if screen.chat_follows_latest() {
-        last
-    } else {
-        screen.chat_scroll_top().min(last)
-    };
-    frame.render_widget(
-        Paragraph::new(rows.into_iter().skip(start).collect::<Vec<_>>()),
-        inner,
-    );
-    metrics
+    rows
 }
 fn sanitize(text: &str) -> String {
     text.chars()
         .map(|ch| if ch.is_control() { ' ' } else { ch })
         .collect()
 }
-fn wrap_chat_rows(rows: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> {
+fn wrap_chat_rows(rows: Vec<(Line<'static>, usize)>, width: usize) -> Vec<Line<'static>> {
     if width == 0 {
         return Vec::new();
     }
     let mut wrapped = Vec::new();
-    for line in rows {
+    for (line, indent) in rows {
+        let indent = indent.min(width.saturating_sub(1));
         let mut spans: Vec<Span<'static>> = Vec::new();
         let mut used = 0;
         for span in &line.spans {
@@ -440,7 +465,8 @@ fn wrap_chat_rows(rows: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> 
                 let size = Span::raw(grapheme.symbol).width();
                 if used + size > width && !spans.is_empty() {
                     wrapped.push(Line::from(std::mem::take(&mut spans)));
-                    used = 0;
+                    spans.push(Span::raw(" ".repeat(indent)));
+                    used = indent;
                 }
                 if let Some(last) = spans.last_mut()
                     && last.style == grapheme.style

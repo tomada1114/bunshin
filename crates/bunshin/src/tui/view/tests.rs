@@ -120,7 +120,7 @@ fn chat_rows_show_timestamps_and_distinct_model_system_change_and_error_styles()
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("22:13 あなた  こんにちは"));
-    assert!(text.contains("22:13 Bunshin  おつかれ！"));
+    assert!(text.contains("22:13 Bunshin おつかれ！"));
     assert!(buffer.content.iter().any(|cell| cell.symbol() == "B"
         && cell.fg == Color::Magenta
         && cell.modifier.contains(Modifier::BOLD)));
@@ -628,4 +628,52 @@ fn long_input_grows_to_three_wrapped_rows_and_keeps_the_cursor_visible() {
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal.draw(|frame| draw(frame, &screen, now)).unwrap();
     assert_eq!(terminal.get_cursor_position().unwrap().y, 21);
+}
+
+#[test]
+fn wrapped_chat_continuations_align_under_the_text_column() {
+    use bunshin_core::screen::ChatNotice;
+    let (screen, now) = empty();
+    let screen = screen.record_chat_notice(ChatNotice::ModelBack, &"z".repeat(100), now.instant);
+    let buffer = render(&screen, now, 80, 24);
+    let rows = (0..24)
+        .map(|y| line(&buffer, y))
+        .filter(|text| text.contains("zz"))
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].starts_with("│22:13 システム"));
+    assert!(rows[1].starts_with(&format!("│{}z", " ".repeat(14))));
+}
+
+#[test]
+fn instruction_scrolling_keeps_the_last_wrapped_row_visible() {
+    use bunshin_core::instructions::InstructionsState;
+    let (screen, now) = empty();
+    let owner = InstructionsState::resolve(
+        Some(&"あ".repeat(600)),
+        std::path::PathBuf::from("synthetic-instructions.md"),
+        Tuning::default(),
+    );
+    let mut screen = screen
+        .record_instructions(owner)
+        .0
+        .update(ScreenKey::Tab, now)
+        .0
+        .update(ScreenKey::Char('p'), now)
+        .0;
+    let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+    let mut metrics = (0, 0, None);
+    terminal
+        .draw(|frame| metrics = draw_with_metrics(frame, &screen, now, &[]))
+        .unwrap();
+    let (rows, height) = metrics.2.unwrap();
+    assert!(rows > height);
+    screen = screen.record_instructions_layout(rows, height);
+    for _ in 0..100 {
+        screen = screen.update(ScreenKey::Down, now).0;
+    }
+    let buffer = render(&screen, now, 60, 18);
+    let visible = (0..18).map(|y| line(&buffer, y)).collect::<String>();
+    assert!(visible.contains("bunshin instructions edit"), "{visible}");
+    assert_eq!(screen.instructions_scroll(), rows - height);
 }

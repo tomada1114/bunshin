@@ -20,9 +20,9 @@ use ratatui::{
     widgets::{Clear, Paragraph, Wrap},
 };
 
-pub(super) fn draw(frame: &mut Frame, screen: &MainScreen) {
+pub(super) fn draw(frame: &mut Frame, screen: &MainScreen) -> Option<(usize, usize)> {
     if screen.is_confirming_quit() {
-        return;
+        return None;
     }
     match screen.focus() {
         Focus::Form => {
@@ -31,9 +31,10 @@ pub(super) fn draw(frame: &mut Frame, screen: &MainScreen) {
             }
         }
         Focus::Help => draw_help(frame),
-        Focus::Instructions => draw_instructions(frame, screen),
+        Focus::Instructions => return draw_instructions(frame, screen),
         Focus::Input | Focus::Tasks => {}
     }
+    None
 }
 fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let width = width.min(area.width.saturating_sub(2));
@@ -257,12 +258,10 @@ fn draw_help(frame: &mut Frame) {
     );
 }
 
-fn draw_instructions(frame: &mut Frame, screen: &MainScreen) {
+fn draw_instructions(frame: &mut Frame, screen: &MainScreen) -> Option<(usize, usize)> {
     let area = centered(frame.area(), 100, frame.area().height);
     frame.render_widget(Clear, area);
-    let Some(state) = screen.instructions() else {
-        return;
-    };
+    let state = screen.instructions()?;
     let counter = if state.origin == bunshin_core::instructions::InstructionsOrigin::Owner {
         format!(
             " {}/{}字 ",
@@ -289,12 +288,18 @@ fn draw_instructions(frame: &mut Frame, screen: &MainScreen) {
     lines.push(Line::default());
     lines.push(Line::from(wording::instructions_path(&state.path)));
     lines.push(Line::from(wording::INSTRUCTIONS_EDIT));
+    let lines = super::wrap_chat_rows(
+        lines.into_iter().map(|line| (line, 0)).collect(),
+        usize::from(body.width),
+    );
+    let metrics = (lines.len(), usize::from(body.height));
+    let scroll = screen
+        .instructions_scroll()
+        .min(metrics.0.saturating_sub(metrics.1));
     frame.render_widget(
-        Paragraph::new(lines).wrap(Wrap { trim: false }).scroll((
-            u16::try_from(screen.instructions_scroll()).unwrap_or(u16::MAX),
-            0,
-        )),
+        Paragraph::new(lines).scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0)),
         body,
     );
     frame.render_widget(Paragraph::new(wording::INSTRUCTIONS_FOOTER), footer);
+    Some(metrics)
 }

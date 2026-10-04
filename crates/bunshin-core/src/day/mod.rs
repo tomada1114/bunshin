@@ -233,6 +233,9 @@ pub struct Message {
     /// Absent in earlier format-one files and therefore decoded as false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cancelled: bool,
+    /// Stable owner-row index for ordering completed chat turns without moving rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_reply_to: Option<u64>,
 }
 /// The previous day's record retained for context.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -329,21 +332,70 @@ impl Day {
     pub(crate) fn append_message(&mut self, message: Message) {
         self.data.messages.push(message);
     }
-    pub(crate) fn cancel_owner_message(&mut self, index: usize) {
-        if let Some(message) = self.data.messages.get_mut(index) {
-            message.cancelled = true;
+    pub(crate) fn cancel_owner_message(
+        &mut self,
+        index: usize,
+        before: Option<(u64, InboxState, UnixMillis)>,
+    ) -> Option<u64> {
+        let message = self.data.messages.get_mut(index)?;
+        message.cancelled = true;
+        let sent_at = message.time;
+        let (target, state, changed_at) = before?;
+        let question = self
+            .data
+            .messages
+            .get_mut(usize::try_from(target).ok()?)?
+            .unprompted
+            .as_mut()?;
+        if question.inbox_state == InboxState::Answered && question.state_changed_at == sent_at {
+            question.inbox_state = state;
+            question.state_changed_at = changed_at;
+            Some(target)
+        } else {
+            None
         }
+    }
+    pub(crate) fn link_chat_reply(&mut self, owner: usize) {
+        if let Some(reply) = self.data.messages.last_mut() {
+            reply.in_reply_to = u64::try_from(owner).ok();
+        }
+    }
+    pub(crate) fn record_instructions_notice(&mut self, revision: Option<u64>) -> bool {
+        let changed = self.data.last_instructions_notice != revision;
+        self.data.last_instructions_notice = revision;
+        changed
     }
     pub(crate) fn chat_context_without_owner_rows(&self, indices: &[usize]) -> Self {
         let mut context = self.clone();
-        context.data.messages = context
-            .data
-            .messages
-            .into_iter()
-            .enumerate()
-            .filter(|(index, _)| !indices.contains(index))
-            .map(|(_, message)| message)
-            .collect();
+        let mut replies = std::collections::BTreeMap::<usize, Vec<Message>>::new();
+        let mut rows = Vec::new();
+        for (index, message) in self.data.messages.iter().enumerate() {
+            let target = message
+                .in_reply_to
+                .and_then(|id| usize::try_from(id).ok())
+                .filter(|owner| {
+                    *owner < index
+                        && message.author == Author::Bunshin
+                        && message.kind == MessageKind::Reply
+                        && self.data.messages[*owner].author == Author::You
+                        && self.data.messages[*owner].kind == MessageKind::Reply
+                });
+            if let Some(owner) = target {
+                replies.entry(owner).or_default().push(message.clone());
+            } else {
+                rows.push((index, message.clone()));
+            }
+        }
+        context.data.messages.clear();
+        for (index, message) in rows {
+            if !indices.contains(&index) {
+                context.data.messages.push(message);
+                context
+                    .data
+                    .messages
+                    .extend(replies.remove(&index).unwrap_or_default());
+            }
+        }
         context
     }
     /// Every persisted field, read-only; session undo is excluded.
@@ -684,6 +736,7 @@ impl Day {
             answers_question: None,
             change_set: Some(set.clone()),
             cancelled: false,
+            in_reply_to: None,
         });
     }
 }

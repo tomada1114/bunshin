@@ -74,7 +74,12 @@ fn task_change(
             if before.status != after.status {
                 return format!(
                     "{} {} {}",
-                    super::status_mark(after.status),
+                    match after.status {
+                        bunshin_core::day::TaskStatus::Done => "x",
+                        bunshin_core::day::TaskStatus::Dropped => "-",
+                        bunshin_core::day::TaskStatus::CarriedOver => ">",
+                        bunshin_core::day::TaskStatus::Open => "~",
+                    },
                     after.number,
                     after.title
                 );
@@ -202,5 +207,40 @@ mod tests {
         );
         let (_, muted) = day.mute(UnixMillis(3_600_000), now.instant);
         assert_eq!(chat_changes(&muted, Some(now)), "ミュート 〜16:31");
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+    use bunshin_core::{
+        Clock, Tuning,
+        day::{Day, TaskKind, TaskOrigin},
+    };
+    use bunshin_test_support::FixedClock;
+
+    #[test]
+    fn task_change_marks_distinguish_done_dropped_and_undo() {
+        let now = FixedClock::default().now();
+        let day = Day::new(now.local.date(), Tuning::default())
+            .add(
+                "資料".into(),
+                TaskKind::Untimed,
+                None,
+                TaskOrigin::Chat,
+                now.instant,
+            )
+            .unwrap()
+            .0;
+        let (done, set) = day.clone().done(1, now.instant).unwrap();
+        assert_eq!(chat_changes(&set, Some(now)), "x 1 資料");
+        assert_eq!(
+            chat_changes(&done.undo(now.instant).unwrap().1, Some(now)),
+            "取り消し: x 1 資料"
+        );
+        assert_eq!(
+            chat_changes(&day.drop(1, now.instant).unwrap().1, Some(now)),
+            "- 1 資料"
+        );
     }
 }

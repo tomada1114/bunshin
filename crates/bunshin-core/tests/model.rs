@@ -156,3 +156,19 @@ fn model_request_preserves_text_and_custom_timeout() {
     );
     assert_eq!(model.requests(), vec![request]);
 }
+
+#[test]
+fn availability_cancellation_preserves_the_probe_result() {
+    use bunshin_core::Availability;
+    let model = ScriptedLanguageModel::new([]);
+    let cancel = CancelFlag::default();
+    cancel.cancel();
+    assert_eq!(
+        model.availability_with_cancel(&cancel),
+        Err(ModelError::Cancelled)
+    );
+    assert_eq!(
+        model.availability_with_cancel(&CancelFlag::default()),
+        Ok(Availability::Available)
+    );
+}
