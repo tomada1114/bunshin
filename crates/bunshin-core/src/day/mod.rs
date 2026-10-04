@@ -229,7 +229,7 @@ pub struct Message {
     pub answers_question: Option<u64>,
     /// Typed visible change facts, including undo records.
     pub change_set: Option<ChangeSet>,
-    /// A cancelled owner call retains its original text but supplies no future context.
+    /// A cancelled or failed owner call retains its text but supplies no future context.
     /// Absent in earlier format-one files and therefore decoded as false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cancelled: bool,

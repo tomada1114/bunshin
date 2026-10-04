@@ -328,7 +328,7 @@ The optional day field `lastInstructionsNotice` fingerprints the last fallback
 revision, preventing repeated notices after reloading the same day. It stores no
 instruction text and clears when owner instructions become usable.
 
-A message may carry `cancelled: true` for a stopped owner call. Older format-one
+A message may carry `cancelled: true` for a stopped or failed owner call. Older format-one
 files omit this field and decode it as false; false values remain omitted on save.
 Loading requires current or historical task snapshots to account for every consumed
 number from one through the high-water mark, so an inflated cursor cannot skip numbers.

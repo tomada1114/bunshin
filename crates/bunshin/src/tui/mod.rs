@@ -137,7 +137,7 @@ fn event_loop(
             screen = next;
             if probe {
                 event_try!(worker.probe());
-            } else if screen.owner_waiting() {
+            } else if screen.chat_dispatch_ready() {
                 screen = read_instructions(screen, instructions, now, store, worker);
                 if let Some(owner) = screen.instructions().cloned() {
                     let (next, request, effects) = screen.prepare_chat(&owner, now);

@@ -325,6 +325,17 @@ fn every_chat_failure_keeps_tasks_and_undo_and_adds_one_typed_error_effect() {
             now,
         );
         assert_eq!(screen.day().tasks(), before);
+        assert!(
+            screen.day().messages().last().unwrap().cancelled,
+            "failed owner row must leave model history"
+        );
+        assert_eq!(screen.day().messages().last().unwrap().text, "終わった");
+        let next = type_text(screen.clone(), "fresh owner turn", now)
+            .update(ScreenKey::Enter, now)
+            .0;
+        let (_, next_request, _) = next.prepare_chat(&owner, now);
+        assert!(!next_request.unwrap().request.prompt.contains("終わった"));
+
         assert_eq!(
             effects,
             vec![Effect::ChatNotice(ChatNotice::Failed), Effect::Save]
@@ -906,4 +917,165 @@ fn midcall_unavailability_requeues_the_active_owner_before_later_turns() {
             .all(|message| !message.cancelled)
     );
     assert_eq!(screen.day().messages().len(), 4);
+}
+
+#[test]
+fn failed_owner_turn_restores_answered_question_and_stays_out_of_future_context() {
+    use bunshin_core::day::{
+        Author, InboxState, Message, MessageKind, Trigger, TriggerKind, UnpromptedKind,
+        UnpromptedMessage, file::DayFile,
+    };
+    let tuning = Tuning::default();
+    let now = FixedClock::default().now();
+    let mut data = Day::new(now.local.date(), tuning).data().clone();
+    data.messages.push(Message {
+        author: Author::Bunshin,
+        text: "synthetic question".into(),
+        time: now.instant,
+        kind: MessageKind::Unprompted,
+        answers_question: None,
+        change_set: None,
+        cancelled: false,
+        in_reply_to: None,
+        unprompted: Some(UnpromptedMessage {
+            kind: UnpromptedKind::Question,
+            trigger: Trigger {
+                kind: TriggerKind::PlannedLook,
+                task: None,
+                due_at: now.instant,
+            },
+            task: None,
+            inbox_state: InboxState::Open,
+            state_changed_at: now.instant,
+            suppressed: None,
+        }),
+    });
+    let day = (DayFile { format: 1, data }).into_day(tuning).unwrap();
+    let owner =
+        InstructionsState::resolve(Some("synthetic"), PathBuf::from("instructions.md"), tuning);
+    for error in [
+        bunshin_core::ModelError::TimedOut,
+        bunshin_core::ModelError::Cancelled,
+        bunshin_core::ModelError::Refused,
+        bunshin_core::ModelError::Malformed,
+        bunshin_core::ModelError::Failed,
+    ] {
+        let screen = type_text(
+            MainScreen::new(day.clone(), tuning),
+            "failed owner answer",
+            now,
+        )
+        .update(ScreenKey::Enter, now)
+        .0;
+        let (screen, request, _) = screen.prepare_chat(&owner, now);
+        let (screen, effects) = screen.finish_chat(request.unwrap().id, Err(error), now);
+        assert_eq!(
+            effects,
+            vec![Effect::ChatNotice(ChatNotice::Failed), Effect::Save]
+        );
+        assert_eq!(screen.input().text(), "");
+        assert!(screen.day().messages()[1].cancelled);
+        let question = screen.day().messages()[0].unprompted.as_ref().unwrap();
+        assert_eq!(question.inbox_state, InboxState::Open);
+        assert_eq!(question.state_changed_at, now.instant);
+        let screen = type_text(screen, "fresh owner turn", now)
+            .update(ScreenKey::Enter, now)
+            .0;
+        let (_, request, _) = screen.prepare_chat(&owner, now);
+        assert!(
+            !request
+                .unwrap()
+                .request
+                .prompt
+                .contains("failed owner answer")
+        );
+    }
+}
+
+#[test]
+fn chat_dispatch_readiness_tracks_queue_probe_flight_and_recovery() {
+    use bunshin_core::{Availability, UnavailableReason};
+    let tuning = Tuning::default();
+    let now = FixedClock::default().now();
+    let owner =
+        InstructionsState::resolve(Some("synthetic"), PathBuf::from("instructions.md"), tuning);
+    let screen = MainScreen::new(Day::new(now.local.date(), tuning), tuning);
+    assert!(!screen.chat_dispatch_ready());
+    let screen = type_text(screen, "first turn", now)
+        .update(ScreenKey::Enter, now)
+        .0;
+    assert!(screen.chat_dispatch_ready());
+    let (screen, probe) = screen.prepare_availability(now.instant);
+    assert!(probe);
+    assert!(!screen.chat_dispatch_ready());
+    let (screen, _) = screen.record_availability(
+        Ok(Availability::Unavailable(
+            UnavailableReason::TermsNotAccepted,
+        )),
+        now.instant,
+    );
+    assert!(!screen.chat_dispatch_ready());
+    let (screen, _) = screen.record_availability(Ok(Availability::Available), now.instant);
+    assert!(screen.chat_dispatch_ready());
+    let (screen, request, _) = screen.prepare_chat(&owner, now);
+    let screen = type_text(screen, "next turn", now)
+        .update(ScreenKey::Enter, now)
+        .0;
+    assert!(!screen.chat_dispatch_ready());
+    let (screen, _) = screen.finish_chat(
+        request.unwrap().id,
+        Err(bunshin_core::ModelError::Failed),
+        now,
+    );
+    assert!(screen.chat_dispatch_ready());
+    let screen = screen.update(ScreenKey::Interrupt, now).0;
+    assert!(!screen.chat_dispatch_ready());
+}
+
+#[test]
+fn prompt_assembly_failure_keeps_the_owner_row_visible_but_out_of_restart_history() {
+    use bunshin_core::day::file::DayFile;
+    let mut tuning = Tuning::default();
+    tuning.prompt.context_tokens = 0;
+    let now = FixedClock::default().now();
+    let owner =
+        InstructionsState::resolve(Some("synthetic"), PathBuf::from("instructions.md"), tuning);
+    let screen = type_text(
+        MainScreen::new(Day::new(now.local.date(), tuning), tuning),
+        "failed oversized context turn",
+        now,
+    )
+    .update(ScreenKey::Enter, now)
+    .0;
+    let (screen, request, effects) = screen.prepare_chat(&owner, now);
+    assert!(request.is_none());
+    assert_eq!(
+        effects,
+        vec![Effect::ChatNotice(ChatNotice::Failed), Effect::Save]
+    );
+    assert!(screen.day().messages()[0].cancelled);
+    assert_eq!(
+        screen.day().messages()[0].text,
+        "failed oversized context turn"
+    );
+    let tuning = Tuning::default();
+    let day = serde_json::from_str::<DayFile>(
+        &serde_json::to_string(&DayFile::from(screen.day())).unwrap(),
+    )
+    .unwrap()
+    .into_day(tuning)
+    .unwrap();
+    let owner =
+        InstructionsState::resolve(Some("synthetic"), PathBuf::from("instructions.md"), tuning);
+    let screen = type_text(MainScreen::new(day, tuning), "fresh owner turn", now)
+        .update(ScreenKey::Enter, now)
+        .0;
+    let (_, request, _) = screen.prepare_chat(&owner, now);
+    assert!(
+        !request
+            .unwrap()
+            .request
+            .prompt
+            .contains("failed oversized context turn")
+    );
 }

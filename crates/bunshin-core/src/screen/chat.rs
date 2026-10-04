@@ -117,6 +117,16 @@ impl MainScreen {
     pub fn owner_waiting(&self) -> bool {
         self.chat.flight.is_some() || !self.chat.queue.is_empty()
     }
+    /// Whether queued owner work can dispatch now; probes and unavailable readiness
+    /// defer instruction rereads until a model call can actually begin.
+    #[must_use]
+    pub fn chat_dispatch_ready(&self) -> bool {
+        !self.finished
+            && !self.chat.queue.is_empty()
+            && self.chat.flight.is_none()
+            && !self.chat.probing
+            && !matches!(self.chat.availability, Some(Availability::Unavailable(_)))
+    }
     /// Pure elapsed-time feedback, with clock rollback clamped at zero.
     #[must_use]
     pub fn chat_status(&self, at: UnixMillis) -> ChatStatus {
@@ -274,11 +284,7 @@ impl MainScreen {
         owner: &InstructionsState,
         now: Now,
     ) -> (Self, Option<ChatRequest>, Vec<Effect>) {
-        if self.finished
-            || self.chat.flight.is_some()
-            || self.chat.probing
-            || matches!(self.chat.availability, Some(Availability::Unavailable(_)))
-        {
+        if !self.chat_dispatch_ready() {
             return (self, None, Vec::new());
         }
         let Some(pending) = self.chat.queue.pop_front() else {
@@ -292,7 +298,7 @@ impl MainScreen {
             .collect::<Vec<_>>();
         indices.push(pending.index);
         let context = self.day.chat_context_without_owner_rows(&indices);
-        match build_chat(
+        if let Ok(built) = build_chat(
             &context,
             owner,
             &pending.text,
@@ -300,29 +306,25 @@ impl MainScreen {
             ContextExtras::default(),
             self.tuning,
         ) {
-            Ok(built) => {
-                let id = self.chat.next_id;
-                self.chat.next_id = self.chat.next_id.saturating_add(1);
-                self.chat.flight = Some(Flight {
-                    id,
-                    pending,
-                    started: now.instant,
-                    cancelled: false,
-                });
-                (
-                    self,
-                    Some(ChatRequest {
-                        id,
-                        request: built.request,
-                    }),
-                    Vec::new(),
-                )
-            }
-            Err(_) => (
+            let id = self.chat.next_id;
+            self.chat.next_id = self.chat.next_id.saturating_add(1);
+            self.chat.flight = Some(Flight {
+                id,
+                pending,
+                started: now.instant,
+                cancelled: false,
+            });
+            (
                 self,
-                None,
-                vec![Effect::ChatNotice(ChatNotice::Failed), Effect::Save],
-            ),
+                Some(ChatRequest {
+                    id,
+                    request: built.request,
+                }),
+                Vec::new(),
+            )
+        } else {
+            let effects = self.fail_owner_turn(&pending);
+            (self, None, effects)
         }
     }
     /// Apply a matching completion to the current Day, preserving intervening key changes.
@@ -386,11 +388,16 @@ impl MainScreen {
                 | ModelError::Refused
                 | ModelError::Malformed
                 | ModelError::Failed,
-            ) => (
-                self,
-                vec![Effect::ChatNotice(ChatNotice::Failed), Effect::Save],
-            ),
+            ) => {
+                let effects = self.fail_owner_turn(&flight.pending);
+                (self, effects)
+            }
         }
+    }
+    fn fail_owner_turn(&mut self, pending: &Pending) -> Vec<Effect> {
+        self.day
+            .cancel_owner_message(pending.index, pending.question_before);
+        vec![Effect::ChatNotice(ChatNotice::Failed), Effect::Save]
     }
     pub(super) fn cancel_pending_chat(&mut self) -> bool {
         let pending = self.owner_waiting();
