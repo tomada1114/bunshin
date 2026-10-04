@@ -7,8 +7,8 @@ use super::{
 use crate::{
     Availability, ModelAnswer, ModelError, ModelRequest, Now, Tuning,
     day::{
-        Author, Day, InboxState, Message, MessageKind, SuppressionReason, TaskKind, TaskStatus,
-        TaskView, Trigger, TriggerKind, UnpromptedKind, UnpromptedMessage,
+        Author, Day, InboxState, Message, MessageKind, SuppressionReason, Task, TaskKind,
+        TaskStatus, TaskView, Trigger, TriggerKind, UnpromptedKind, UnpromptedMessage,
     },
     instructions::InstructionsState,
     prompt::{
@@ -324,7 +324,10 @@ impl CheckinCalls {
                         && (!super::deadline_is_due(day, trigger, now, tuning)
                             || !pending.tasks_at_enqueue.iter().any(|(event, task)| {
                                 event == *trigger
-                                    && current_task(task.number, day, std::slice::from_ref(task))
+                                    && day.tasks().iter().any(|current| {
+                                        current.number == task.number
+                                            && task_facts_current(task, current)
+                                    })
                             }))
                 })
                 .cloned()
@@ -396,7 +399,13 @@ impl CheckinCalls {
         let invalid_deadline = flight.pending.batch.triggers.len() != old_count;
         match result.and_then(|answer| parse_checkin(&answer.json, &day, self.tuning)) {
             Err(error) => self.failed(day, flight.pending, error, now, render, before),
-            Ok(answer) => {
+            Ok(mut answer) => {
+                answer.task = answer.task.filter(|number| {
+                    flight
+                        .tasks_at_dispatch
+                        .iter()
+                        .any(|task| task.number == *number)
+                });
                 let stale_task = answer.requested_task.map_or(invalid_deadline, |number| {
                     flight
                         .tasks_at_dispatch
@@ -552,14 +561,16 @@ fn current_task(number: u64, day: &Day, dispatched: &[TaskView]) -> bool {
     let current = day.tasks().iter().find(|task| task.number == number);
     match (before, current) {
         (Some(before), Some(current)) => {
-            current.status == TaskStatus::Open
-                && current.title == before.title
-                && current.kind == before.kind
-                && current.time == before.time
-                && current.origin == before.origin
+            task_facts_current(before, current) && current.title == before.title
         }
         (None, _) | (Some(_), None) => false,
     }
+}
+fn task_facts_current(before: &TaskView, current: &Task) -> bool {
+    current.status == TaskStatus::Open
+        && current.kind == before.kind
+        && current.time == before.time
+        && current.origin == before.origin
 }
 fn deadline(kind: TriggerKind) -> bool {
     match kind {

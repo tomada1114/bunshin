@@ -25,11 +25,12 @@ pub fn build_checkin(
     tuning: Tuning,
 ) -> Result<BuiltCheckin, PromptError> {
     let rules = format!(
-        "\n\n分身の見守り規則: 今日のタスクについて今声をかける必要があるか判断する。回答は kind, message, task, next_look_minutes の JSON。kind は silent（声をかけない）, note（短い助言）, question（返答を求める質問）。message は日本語で{}字以内を目安にする。task は存在する関連タスクの番号、一般的な話なら省略する。next_look_minutes は{}〜{}分、未指定なら{}分。タスクを変更しない。triggers は [種別, タスク番号または null] の配列: b=締切30分前, a=締切超過, p=予定の確認, s=日の開始, e=夕方の振り返り, c=再開。現在時刻と全タスクの事実を使い、同じ通知を繰り返さない。説明やコード囲みを JSON の外に書かない。",
+        "\n\n分身の見守り規則: 今日のタスクについて今声をかける必要があるか判断する。回答は kind, message, task, next_look_minutes の JSON。kind は silent（声をかけない）, note（短い助言）, question（返答を求める質問）。message は日本語で{}字以内を目安にする。task は存在する関連タスクの番号、一般的な話なら省略する。next_look_minutes は{}〜{}分、未指定なら{}分。タスクを変更しない。triggers は [種別, タスク番号または null] の配列: b=締切{}分前, a=締切超過, p=予定の確認, s=日の開始, e=夕方の振り返り, c=再開。現在時刻と全タスクの事実を使い、同じ通知を繰り返さない。説明やコード囲みを JSON の外に書かない。",
         tuning.prompt.reply_max_chars,
         tuning.checkin.planned_min_minutes,
         tuning.checkin.planned_max_minutes,
-        tuning.checkin.planned_default_minutes
+        tuning.checkin.planned_default_minutes,
+        tuning.checkin.before_deadline_minutes
     );
     assemble(
         day,

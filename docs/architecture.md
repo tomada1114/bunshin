@@ -108,12 +108,15 @@ retaining each event's enqueue facts and retry allowance. Opening-exempt events
 stay separate from later routine events. Deadline events also recheck the
 current civil deadline before dispatch, including after a restart; an obsolete
 held event is removed without rewriting the once-per-task/kind fired record.
+Renaming a queued task keeps its deadline event: dispatch uses the current title
+and validates the deadline-defining facts rather than an unused earlier title.
 A failed in-flight batch also joins eligible events queued
 during its call; a retry waits for an actual tick, and fresh events retain their
 own single retry even when sent alongside a previously failed event.
 Task-specific replies are discarded when a task known at dispatch was closed,
 deleted or edited during the call; discarding them leaves the current planned
-look unchanged. Deadline fallbacks compare current task facts
+look unchanged. A task created during the call cannot capture a reference unknown
+at dispatch; that reference remains general. Deadline fallbacks compare current task facts
 with the dispatch snapshot too, so an edited time, kind or title cannot produce
 a notice based on an obsolete deadline. Held facts remain saved while the worker or
 guards prevent dispatch. A previous-day flight occupies the

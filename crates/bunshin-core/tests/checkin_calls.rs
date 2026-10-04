@@ -26,6 +26,113 @@ fn apply_delivery_guard(
 }
 
 #[test]
+fn title_only_edits_before_dispatch_keep_the_queued_deadline_with_its_current_title() {
+    use bunshin_core::{Availability, UnavailableReason, checkin::calls::CallContext};
+    for availability in [
+        Availability::Available,
+        Availability::Unavailable(UnavailableReason::NotInstalled),
+    ] {
+        let (day, owner, mut calls, now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+        let held = calls.prepare(
+            day,
+            &owner,
+            ContextExtras::default(),
+            CallContext {
+                owner_waiting: true,
+                ..context(now)
+            },
+            fixed,
+        );
+        let day = held
+            .day
+            .edit(
+                1,
+                "新しい資料".into(),
+                TaskKind::Deadline,
+                Some("15:00".parse().unwrap()),
+                now.instant,
+            )
+            .unwrap()
+            .0;
+        let update = calls.prepare(
+            day,
+            &owner,
+            ContextExtras::default(),
+            CallContext {
+                availability,
+                ..context(now)
+            },
+            |note| {
+                assert_eq!(note.task.title, "新しい資料");
+                "current title deadline".into()
+            },
+        );
+        match availability {
+            Availability::Available => assert!(update.request.is_some()),
+            Availability::Unavailable(_) => assert_eq!(
+                update.day.messages().last().unwrap().text,
+                "current title deadline"
+            ),
+        }
+    }
+}
+
+#[test]
+fn a_task_created_during_a_call_cannot_capture_the_models_previously_unknown_reference() {
+    use bunshin_core::{ModelAnswer, checkin::calls::CheckinEffect};
+    let (day, owner, mut calls, now) = fixture(TriggerKind::PlannedLook).unwrap();
+    let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+    let day = start
+        .day
+        .add(
+            "後で追加".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            now.instant,
+        )
+        .unwrap()
+        .0;
+    assert_eq!(day.tasks().last().unwrap().number, 2);
+    let answer = ModelAnswer {
+        json: r#"{"kind":"question","task":2,"message":"general answer"}"#.into(),
+    };
+    let update = calls.finish(
+        day,
+        start.request.unwrap().id,
+        Ok(answer),
+        context(now),
+        fixed,
+    );
+    let message = update.day.messages().last().unwrap();
+    assert_eq!(message.text, "general answer");
+    assert_eq!(message.unprompted.as_ref().unwrap().task, None);
+    assert!(update.effects.contains(&CheckinEffect::Bell));
+}
+
+#[test]
+fn checkin_prompt_describes_the_configured_before_deadline_offset() {
+    let (day, owner, _, now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+    let mut tuning = Tuning::default();
+    tuning.checkin.before_deadline_minutes = 15;
+    let built = build_checkin(
+        &day,
+        &owner,
+        now,
+        &[Trigger {
+            kind: TriggerKind::BeforeDeadline,
+            task: Some(1),
+            due_at: now.instant,
+        }],
+        ContextExtras::default(),
+        tuning,
+    )
+    .unwrap();
+    assert!(built.request.instructions.contains("b=締切15分前"));
+    assert!(!built.request.instructions.contains("b=締切30分前"));
+}
+
+#[test]
 fn opening_exempt_batches_cannot_carry_later_routine_events_past_delivery_guards() {
     use bunshin_core::{
         ModelAnswer,
