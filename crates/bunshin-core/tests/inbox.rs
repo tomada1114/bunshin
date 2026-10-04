@@ -522,3 +522,40 @@ fn inbox_clamps_navigation_and_closes_on_escape_or_the_opening_key() {
         assert_eq!(closed.day(), screen.day());
     }
 }
+
+#[test]
+fn clock_rollback_preserves_append_order_for_inbox_replies_and_model_context() {
+    let day = fixture(&[UnpromptedKind::Question; 6]);
+    let mut data = day.data().clone();
+    for (index, row) in data.messages.iter_mut().enumerate() {
+        row.time = UnixMillis(600_000 - i64::try_from(index).unwrap() * 60_000);
+    }
+    data.messages[0].unprompted.as_mut().unwrap().inbox_state = InboxState::Muted;
+    let day = (DayFile { format: 1, data })
+        .into_day(Tuning::default())
+        .unwrap();
+    assert_eq!(
+        day.inbox_view()
+            .items
+            .iter()
+            .map(|item| item.message)
+            .collect::<Vec<_>>(),
+        [5, 4, 3, 2, 1]
+    );
+    assert_eq!(day.implicit_reply_target(UnixMillis(660_000)), Some(5));
+    let day = day.record_owner_message("synthetic rollback reply", None, UnixMillis(660_000));
+    assert_eq!(day.messages().last().unwrap().answers_question, Some(5));
+    assert_eq!(
+        day.inbox_context(UnixMillis(660_000))
+            .iter()
+            .map(|item| item.state)
+            .collect::<Vec<_>>(),
+        [
+            InboxState::Open,
+            InboxState::Open,
+            InboxState::Open,
+            InboxState::Open,
+            InboxState::Answered
+        ]
+    );
+}

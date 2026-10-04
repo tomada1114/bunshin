@@ -79,17 +79,18 @@ impl Day {
                 })
             })
             .collect::<Vec<_>>();
-        items.sort_by_key(|item| std::cmp::Reverse((item.time, item.message)));
+        // Wall clocks can move backwards; append sequence owns recency.
+        items.reverse();
         InboxView {
             items,
             selected: None,
         }
     }
-    /// Chronological recent reactions for every model call. Ignored is computed
+    /// Recent reactions in append order for every model call. Ignored is computed
     /// at the supplied instant; it does not close or rewrite an open item.
     #[must_use]
     pub fn inbox_context(&self, at: UnixMillis) -> Vec<UnpromptedContext> {
-        let mut rows = self
+        let rows = self
             .messages()
             .iter()
             .enumerate()
@@ -100,7 +101,6 @@ impl Day {
                     .is_some_and(|extra| extra.suppressed.is_none())
             })
             .collect::<Vec<_>>();
-        rows.sort_by_key(|(index, row)| (row.time, *index));
         let count = self.tuning().prompt.recent_unprompted;
         rows.into_iter()
             .rev()
