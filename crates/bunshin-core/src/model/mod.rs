@@ -115,6 +115,23 @@ pub trait LanguageModel: Send + Sync {
     /// # Errors
     /// An unclassified probe failure, including its timeout.
     fn availability(&self) -> Result<Availability, ModelError>;
+    /// Probe with cancellation, without spawning work when already cancelled.
+    /// Process-backed adapters override this to stop and reap a running probe.
+    /// The compatibility default checks cancellation before and after `availability`;
+    /// it cannot interrupt an implementation's blocking probe.
+    ///
+    /// # Errors
+    /// Cancellation, or the same failures as `availability`.
+    fn availability_with_cancel(&self, cancel: &CancelFlag) -> Result<Availability, ModelError> {
+        if cancel.is_cancelled() {
+            return Err(ModelError::Cancelled);
+        }
+        let result = self.availability();
+        if cancel.is_cancelled() {
+            return Err(ModelError::Cancelled);
+        }
+        result
+    }
     /// Return JSON text, or a typed failure. Prompt bytes are preserved.
     ///
     /// # Errors

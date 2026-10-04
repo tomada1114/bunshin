@@ -15,6 +15,19 @@ pub struct Now {
     /// The same instant in the local zone, used for dates, deadlines, and active hours.
     pub local: DateTime,
 }
+impl Now {
+    /// Convert another instant using this sample's fixed UTC offset. The system
+    /// clock overrides this approximation with its zone's historical rules.
+    #[must_use]
+    pub fn at_fixed_offset(self, instant: UnixMillis) -> Option<Self> {
+        let delta = instant.0.checked_sub(self.instant.0)?;
+        let local = self
+            .local
+            .checked_add(jiff::SignedDuration::from_millis(delta))
+            .ok()?;
+        Some(Self { instant, local })
+    }
+}
 
 /// The source of the current time: `SystemClock` (platform) in the app, `FixedClock`
 /// (test-support) in tests. Injected so a test never sleeps and never depends on the date.
@@ -25,6 +38,12 @@ pub trait Clock: Send + Sync {
     /// view differs by a valid UTC offset; its subsecond part agrees with the instant.
     /// A zone change can move the local view without moving the instant.
     fn now(&self) -> Now;
+    /// Local display time for a stored instant, without advancing the clock.
+    /// The default keeps the current sample's offset; zone-aware adapters
+    /// override it to account for historical daylight-saving transitions.
+    fn local_at(&self, instant: UnixMillis) -> Option<Now> {
+        self.now().at_fixed_offset(instant)
+    }
 }
 
 /// The day an owner is still working on, changing at `boundary` in local civil time.

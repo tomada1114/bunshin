@@ -89,7 +89,14 @@ fn tui() -> ExitCode {
     if init_logging(&log_dir(&home), env!("CARGO_PKG_NAME"), false).is_err() {
         eprintln!("warning: {}", wording::LOGGING_UNAVAILABLE);
     }
-    match tui::run(screen, &store, &clock) {
+    #[cfg(target_os = "macos")]
+    let model: std::sync::Arc<dyn bunshin_core::LanguageModel> =
+        std::sync::Arc::new(bunshin_platform::FmLanguageModel::default());
+    #[cfg(not(target_os = "macos"))]
+    let model: std::sync::Arc<dyn bunshin_core::LanguageModel> =
+        std::sync::Arc::new(bunshin_platform::UnavailableLanguageModel);
+    let instructions = bunshin_platform::FileInstructions::new(app_data_dir(&home));
+    match tui::run(screen, &store, &clock, model, &instructions, tuning) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(kind = ?error.kind(), "the terminal failed");

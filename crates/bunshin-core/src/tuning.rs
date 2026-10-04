@@ -15,6 +15,8 @@ pub struct Tuning {
     pub checkin: CheckinTuning,
     /// Reaction window for implicit answers, mute reactions and ignored reporting.
     pub inbox_reaction_minutes: u16,
+    /// Owner-call feedback and unavailable-model recheck intervals.
+    pub chat: ChatTuning,
     /// One hour of quiet from the task-pane mute key, shared with check-in logic.
     pub key_mute_minutes: u16,
     /// Task limits and session undo capacity.
@@ -32,12 +34,36 @@ impl Default for Tuning {
         Self {
             prompt: PromptTuning::default(),
             checkin: CheckinTuning::shipped(),
+            chat: ChatTuning::default(),
             key_mute_minutes: 60,
             inbox_reaction_minutes: 15,
             day: DayTuning::shipped(),
             day_boundary: DEFAULT_DAY_BOUNDARY,
             model_timeout: DEFAULT_MODEL_TIMEOUT,
             instructions_max_chars: 600,
+        }
+    }
+}
+
+/// Owner-call feedback delays; time is supplied by the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChatTuning {
+    /// Terminal polling bound for worker completions and feedback deadlines.
+    pub poll_interval: Duration,
+    /// Fast answers never show a thinking row.
+    pub thinking_after: Duration,
+    /// Replace the thinking row with a cancellation hint.
+    pub long_wait_after: Duration,
+    /// Interval between probes while the model cannot be used.
+    pub availability_recheck: Duration,
+}
+impl Default for ChatTuning {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_millis(100),
+            thinking_after: Duration::from_millis(300),
+            long_wait_after: Duration::from_secs(10),
+            availability_recheck: Duration::from_secs(600),
         }
     }
 }

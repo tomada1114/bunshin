@@ -168,6 +168,8 @@ impl Day {
             unprompted: None,
             answers_question: target,
             change_set: None,
+            cancelled: false,
+            in_reply_to: None,
         });
         self
     }

@@ -11,6 +11,16 @@ impl Clock for SystemClock {
     fn now(&self) -> Now {
         reading_at(SystemTime::now(), &TimeZone::system())
     }
+    fn local_at(&self, instant: UnixMillis) -> Option<Now> {
+        local_at(instant, &TimeZone::system())
+    }
+}
+fn local_at(instant: UnixMillis, zone: &TimeZone) -> Option<Now> {
+    let timestamp = Timestamp::from_millisecond(instant.0).ok()?;
+    Some(Now {
+        instant,
+        local: zone.to_datetime(timestamp),
+    })
 }
 
 fn reading_at(time: SystemTime, zone: &TimeZone) -> Now {
@@ -32,8 +42,28 @@ mod tests {
 
     use jiff::{civil::date, tz::TimeZone};
 
-    use super::{UNIX_EPOCH, reading_at};
+    use super::{UNIX_EPOCH, local_at, reading_at};
     use bunshin_core::{Now, UnixMillis};
+
+    #[test]
+    fn stored_message_times_use_historical_zone_rules_including_the_repeated_hour() {
+        let zone = TimeZone::get("America/Denver").unwrap();
+        for (utc, expected) in [
+            ("2026-11-01T07:30:00Z", date(2026, 11, 1).at(1, 30, 0, 0)),
+            ("2026-11-01T08:30:00Z", date(2026, 11, 1).at(1, 30, 0, 0)),
+            ("2026-11-01T09:30:00Z", date(2026, 11, 1).at(2, 30, 0, 0)),
+        ] {
+            let instant = UnixMillis(utc.parse::<jiff::Timestamp>().unwrap().as_millisecond());
+            assert_eq!(
+                local_at(instant, &zone).unwrap(),
+                Now {
+                    instant,
+                    local: expected
+                }
+            );
+        }
+        assert!(local_at(UnixMillis(i64::MAX), &zone).is_none());
+    }
 
     #[test]
     fn a_reading_before_the_epoch_keeps_the_epoch_fallback() {

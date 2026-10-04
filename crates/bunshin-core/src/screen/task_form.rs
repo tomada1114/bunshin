@@ -151,7 +151,9 @@ impl TaskForm {
             | ScreenKey::Enter
             | ScreenKey::Esc
             | ScreenKey::Interrupt
-            | ScreenKey::Undo => {}
+            | ScreenKey::Undo
+            | ScreenKey::PageUp
+            | ScreenKey::PageDown => {}
         }
         if self.live_validation {
             self.error = self.validate(tuning).err().map(|(_, error)| error);
@@ -228,6 +230,8 @@ fn edit_text(text: &mut String, cursor: &mut usize, key: ScreenKey) {
         | ScreenKey::BackTab
         | ScreenKey::Esc
         | ScreenKey::Interrupt
-        | ScreenKey::Undo => {}
+        | ScreenKey::Undo
+        | ScreenKey::PageUp
+        | ScreenKey::PageDown => {}
     }
 }

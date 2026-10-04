@@ -210,12 +210,13 @@ mod command {
     }
     impl LanguageModel for FmLanguageModel {
         fn availability(&self) -> Result<Availability, ModelError> {
-            let result = self.run(
-                &["available"],
-                "",
-                self.probe_timeout,
-                &CancelFlag::default(),
-            );
+            self.availability_with_cancel(&CancelFlag::default())
+        }
+        fn availability_with_cancel(
+            &self,
+            cancel: &CancelFlag,
+        ) -> Result<Availability, ModelError> {
+            let result = self.run(&["available"], "", self.probe_timeout, cancel);
             match result {
                 Err(ModelError::Unavailable(reason)) => Ok(Availability::Unavailable(reason)),
                 Err(error) => Err(error),
@@ -392,6 +393,37 @@ printf '{"reply":"了解"}'"#,
             Err(ModelError::Cancelled)
         );
         assert!(!dir.path().join("spawned").exists());
+    }
+    #[test]
+    fn pre_cancelled_probe_never_spawns() {
+        let (dir, model) = stub("touch \"$(dirname \"$0\")/spawned\"");
+        let cancel = CancelFlag::default();
+        cancel.cancel();
+        assert_eq!(
+            model.availability_with_cancel(&cancel),
+            Err(ModelError::Cancelled)
+        );
+        assert!(!dir.path().join("spawned").exists());
+    }
+    #[test]
+    fn cancellation_kills_and_reaps_running_probe() {
+        let (dir, model) =
+            stub("printf '%s\\n' \"$$\" >\"$(dirname \"$0\")/pid\"\nwhile :; do :; done");
+        let cancel = CancelFlag::default();
+        thread::scope(|scope| {
+            let call = scope.spawn(|| model.availability_with_cancel(&cancel));
+            let start = Instant::now();
+            while !fs::read_to_string(dir.path().join("pid")).is_ok_and(|pid| pid.ends_with('\n')) {
+                assert!(
+                    start.elapsed() < Duration::from_secs(5),
+                    "probe never started"
+                );
+                thread::yield_now();
+            }
+            cancel.cancel();
+            assert_eq!(call.join().unwrap(), Err(ModelError::Cancelled));
+        });
+        assert_reaped(&dir);
     }
     fn assert_reaped(dir: &tempfile::TempDir) {
         let pid = fs::read_to_string(dir.path().join("pid"))

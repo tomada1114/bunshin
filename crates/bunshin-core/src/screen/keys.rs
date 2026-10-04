@@ -33,6 +33,10 @@ pub enum ScreenKey {
     Home,
     /// End of the current field.
     End,
+    /// Scroll the chat by one visible page.
+    PageUp,
+    /// Scroll the chat toward newer rows.
+    PageDown,
 }
 impl ScreenKey {
     /// Normalize only full-width ASCII and ideographic space, preserving other text.
@@ -99,6 +103,24 @@ pub enum ScreenAction {
     EditText,
     /// Cancel the task form.
     CancelForm,
+    /// Show the instructions currently used by model calls.
+    Instructions,
+    /// Close the instructions view.
+    CloseInstructions,
+    /// Scroll the instructions toward their beginning.
+    InstructionsUp,
+    /// Scroll the instructions toward their end.
+    InstructionsDown,
+    /// Scroll toward older chat rows.
+    ChatUp,
+    /// Scroll toward newer chat rows.
+    ChatDown,
+    /// Resume following the newest chat rows outside a text field.
+    ChatLatest,
+    /// Submit literal input.
+    SendInput,
+    /// Cancel the owner call or clear unsent input.
+    CancelInput,
 }
 /// The region in which a binding is interpreted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +135,10 @@ pub enum KeyRegion {
     Form,
     /// Help overlay only.
     Help,
+    /// Read-only instructions overlay.
+    Instructions,
+    /// Chat input only.
+    Input,
 }
 /// One source of truth for dispatch and the binary's translated help labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +156,36 @@ use ScreenKey as K;
 /// Bindings in the relative order of the product key table, restricted to this screen.
 pub const KEY_TABLE: &[KeyBinding] = &[
     KeyBinding {
+        action: A::SendInput,
+        keys: &[K::Enter],
+        region: KeyRegion::Input,
+    },
+    KeyBinding {
+        action: A::CancelInput,
+        keys: &[K::Esc],
+        region: KeyRegion::Input,
+    },
+    KeyBinding {
+        action: A::Instructions,
+        keys: &[K::Char('p')],
+        region: Tasks,
+    },
+    KeyBinding {
+        action: A::CloseInstructions,
+        keys: &[K::Esc, K::Char('p')],
+        region: KeyRegion::Instructions,
+    },
+    KeyBinding {
+        action: A::InstructionsUp,
+        keys: &[K::Up],
+        region: KeyRegion::Instructions,
+    },
+    KeyBinding {
+        action: A::InstructionsDown,
+        keys: &[K::Down],
+        region: KeyRegion::Instructions,
+    },
+    KeyBinding {
         action: A::Quit,
         keys: &[K::Interrupt],
         region: Anywhere,
@@ -145,6 +201,16 @@ pub const KEY_TABLE: &[KeyBinding] = &[
         region: Anywhere,
     },
     KeyBinding {
+        action: A::ChatUp,
+        keys: &[K::PageUp],
+        region: Anywhere,
+    },
+    KeyBinding {
+        action: A::ChatDown,
+        keys: &[K::PageDown],
+        region: Anywhere,
+    },
+    KeyBinding {
         action: A::Undo,
         keys: &[K::Char('u')],
         region: Tasks,
@@ -152,6 +218,11 @@ pub const KEY_TABLE: &[KeyBinding] = &[
     KeyBinding {
         action: A::MoveFocus,
         keys: &[K::Tab, K::BackTab],
+        region: Main,
+    },
+    KeyBinding {
+        action: A::ChatLatest,
+        keys: &[K::End],
         region: Main,
     },
     KeyBinding {

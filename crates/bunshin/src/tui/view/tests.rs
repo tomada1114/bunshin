@@ -44,6 +44,183 @@ fn line(buffer: &Buffer, y: u16) -> String {
     }
     text
 }
+
+#[test]
+fn chat_feedback_obeys_the_delay_and_cancel_hint_and_the_input_counter_marks_the_limit() {
+    use bunshin_core::instructions::InstructionsState;
+    let (mut screen, mut now) = empty();
+    for character in "資料終わった".chars() {
+        screen = screen.update(ScreenKey::Char(character), now).0;
+    }
+    screen = screen.update(ScreenKey::Enter, now).0;
+    let owner =
+        InstructionsState::resolve(Some("秘書"), "instructions.md".into(), Tuning::default());
+    let (screen, request, _) = screen.prepare_chat(&owner, now);
+    assert!(request.is_some());
+    now.instant.0 += 299;
+    assert!(!line(&render(&screen, now, 80, 24), 0).contains(wording::THINKING));
+    now.instant.0 += 1;
+    let buffer = render(&screen, now, 80, 24);
+    assert!(line(&buffer, 0).contains(wording::THINKING));
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|cell| cell.symbol() == "考" && cell.fg == Color::Magenta)
+    );
+    now.instant.0 += 9_700;
+    let buffer = render(&screen, now, 80, 24);
+    let text = (0..24)
+        .map(|y| line(&buffer, y))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains(wording::LONG_WAIT));
+    let mut screen = screen.update(ScreenKey::Esc, now).0;
+    for _ in 0..400 {
+        screen = screen.update(ScreenKey::Char('あ'), now).0;
+    }
+    let buffer = render(&screen, now, 80, 24);
+    assert!(line(&buffer, 22).contains("400/400"));
+    assert!(buffer.content.iter().any(|cell| cell.symbol() == "4"
+        && cell.fg == Color::Red
+        && cell.modifier.contains(Modifier::BOLD)));
+    assert_eq!(screen.input().chars(), 400);
+}
+
+#[test]
+fn chat_rows_show_timestamps_and_distinct_model_system_change_and_error_styles() {
+    use bunshin_core::{ModelAnswer, instructions::InstructionsState, screen::ChatNotice};
+    let (mut screen, now) = empty();
+    for character in "こんにちは".chars() {
+        screen = screen.update(ScreenKey::Char(character), now).0;
+    }
+    screen = screen.update(ScreenKey::Enter, now).0;
+    let owner =
+        InstructionsState::resolve(Some("秘書"), "instructions.md".into(), Tuning::default());
+    let (screen, request, _) = screen.prepare_chat(&owner, now);
+    let screen = screen
+        .finish_chat(
+            request.unwrap().id,
+            Ok(ModelAnswer {
+                json: r#"{"changes":[],"reply":"おつかれ！"}"#.into(),
+            }),
+            now,
+        )
+        .0;
+    let screen = screen
+        .record_chat_notice(
+            ChatNotice::ModelBack,
+            "モデルが使えるようになりました。",
+            now.instant,
+        )
+        .record_chat_notice(ChatNotice::Failed, "読み取れませんでした。", now.instant);
+    let buffer = render(&screen, now, 80, 24);
+    let text = (0..24)
+        .map(|y| line(&buffer, y))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("22:13 あなた  こんにちは"));
+    assert!(text.contains("22:13 Bunshin おつかれ！"));
+    assert!(buffer.content.iter().any(|cell| cell.symbol() == "B"
+        && cell.fg == Color::Magenta
+        && cell.modifier.contains(Modifier::BOLD)));
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|cell| cell.symbol() == "シ" && cell.fg == Color::Blue)
+    );
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|cell| cell.symbol() == "エ" && cell.fg == Color::Red)
+    );
+    let (day, _) = screen
+        .day()
+        .clone()
+        .add(
+            "資料".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            now.instant,
+        )
+        .unwrap();
+    let buffer = render(&MainScreen::new(day, Tuning::default()), now, 80, 24);
+    assert!(buffer.content.iter().any(|cell| cell.symbol() == "変"
+        && cell.fg == Color::Blue
+        && cell.modifier.contains(Modifier::BOLD)));
+}
+
+#[test]
+fn instructions_overlay_exposes_owner_counts_default_reasons_and_a_typed_read_failure() {
+    use bunshin_core::instructions::{InstructionsError, InstructionsState};
+    let (screen, now) = empty();
+    for text in [
+        None,
+        Some(String::new()),
+        Some("あ".repeat(601)),
+        Some("日本語の指示".into()),
+    ] {
+        let owner = InstructionsState::resolve(
+            text.as_deref(),
+            "instructions.md".into(),
+            Tuning::default(),
+        );
+        let reason = wording::instructions_source(&owner);
+        let screen = screen
+            .clone()
+            .record_instructions(owner)
+            .0
+            .update(ScreenKey::Tab, now)
+            .0
+            .update(ScreenKey::Char('p'), now)
+            .0;
+        assert_eq!(screen.focus(), Focus::Instructions);
+        let buffer = render(&screen, now, 80, 24);
+        let rendered = (0..24)
+            .map(|y| line(&buffer, y))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("読み取り専用"));
+        assert!(rendered.contains("bunshin instructions edit"));
+        if text.as_deref() == Some("日本語の指示") {
+            assert!(rendered.contains("6/600字"));
+            assert!(rendered.contains("日本語の指示"));
+        } else {
+            assert!(rendered.contains("既定を使用中"));
+            let joined = (2..22)
+                .map(|y| {
+                    line(&buffer, y)
+                        .trim_matches(|c: char| c.is_whitespace() || "┃│┌┐└┘".contains(c))
+                        .to_owned()
+                })
+                .collect::<String>();
+            assert!(joined.contains(&reason), "missing {reason}: {rendered}");
+        }
+        let before = screen.instructions().unwrap().text.clone();
+        let screen = screen.update(ScreenKey::Char('a'), now).0;
+        assert_eq!(screen.instructions().unwrap().text, before);
+        assert_eq!(screen.update(ScreenKey::Esc, now).0.focus(), Focus::Tasks);
+    }
+    let mut owner = InstructionsState::resolve(None, "instructions.md".into(), Tuning::default());
+    owner.failure = Some(InstructionsError::Unreadable);
+    let screen = screen
+        .record_instructions(owner)
+        .0
+        .update(ScreenKey::Tab, now)
+        .0
+        .update(ScreenKey::Char('p'), now)
+        .0;
+    let buffer = render(&screen, now, 80, 24);
+    let rendered = (0..24)
+        .map(|y| line(&buffer, y))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains(&wording::instructions_error(InstructionsError::Unreadable)));
+    assert!(!rendered.contains("ファイルがありません"));
+}
 #[test]
 fn exact_layout_boundaries_and_small_frames_are_safe() {
     let (screen, now) = empty();
@@ -114,7 +291,7 @@ fn failed_save_and_visible_but_unconfirmed_save_are_labeled_separately() {
     );
     let buffer = render(&screen, now, 80, 24);
     assert!(line(&buffer, 0).contains("保存できません"));
-    assert!(line(&buffer, 5).contains("エラー"));
+    assert!((1..24).any(|y| line(&buffer, y).contains("エラー")));
     let screen = screen.record_save_result(
         Err(DayStoreError::PublishedButNotDurable),
         now.instant,
@@ -220,6 +397,10 @@ fn every_help_group_and_legends_fit_the_smallest_supported_terminal() {
         for word in [
             "どこでも",
             "メイン画面",
+            "入力欄",
+            "指示文",
+            "PgUp",
+            "PgDn",
             "タスク欄",
             "フォーム",
             "ヘルプ",
@@ -233,7 +414,6 @@ fn every_help_group_and_legends_fit_the_smallest_supported_terminal() {
                 "missing {word} at {width}×{height}:\n{text}"
             );
         }
-        assert!(!text.contains("PgUp"));
     }
 }
 #[test]
@@ -345,10 +525,13 @@ fn role_styles_use_named_colors_and_default_backgrounds() {
     // FixedClock gives a 25-column prefix; the save label starts after two spaces.
     assert_eq!(buffer[(27, 0)].fg, Color::Red);
     assert!(buffer[(27, 0)].modifier.contains(Modifier::BOLD));
-    assert_eq!(buffer[(1, 5)].fg, Color::Red);
-    assert!(buffer[(1, 5)].modifier.contains(Modifier::BOLD));
-    assert_eq!(buffer[(9, 5)].fg, Color::Red);
-    assert!(!buffer[(9, 5)].modifier.contains(Modifier::BOLD));
+    let error_row = (0..24)
+        .find(|y| line(&buffer, *y).contains("エラー"))
+        .expect("error chat row");
+    assert_eq!(buffer[(7, error_row)].fg, Color::Red);
+    assert!(buffer[(7, error_row)].modifier.contains(Modifier::BOLD));
+    assert_eq!(buffer[(15, error_row)].fg, Color::Red);
+    assert!(!buffer[(15, error_row)].modifier.contains(Modifier::BOLD));
     assert_eq!(buffer[(0, 20)].fg, Color::Green);
     assert!(buffer[(0, 20)].modifier.contains(Modifier::BOLD));
     assert!(buffer[(0, 23)].modifier.contains(Modifier::BOLD));
@@ -429,4 +612,287 @@ fn form_cursor_points_at_the_edited_suffix_and_wide_graphemes_stay_whole() {
         screen.form().unwrap().title(),
         format!("{}XYZ", "あ".repeat(70))
     );
+}
+
+#[test]
+fn long_input_grows_to_three_wrapped_rows_and_keeps_the_cursor_visible() {
+    let (mut screen, now) = empty();
+    for character in "あ".repeat(80).chars() {
+        screen = screen.update(ScreenKey::Char(character), now).0;
+    }
+    let buffer = render(&screen, now, 80, 24);
+    assert!(line(&buffer, 18).contains("入力"));
+    for row in 19..=21 {
+        assert!(line(&buffer, row).contains('あ'));
+    }
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal.draw(|frame| draw(frame, &screen, now)).unwrap();
+    assert_eq!(terminal.get_cursor_position().unwrap().y, 21);
+}
+
+#[test]
+fn wrapped_chat_continuations_align_under_the_text_column() {
+    use bunshin_core::screen::ChatNotice;
+    let (screen, now) = empty();
+    let screen = screen.record_chat_notice(ChatNotice::ModelBack, &"z".repeat(100), now.instant);
+    let buffer = render(&screen, now, 80, 24);
+    let rows = (0..24)
+        .map(|y| line(&buffer, y))
+        .filter(|text| text.contains("zz"))
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].starts_with("│22:13 システム"));
+    assert!(rows[1].starts_with(&format!("│{}z", " ".repeat(14))));
+}
+
+#[test]
+fn instruction_scrolling_keeps_the_last_wrapped_row_visible() {
+    use bunshin_core::instructions::InstructionsState;
+    let (screen, now) = empty();
+    let owner = InstructionsState::resolve(
+        Some(&"あ".repeat(600)),
+        std::path::PathBuf::from("synthetic-instructions.md"),
+        Tuning::default(),
+    );
+    let mut screen = screen
+        .record_instructions(owner)
+        .0
+        .update(ScreenKey::Tab, now)
+        .0
+        .update(ScreenKey::Char('p'), now)
+        .0;
+    let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+    let mut metrics = (0, 0, None);
+    terminal
+        .draw(|frame| {
+            metrics = draw_with_metrics(frame, &screen, now, &|at| now.at_fixed_offset(at));
+        })
+        .unwrap();
+    let (rows, height) = metrics.2.unwrap();
+    assert!(rows > height);
+    screen = screen.record_instructions_layout(rows, height);
+    for _ in 0..100 {
+        screen = screen.update(ScreenKey::Down, now).0;
+    }
+    let buffer = render(&screen, now, 60, 18);
+    let visible = (0..18).map(|y| line(&buffer, y)).collect::<String>();
+    assert!(visible.contains("bunshin instructions edit"), "{visible}");
+    assert_eq!(screen.instructions_scroll(), rows - height);
+}
+
+#[test]
+fn asynchronous_replies_show_one_new_message_divider_until_any_key_press() {
+    use bunshin_core::{ModelAnswer, instructions::InstructionsState, screen::ChatNotice};
+    let (mut screen, now) = empty();
+    for character in "synthetic owner".chars() {
+        screen = screen.update(ScreenKey::Char(character), now).0;
+    }
+    screen = screen.update(ScreenKey::Enter, now).0;
+    let owner = InstructionsState::resolve(
+        Some("synthetic"),
+        "instructions.md".into(),
+        Tuning::default(),
+    );
+    let (screen, request, _) = screen.prepare_chat(&owner, now);
+    assert!(
+        !persisted_chat_rows(&screen, &|at| now.at_fixed_offset(at))
+            .iter()
+            .any(|(line, _)| line.to_string().contains("ここから新着"))
+    );
+    let screen = screen
+        .finish_chat(
+            request.unwrap().id,
+            Ok(ModelAnswer {
+                json: r#"{"changes":[],"reply":"synthetic reply"}"#.into(),
+            }),
+            now,
+        )
+        .0
+        .record_chat_notice(ChatNotice::Failed, "synthetic error", now.instant);
+    let rows = persisted_chat_rows(&screen, &|at| now.at_fixed_offset(at));
+    let divider = rows
+        .iter()
+        .position(|(line, _)| line.to_string().contains("── ここから新着 ──"))
+        .unwrap();
+    assert!(rows[divider + 1].0.to_string().contains("synthetic reply"));
+    assert_eq!(
+        rows.iter()
+            .filter(|(line, _)| line.to_string().contains("ここから新着"))
+            .count(),
+        1
+    );
+    assert!(screen.chat_follows_latest());
+    let buffer = render(&screen, now, 100, 24);
+    assert!((0..24).any(|y| line(&buffer, y).contains("ここから新着")));
+    let screen = screen.update(ScreenKey::Tab, now).0;
+    assert!(
+        !persisted_chat_rows(&screen, &|at| now.at_fixed_offset(at))
+            .iter()
+            .any(|(line, _)| line.to_string().contains("ここから新着"))
+    );
+    let reloaded = MainScreen::new(screen.day().clone(), Tuning::default());
+    assert!(
+        !persisted_chat_rows(&reloaded, &|at| now.at_fixed_offset(at))
+            .iter()
+            .any(|(line, _)| line.to_string().contains("ここから新着"))
+    );
+}
+
+#[test]
+fn input_title_identifies_recent_and_explicit_older_questions() {
+    use bunshin_core::day::{
+        Author, InboxState, Message, MessageKind, Trigger, TriggerKind, UnpromptedKind,
+        UnpromptedMessage, file::DayFile,
+    };
+    let (screen, now) = empty();
+    let mut data = screen.day().data().clone();
+    data.messages.push(Message {
+        author: Author::Bunshin,
+        text: "synthetic question".into(),
+        time: now.instant,
+        kind: MessageKind::Unprompted,
+        answers_question: None,
+        change_set: None,
+        cancelled: false,
+        in_reply_to: None,
+        unprompted: Some(UnpromptedMessage {
+            kind: UnpromptedKind::Question,
+            trigger: Trigger {
+                kind: TriggerKind::PlannedLook,
+                task: None,
+                due_at: now.instant,
+            },
+            task: None,
+            inbox_state: InboxState::Open,
+            state_changed_at: now.instant,
+            suppressed: None,
+        }),
+    });
+    let screen = MainScreen::new(
+        (DayFile { format: 1, data })
+            .into_day(Tuning::default())
+            .unwrap(),
+        Tuning::default(),
+    );
+    let target = format!(
+        "入力（{} の質問への返事）",
+        wording::chat_timestamp(Some(now))
+    );
+    let buffer = render(&screen, now, 100, 24);
+    assert!((0..24).any(|y| line(&buffer, y).contains(&target)));
+    let later = now
+        .at_fixed_offset(bunshin_core::UnixMillis(now.instant.0 + 900_000))
+        .unwrap();
+    let buffer = render(&screen, later, 100, 24);
+    assert!(!(0..24).any(|y| line(&buffer, y).contains("質問への返事")));
+    let screen = screen
+        .update(ScreenKey::Tab, later)
+        .0
+        .open_inbox()
+        .update(ScreenKey::Enter, later)
+        .0;
+    let buffer = render(&screen, later, 100, 24);
+    assert!((0..24).any(|y| line(&buffer, y).contains(&target)));
+    let screen = screen.update(ScreenKey::Esc, later).0;
+    let buffer = render(&screen, later, 100, 24);
+    assert!(!(0..24).any(|y| line(&buffer, y).contains("質問への返事")));
+}
+
+#[test]
+fn mute_refusal_reports_the_product_bounds() {
+    use bunshin_core::{prompt::answer::RefusalReason, screen::ChatNotice};
+    let tuning = Tuning::default().checkin;
+    assert_eq!(
+        wording::chat_notice(ChatNotice::Refused(RefusalReason::MuteOutOfRange)),
+        format!(
+            "ミュートは{}〜{}分で指定してください。",
+            tuning.chat_mute_min_minutes, tuning.chat_mute_max_minutes
+        )
+    );
+}
+
+#[test]
+fn unavailable_model_header_is_red_and_bold_until_recovery() {
+    use bunshin_core::{Availability, UnavailableReason};
+    let (screen, now) = empty();
+    let screen = screen
+        .record_availability(
+            Ok(Availability::Unavailable(UnavailableReason::NotInstalled)),
+            now.instant,
+        )
+        .0;
+    let buffer = render(&screen, now, 80, 24);
+    assert!(line(&buffer, 0).contains(wording::MODEL_UNAVAILABLE));
+    let start = 80 - u16::try_from(Span::raw(wording::MODEL_UNAVAILABLE).width()).unwrap();
+    let mut x = start;
+    while x < 80 {
+        let cell = &buffer[(x, 0)];
+        assert_eq!(cell.fg, Color::Red);
+        assert!(cell.modifier.contains(Modifier::BOLD));
+        x += u16::try_from(Span::raw(cell.symbol()).width().max(1)).unwrap();
+    }
+    let screen = screen
+        .record_availability(Ok(Availability::Available), now.instant)
+        .0;
+    let buffer = render(&screen, now, 80, 24);
+    assert!(!line(&buffer, 0).contains(wording::MODEL_UNAVAILABLE));
+    assert_ne!(buffer[(79, 0)].fg, Color::Red);
+}
+
+#[test]
+fn mute_change_rows_resolve_the_endpoint_instead_of_reusing_the_posted_offset() {
+    let now = Now {
+        instant: bunshin_core::UnixMillis(1_772_951_400_000),
+        local: "2026-03-08T01:30:00".parse().unwrap(),
+    };
+    let end = bunshin_core::UnixMillis(now.instant.0 + 3_600_000);
+    let endpoint = Now {
+        instant: end,
+        local: "2026-03-08T03:30:00".parse().unwrap(),
+    };
+    let day = Day::new(now.local.date(), Tuning::default())
+        .mute(end, now.instant)
+        .0;
+    let screen = MainScreen::new(day, Tuning::default());
+    let resolved_endpoint = std::cell::Cell::new(false);
+    let local_at = |at| {
+        if at == end {
+            resolved_endpoint.set(true);
+            Some(endpoint)
+        } else {
+            now.at_fixed_offset(at)
+        }
+    };
+    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    terminal
+        .draw(|frame| {
+            draw_with_metrics(frame, &screen, now, &local_at);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    assert!((0..24).any(|y| line(buffer, y).contains("ミュート 〜03:30")));
+    assert!(resolved_endpoint.get());
+}
+
+#[test]
+fn bootstrap_notices_are_seen_but_later_arrivals_and_early_owner_input_are_not() {
+    use bunshin_core::screen::ChatNotice;
+    let (screen, now) = empty();
+    let screen = screen
+        .record_chat_notice(ChatNotice::Failed, "synthetic bootstrap", now.instant)
+        .record_chat_bootstrap();
+    assert_eq!(screen.chat_first_unseen(), None);
+    let buffer = render(&screen, now, 100, 24);
+    assert!(!(0..24).any(|y| line(&buffer, y).contains("ここから新着")));
+    let screen = screen.record_chat_notice(ChatNotice::Failed, "synthetic later", now.instant);
+    assert_eq!(screen.chat_first_unseen(), Some(1));
+    let buffer = render(&screen, now, 100, 24);
+    assert!((0..24).any(|y| line(&buffer, y).contains("ここから新着")));
+    let (screen, now) = empty();
+    let screen = screen
+        .update(ScreenKey::Char('a'), now)
+        .0
+        .record_chat_notice(ChatNotice::Failed, "synthetic after key", now.instant)
+        .record_chat_bootstrap();
+    assert_eq!(screen.chat_first_unseen(), Some(0));
 }

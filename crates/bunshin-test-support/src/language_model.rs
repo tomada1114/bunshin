@@ -13,6 +13,8 @@ pub struct ScriptedLanguageModel {
     availability: Result<Availability, ModelError>,
     answers: Mutex<VecDeque<Result<ModelAnswer, ModelError>>>,
     requests: Mutex<Vec<ModelRequest>>,
+    cancel_gate: Option<std::sync::mpsc::Sender<()>>,
+    probe_cancel_gate: Option<std::sync::mpsc::Sender<()>>,
 }
 impl ScriptedLanguageModel {
     /// An available model with the supplied sequence of results.
@@ -21,6 +23,8 @@ impl ScriptedLanguageModel {
             availability: Ok(Availability::Available),
             answers: Mutex::new(answers.into_iter().collect()),
             requests: Mutex::new(Vec::new()),
+            cancel_gate: None,
+            probe_cancel_gate: None,
         }
     }
     /// Set the probe result independently of the answer script.
@@ -28,6 +32,14 @@ impl ScriptedLanguageModel {
     pub fn with_availability(mut self, availability: Result<Availability, ModelError>) -> Self {
         self.availability = availability;
         self
+    }
+    /// Pause a cancellable availability probe until cancellation, signalling entry
+    /// through the receiver so shutdown tests need no time-based wait.
+    #[must_use]
+    pub fn with_probe_cancel_gate(mut self) -> (Self, std::sync::mpsc::Receiver<()>) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.probe_cancel_gate = Some(sender);
+        (self, receiver)
     }
     /// Calls recorded in order, excluding calls cancelled before entry.
     #[must_use]
@@ -37,10 +49,33 @@ impl ScriptedLanguageModel {
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
+    /// Pause an available response until its cancellation flag is set. The returned
+    /// receiver signals entry, allowing worker tests to synchronize without sleeping.
+    #[must_use]
+    pub fn with_cancel_gate(mut self) -> (Self, std::sync::mpsc::Receiver<()>) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.cancel_gate = Some(sender);
+        (self, receiver)
+    }
 }
 impl LanguageModel for ScriptedLanguageModel {
     fn availability(&self) -> Result<Availability, ModelError> {
         self.availability
+    }
+    fn availability_with_cancel(&self, cancel: &CancelFlag) -> Result<Availability, ModelError> {
+        if cancel.is_cancelled() {
+            return Err(ModelError::Cancelled);
+        }
+        if let Some(started) = &self.probe_cancel_gate {
+            if started.send(()).is_err() {
+                return Err(ModelError::Failed);
+            }
+            while !cancel.is_cancelled() {
+                std::thread::yield_now();
+            }
+            return Err(ModelError::Cancelled);
+        }
+        self.availability()
     }
     fn respond(
         &self,
@@ -58,6 +93,16 @@ impl LanguageModel for ScriptedLanguageModel {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(request.clone());
+        if let Some(started) = &self.cancel_gate {
+            // A dropped observer must not leave a test worker waiting forever.
+            if started.send(()).is_err() {
+                return Err(ModelError::Failed);
+            }
+            while !cancel.is_cancelled() {
+                std::thread::yield_now();
+            }
+            return Err(ModelError::Cancelled);
+        }
         self.answers
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -83,6 +128,14 @@ pub fn language_model_contract(mut make: impl FnMut() -> Box<dyn LanguageModel>)
     assert_eq!(
         model.respond(&request, &cancelled),
         Err(ModelError::Cancelled)
+    );
+    assert_eq!(
+        model.availability_with_cancel(&cancelled),
+        Err(ModelError::Cancelled)
+    );
+    assert_eq!(
+        model.availability_with_cancel(&CancelFlag::default()),
+        model.availability()
     );
     match model.availability() {
         Ok(Availability::Available) => match model.respond(&request, &CancelFlag::default()) {

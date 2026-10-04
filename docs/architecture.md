@@ -86,6 +86,20 @@ share one visible change set and one undo entry. The complete reply is retained 
 when it exceeds the length requested in the model instructions. The caller remains
 responsible for persistence and for displaying the reply and refusals.
 
+The terminal chat queues owner rows in core and dispatches one request to a single
+worker thread. Completion tokens reject cancelled or stale answers; valid changes
+apply to the current day, retaining task-key changes made during the call. The
+worker cancels and joins before the terminal is restored. Chat timers and model
+availability rechecks use supplied clock readings; drawing and Unicode input are
+covered without entering a real terminal. Instructions are reread before dispatch
+and before their read-only view opens. Cancelled owner rows stay visible but never
+enter later model history, and queued owner rows are withheld until dispatch.
+Accepted quit keys cancel and save all outstanding owner rows before exit; a failed
+save retains the explicit unsaved-quit confirmation. Event-loop errors use the same
+cancellation cleanup before worker shutdown; a failed cleanup save logs only its
+typed state and the original I/O error remains the return value. Persisted message and mute-end
+instants are converted through `Clock::local_at`, including daylight-saving changes.
+
 `prompt::checkin::build_checkin` uses the same assembly with a 300-token answer
 reserve and mandatory compact trigger tuples. `checkin::calls::CheckinCalls`
 queues one request behind owner conversation and rejects stale worker tokens.
@@ -308,6 +322,14 @@ the planned look uses a civil datetime, and elapsed-gap timestamps use Unix mill
 The next task number survives deletion and undo; one less than it is the day's consumed
 creation budget. The default limit of fifty creations therefore also survives deletion,
 undo, and reload. Visible change and undo rows persist; the session's undo stack does not.
+Completed replies may carry `inReplyTo`, the stable owner-row index; prompt assembly
+uses this association to pair queued turns without moving append-only stored rows.
+The optional day field `lastInstructionsNotice` fingerprints the last fallback
+revision, preventing repeated notices after reloading the same day. It stores no
+instruction text and clears when owner instructions become usable.
+
+A message may carry `cancelled: true` for a stopped or failed owner call. Older format-one
+files omit this field and decode it as false; false values remain omitted on save.
 Loading requires current or historical task snapshots to account for every consumed
 number from one through the high-water mark, so an inflated cursor cannot skip numbers.
 

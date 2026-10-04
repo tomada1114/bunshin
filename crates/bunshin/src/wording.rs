@@ -1,6 +1,8 @@
 //! Every sentence the shell presents to its owner.
 mod tui;
 pub use tui::*;
+mod chat;
+pub use chat::*;
 
 pub const ABOUT: &str = "ターミナルの秘書";
 pub const TUI_ABOUT: &str = "全画面を開く（対話型ターミナルが必要です）";

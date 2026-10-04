@@ -70,6 +70,8 @@ fn request_budget_retains_all_fifty_open_tasks_with_six_hundred_instructions_cha
             unprompted: None,
             answers_question: None,
             change_set: None,
+            cancelled: false,
+            in_reply_to: None,
         });
     }
     let day = file.into_day(tuning).expect("day");
@@ -194,6 +196,8 @@ fn optional_context_is_bounded_and_newest_chat_is_kept_before_oldest() {
             unprompted: None,
             answers_question: None,
             change_set: None,
+            cancelled: false,
+            in_reply_to: None,
         });
     }
     file.data.messages.push(Message {
@@ -204,6 +208,8 @@ fn optional_context_is_bounded_and_newest_chat_is_kept_before_oldest() {
         unprompted: None,
         answers_question: None,
         change_set: None,
+        cancelled: false,
+        in_reply_to: None,
     });
     let day = file.into_day(tuning).expect("valid test fixture");
     let states = (0..10)
@@ -296,6 +302,8 @@ fn history_is_dropped_before_closed_tasks_and_closed_tasks_before_open_title_sho
         unprompted: None,
         answers_question: None,
         change_set: None,
+        cancelled: false,
+        in_reply_to: None,
     });
     let day = file.into_day(tuning).expect("valid test fixture");
     let mut small = tuning;
@@ -508,6 +516,8 @@ fn already_appended_current_message_is_present_once_but_previous_equal_messages_
             unprompted: None,
             answers_question: None,
             change_set: None,
+            cancelled: false,
+            in_reply_to: None,
         });
     }
     let day = file.into_day(tuning).expect("valid test fixture");
