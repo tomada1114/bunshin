@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Core inbox reactions track answers, acknowledgements, dismissals, closed tasks
+  and recent mute reactions in existing day files. Open notes and questions stay
+  available when the model is unavailable; recent reactions accompany chat and
+  check-in prompts. Inbox views and reply routing are ready for TUI integration.
+
 - Core check-in calls retain a ready batch in one bounded request, deliver notes
   or questions with typed Bell/Save effects, and preserve tasks and undo. Deadline
   failures have fixed notes; other failures retry once and unavailable events wait.

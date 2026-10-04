@@ -11,6 +11,7 @@
 
 pub mod checkin;
 pub mod day;
+pub mod inbox;
 pub mod instructions;
 pub mod model;
 pub mod prompt;
