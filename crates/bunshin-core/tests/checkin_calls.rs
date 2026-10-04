@@ -26,6 +26,139 @@ fn apply_delivery_guard(
 }
 
 #[test]
+fn planned_responses_accept_unchanged_closed_tasks_and_reject_reopened_tasks() {
+    use bunshin_core::{ModelAnswer, checkin::calls::CheckinEffect};
+    for status in ["done", "dropped"] {
+        for kind in ["note", "question", "silent"] {
+            for reopened in [false, true] {
+                let (day, owner, mut calls, now) = fixture(TriggerKind::PlannedLook).unwrap();
+                let day = if status == "done" {
+                    day.done(1, now.instant).unwrap().0
+                } else {
+                    day.drop(1, now.instant).unwrap().0
+                };
+                let start =
+                    calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+                let day = if reopened {
+                    start.day.reopen(1, now.instant).unwrap().0
+                } else {
+                    start.day
+                };
+                let tasks = day.tasks().to_vec();
+                let update = calls.finish(day, start.request.unwrap().id,
+                    Ok(ModelAnswer { json: serde_json::json!({"kind":kind,"task":1,"message":"完了した作業の確認","next_look_minutes":5}).to_string() }),
+                    context(now), fixed);
+                assert_eq!(
+                    update.day.data().next_planned_look,
+                    (!reopened).then(|| now
+                        .local
+                        .checked_add(jiff::SignedDuration::from_mins(5))
+                        .unwrap())
+                );
+                let rows = update
+                    .day
+                    .messages()
+                    .iter()
+                    .filter(|row| row.unprompted.is_some())
+                    .collect::<Vec<_>>();
+                let delivers = !reopened && kind != "silent";
+                assert_eq!(rows.len(), usize::from(delivers));
+                if delivers {
+                    assert_eq!(rows[0].text, "完了した作業の確認");
+                    let metadata = rows[0].unprompted.as_ref().unwrap();
+                    assert_eq!(metadata.task, Some(1));
+                    assert_eq!(metadata.trigger.kind, TriggerKind::PlannedLook);
+                }
+                assert_eq!(
+                    update.effects,
+                    if delivers {
+                        vec![CheckinEffect::Bell, CheckinEffect::Save]
+                    } else {
+                        vec![CheckinEffect::Save]
+                    }
+                );
+                assert_eq!(update.day.tasks(), tasks);
+                assert!(update.day.data().held_triggers.is_empty());
+                assert!(update.request.is_none());
+            }
+        }
+    }
+}
+
+#[test]
+fn spent_retries_keep_an_existing_look_and_plan_a_default_only_when_missing() {
+    use bunshin_core::{
+        ModelError,
+        checkin::{
+            calls::{CheckinCalls, CheckinEffect},
+            plan_look,
+        },
+    };
+    for default_minutes in [120, 45] {
+        let mut tuning = Tuning::default();
+        tuning.checkin.planned_default_minutes = default_minutes;
+        for error in [
+            ModelError::TimedOut,
+            ModelError::Cancelled,
+            ModelError::Refused,
+            ModelError::Malformed,
+            ModelError::Failed,
+        ] {
+            for preserve in [false, true] {
+                let (day, owner, _, mut now) = fixture(TriggerKind::EveningReview).unwrap();
+                let day = if preserve {
+                    plan_look(day, now, Some(7), tuning)
+                } else {
+                    day
+                };
+                let previous = day.data().next_planned_look;
+                let tasks = day.tasks().to_vec();
+                let messages = day.messages().to_vec();
+                let mut calls = CheckinCalls::new(tuning);
+                queue(&mut calls, &day, TriggerKind::EveningReview, now.instant);
+                let first =
+                    calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+                let failed = calls.finish(
+                    first.day,
+                    first.request.unwrap().id,
+                    Err(error),
+                    context(now),
+                    fixed,
+                );
+                assert_eq!(failed.day.data().next_planned_look, previous);
+                now.instant = UnixMillis(60_000);
+                now.local = now.local.date().at(14, 31, 0, 0);
+                let retry = calls.prepare(
+                    failed.day,
+                    &owner,
+                    ContextExtras::default(),
+                    context(now),
+                    fixed,
+                );
+                let spent = calls.finish(
+                    retry.day,
+                    retry.request.unwrap().id,
+                    Err(error),
+                    context(now),
+                    fixed,
+                );
+                let expected = previous.unwrap_or_else(|| {
+                    now.local
+                        .checked_add(jiff::SignedDuration::from_mins(i64::from(default_minutes)))
+                        .unwrap()
+                });
+                assert_eq!(spent.day.data().next_planned_look, Some(expected));
+                assert_eq!(spent.effects, vec![CheckinEffect::Save]);
+                assert_eq!(spent.day.tasks(), tasks);
+                assert_eq!(spent.day.messages(), messages);
+                assert!(spent.day.data().held_triggers.is_empty());
+                assert!(spent.request.is_none());
+            }
+        }
+    }
+}
+
+#[test]
 fn deadline_only_failures_schedule_a_default_look_without_replacing_an_existing_one() {
     use bunshin_core::{
         Availability, ModelError, UnavailableReason,

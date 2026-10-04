@@ -124,8 +124,10 @@ during its call; a retry waits for an actual tick, and fresh events retain their
 own single retry even when sent alongside a previously failed event.
 Task-specific replies are discarded when a task known at dispatch was closed,
 deleted or edited during the call; discarding them leaves the current planned
-look unchanged. A task created during the call cannot capture a reference unknown
-at dispatch; that reference remains general. Deadline fallbacks compare current task facts
+look unchanged. Already closed task references remain valid when their
+dispatch-time status and facts are unchanged; reopening invalidates the old response.
+A task created during the call cannot capture a reference unknown at dispatch;
+that reference remains general. Deadline fallbacks compare current task facts
 with the dispatch snapshot too, so an edited time, kind or title cannot produce
 a notice based on an obsolete deadline. Held facts remain saved throughout the
 worker call and are removed only when its matching result is applied; a restart
@@ -138,7 +140,9 @@ worker until its matching completion, which releases it without applying old dat
 Deadline failures use `FixedDeadline` facts with a pure formatter supplied by the binary.
 Consuming a deadline-only fallback preserves an existing planned look or schedules
 the configured default when no look exists. Non-deadline failures
-retry once at a scheduler tick after completion. Unavailable non-deadline events
+retry once at a scheduler tick after completion. Spending that retry preserves
+an existing planned look or schedules the configured default when none remains.
+Unavailable non-deadline events
 remain held in day data until recovery. A caller marks `CallContext.is_tick` only
 when the scheduler evaluates, rather than on every terminal poll.
 The fixed deadline formatter replaces title control characters with spaces.

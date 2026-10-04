@@ -540,7 +540,7 @@ impl CheckinCalls {
                         .batch
                         .triggers
                         .retain(|trigger| !pending.retrying.contains(trigger));
-                    if spent {
+                    if spent && day.data().next_planned_look.is_none() {
                         day = plan_look(day, now, None, self.tuning);
                     }
                     if !pending.batch.triggers.is_empty() {
@@ -606,7 +606,7 @@ fn current_task(number: u64, day: &Day, dispatched: &[TaskView]) -> bool {
     }
 }
 fn task_facts_current(before: &TaskView, current: &Task) -> bool {
-    current.status == TaskStatus::Open
+    current.status == before.status
         && current.kind == before.kind
         && current.time == before.time
         && current.origin == before.origin
