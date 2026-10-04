@@ -68,6 +68,7 @@ impl MainScreen {
                         unprompted: None,
                         answers_question: None,
                         change_set: None,
+                        cancelled: false,
                     });
                 }
                 self.save_state = state;

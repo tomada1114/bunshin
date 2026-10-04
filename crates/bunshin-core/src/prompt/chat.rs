@@ -145,7 +145,7 @@ struct RequestBudget<'a> {
     instructions: &'a str,
     schema: &'static str,
     answer_tokens: usize,
-    tuning: Tuning,
+    tuning: &'a Tuning,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -221,7 +221,7 @@ pub(crate) fn assemble(
         instructions: &instructions,
         schema: spec.schema,
         answer_tokens: spec.answer_tokens,
-        tuning,
+        tuning: &tuning,
     };
     let limit = tuning.prompt.context_tokens.min(MODEL_WINDOW);
     let tasks = day.task_view();
@@ -331,7 +331,8 @@ fn chat_history<'a>(day: &'a Day, input: &str, now: Now) -> Vec<&'a crate::day::
                 .is_none_or(|extra| extra.suppressed.is_none())
         })
         .filter(|message| {
-            matches!(message.author, Author::You | Author::Bunshin)
+            !message.cancelled
+                && matches!(message.author, Author::You | Author::Bunshin)
                 && matches!(message.kind, MessageKind::Reply | MessageKind::Unprompted)
         })
         .collect::<Vec<_>>()

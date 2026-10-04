@@ -119,7 +119,9 @@ impl MainScreen {
             | ScreenKey::Home
             | ScreenKey::End
             | ScreenKey::Undo
-            | ScreenKey::Interrupt => None,
+            | ScreenKey::Interrupt
+            | ScreenKey::PageUp
+            | ScreenKey::PageDown => None,
         };
         let mut effects = Vec::new();
         if let Some(action) = action {

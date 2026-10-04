@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- TUI chat accepts bounded Unicode input, queues owner messages, shows replies and
+  undoable changes, and supports cancellation without blocking task keys. Model
+  availability, recovery notices and a read-only instructions view remain visible.
+
 - Core inbox reactions track answers, acknowledgements, dismissals, closed tasks
   and recent mute reactions in existing day files. Open notes and questions stay
   available when the model is unavailable; recent reactions accompany chat and

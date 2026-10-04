@@ -619,9 +619,11 @@ fn one_table_drives_help_rows_and_task_line_with_help_first() {
         task_actions,
         vec![
             ScreenAction::Help,
+            ScreenAction::Instructions,
             ScreenAction::Quit,
             ScreenAction::Undo,
             ScreenAction::MoveFocus,
+            ScreenAction::ChatLatest,
             ScreenAction::Input,
             ScreenAction::Previous,
             ScreenAction::Next,
@@ -640,6 +642,8 @@ fn one_table_drives_help_rows_and_task_line_with_help_first() {
             KeyRegion::Tasks,
             KeyRegion::Tasks,
             KeyRegion::Tasks,
+            KeyRegion::Tasks,
+            KeyRegion::Main,
             KeyRegion::Main,
             KeyRegion::Tasks,
             KeyRegion::Tasks,
@@ -664,7 +668,9 @@ fn one_table_drives_help_rows_and_task_line_with_help_first() {
         globals,
         vec![
             (ScreenAction::Quit, &[ScreenKey::Interrupt][..]),
-            (ScreenAction::Undo, &[ScreenKey::Undo][..])
+            (ScreenAction::Undo, &[ScreenKey::Undo][..]),
+            (ScreenAction::ChatUp, &[ScreenKey::PageUp][..]),
+            (ScreenAction::ChatDown, &[ScreenKey::PageDown][..])
         ]
     );
 }

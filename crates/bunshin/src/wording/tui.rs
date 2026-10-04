@@ -28,7 +28,7 @@ pub const FORM_TITLE: &str = "タイトル";
 pub const FORM_KIND: &str = "種類";
 pub const FORM_TIME: &str = "時刻";
 pub const HELP_TITLE: &str = " キー操作（? または Esc で閉じる） ";
-pub const HELP_IME: &str = "キーは英数入力で押してください（全角英数のままでも使えます）";
+pub const HELP_IME: &str = "キーは英数入力（全角英数も使えます）";
 pub const HELP_MARKS: &str = "表示: [ ] 未完了  [x] 完了  [-] やめた  [>] 持ち越し済み";
 pub const HELP_TIMES: &str = "10:00 予定（その時刻に始まる）  〜15:00 締切（その時刻までに）";
 
@@ -99,6 +99,8 @@ pub fn region_label(region: KeyRegion) -> &'static str {
         KeyRegion::Tasks => "タスク欄",
         KeyRegion::Form => "フォーム",
         KeyRegion::Help => "ヘルプ",
+        KeyRegion::Instructions => "指示文",
+        KeyRegion::Input => "入力欄",
     }
 }
 pub fn action_label(action: ScreenAction) -> &'static str {
@@ -112,18 +114,25 @@ pub fn action_label(action: ScreenAction) -> &'static str {
         ScreenAction::Done => "完了⇔未完了",
         ScreenAction::Drop => "やめる⇔戻す",
         ScreenAction::Add => "追加",
-        ScreenAction::Edit => "編集",
+        ScreenAction::Edit | ScreenAction::EditText => "編集",
         ScreenAction::Delete => "削除",
         ScreenAction::Mute => "ミュート60分⇔解除",
         ScreenAction::Help => "全キー",
-        ScreenAction::CloseHelp => "閉じる",
+        ScreenAction::CloseHelp | ScreenAction::CloseInstructions => "閉じる",
         ScreenAction::SaveForm => "保存",
-        ScreenAction::NextField => "次の項目",
-        ScreenAction::PreviousField => "前の項目",
-        ScreenAction::Left => "左へ／種類",
-        ScreenAction::Right => "右へ／種類",
-        ScreenAction::EditText => "文字編集",
+        ScreenAction::NextField => "次へ",
+        ScreenAction::PreviousField => "前へ",
+        ScreenAction::Left => "左／種類",
+        ScreenAction::Right => "右／種類",
         ScreenAction::CancelForm => "やめる",
+        ScreenAction::Instructions => "指示文",
+        ScreenAction::InstructionsUp => "上へ",
+        ScreenAction::InstructionsDown => "下へ",
+        ScreenAction::ChatUp => "前頁",
+        ScreenAction::ChatDown => "次頁",
+        ScreenAction::ChatLatest => "最新へ",
+        ScreenAction::SendInput => "送信",
+        ScreenAction::CancelInput => "中止／クリア",
     }
 }
 pub fn key_label(key: ScreenKey) -> String {
@@ -144,6 +153,8 @@ pub fn key_label(key: ScreenKey) -> String {
         ScreenKey::Delete => "Delete".into(),
         ScreenKey::Home => "Home".into(),
         ScreenKey::End => "End".into(),
+        ScreenKey::PageUp => "PgUp".into(),
+        ScreenKey::PageDown => "PgDn".into(),
     }
 }
 

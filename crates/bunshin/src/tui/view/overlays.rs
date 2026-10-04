@@ -1,6 +1,7 @@
 //! Captured forms and help cover the main screen without owning domain state.
 use super::{
-    BASE_STYLE, ERROR_STYLE, FOCUSED_STYLE, KEY_STYLE, binding_line, region_block, truncate,
+    BASE_STYLE, ERROR_STYLE, FOCUSED_STYLE, KEY_STYLE, binding_line, compact_binding_line,
+    region_block, truncate,
 };
 use crate::wording;
 use bunshin_core::{
@@ -30,6 +31,7 @@ pub(super) fn draw(frame: &mut Frame, screen: &MainScreen) {
             }
         }
         Focus::Help => draw_help(frame),
+        Focus::Instructions => draw_instructions(frame, screen),
         Focus::Input | Focus::Tasks => {}
     }
 }
@@ -157,7 +159,7 @@ fn draw_field(
         frame.set_cursor_position((area.x.saturating_add(10).saturating_add(offset), area.y));
     }
 }
-fn field_window(text: &str, cursor: usize, width: usize) -> (String, usize) {
+pub(super) fn field_window(text: &str, cursor: usize, width: usize) -> (String, usize) {
     if width == 0 {
         return (String::new(), 0);
     }
@@ -227,9 +229,11 @@ fn draw_help(frame: &mut Frame) {
     for region in [
         KeyRegion::Anywhere,
         KeyRegion::Main,
+        KeyRegion::Input,
         KeyRegion::Tasks,
         KeyRegion::Form,
         KeyRegion::Help,
+        KeyRegion::Instructions,
     ] {
         let bindings = help_rows()
             .iter()
@@ -239,7 +243,7 @@ fn draw_help(frame: &mut Frame) {
             format!("{}  ", wording::region_label(region)),
             KEY_STYLE,
         )];
-        spans.extend(binding_line(&bindings).spans);
+        spans.extend(compact_binding_line(&bindings).spans);
         lines.push(Line::from(spans));
     }
     lines.push(Line::from(wording::HELP_IME));
@@ -251,4 +255,46 @@ fn draw_help(frame: &mut Frame) {
             .block(region_block(wording::HELP_TITLE, true).title_style(FOCUSED_STYLE)),
         area,
     );
+}
+
+fn draw_instructions(frame: &mut Frame, screen: &MainScreen) {
+    let area = centered(frame.area(), 100, frame.area().height);
+    frame.render_widget(Clear, area);
+    let Some(state) = screen.instructions() else {
+        return;
+    };
+    let counter = if state.origin == bunshin_core::instructions::InstructionsOrigin::Owner {
+        format!(
+            " {}/{}字 ",
+            state.file_chars.unwrap_or_default(),
+            state.limit
+        )
+    } else {
+        wording::INSTRUCTIONS_DEFAULT.to_owned()
+    };
+    let block = region_block(wording::INSTRUCTIONS_TITLE, true)
+        .title_top(Line::from(counter).right_aligned());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let [body, footer] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
+    let mut lines = Vec::new();
+    if state.origin != bunshin_core::instructions::InstructionsOrigin::Owner {
+        lines.push(Line::from(state.failure.map_or_else(
+            || wording::instructions_source(state),
+            wording::instructions_error,
+        )));
+        lines.push(Line::default());
+    }
+    lines.extend(state.text.lines().map(|line| Line::from(line.to_owned())));
+    lines.push(Line::default());
+    lines.push(Line::from(wording::instructions_path(&state.path)));
+    lines.push(Line::from(wording::INSTRUCTIONS_EDIT));
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: false }).scroll((
+            u16::try_from(screen.instructions_scroll()).unwrap_or(u16::MAX),
+            0,
+        )),
+        body,
+    );
+    frame.render_widget(Paragraph::new(wording::INSTRUCTIONS_FOOTER), footer);
 }

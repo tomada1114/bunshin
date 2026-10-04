@@ -12,8 +12,20 @@ pub(super) fn process_key(
     key: ScreenKey,
     now: Now,
     store: &dyn DayStore,
+    cancel: impl FnMut(),
 ) -> MainScreen {
     let (mut screen, effects) = screen.update(key, now);
+    screen = process_effects(screen, effects, now, store, cancel);
+    screen
+}
+
+pub(super) fn process_effects(
+    mut screen: MainScreen,
+    effects: Vec<Effect>,
+    now: Now,
+    store: &dyn DayStore,
+    mut cancel: impl FnMut(),
+) -> MainScreen {
     for effect in effects {
         match effect {
             Effect::Save => {
@@ -24,6 +36,11 @@ pub(super) fn process_key(
                 screen = screen.record_save_result(result, now.instant, &notice);
             }
             Effect::Quit => {}
+            Effect::CancelModel => cancel(),
+            Effect::ChatNotice(notice) => {
+                let text = crate::wording::chat_notice(notice);
+                screen = screen.record_chat_notice(notice, &text, now.instant);
+            }
         }
     }
     screen
@@ -39,6 +56,14 @@ mod tests {
         screen::{MainScreen, SaveState, ScreenKey},
     };
     use bunshin_test_support::{FailingDayStore, FixedClock, InMemoryDayStore};
+    fn process_key(
+        screen: MainScreen,
+        key: ScreenKey,
+        now: Now,
+        store: &dyn DayStore,
+    ) -> MainScreen {
+        super::process_key(screen, key, now, store, || {})
+    }
 
     fn pane(clock: &FixedClock) -> MainScreen {
         let tuning = Tuning::default();

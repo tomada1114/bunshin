@@ -3,13 +3,15 @@
 
 mod controller;
 mod view;
+mod worker;
 
 use std::io;
 use std::panic;
 
 use bunshin_core::{
-    Clock,
+    Clock, LanguageModel, Tuning,
     day::store::DayStore,
+    instructions::InstructionsSource,
     screen::{MainScreen, ScreenKey},
 };
 use ratatui::DefaultTerminal;
@@ -21,7 +23,8 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use std::time::Duration;
+use std::sync::Arc;
+use worker::{Completion, ModelWorker};
 
 /// Run the screen until the user quits. The terminal is restored on every way out: here
 /// after a normal exit or an error, and by the panic hook on a panic (which, with the
@@ -29,11 +32,31 @@ use std::time::Duration;
 ///
 /// # Errors
 /// The terminal could not be entered, read, drawn to, or restored.
-pub fn run(screen: MainScreen, store: &dyn DayStore, clock: &dyn Clock) -> io::Result<()> {
+pub fn run(
+    screen: MainScreen,
+    store: &dyn DayStore,
+    clock: &dyn Clock,
+    model: Arc<dyn LanguageModel>,
+    instructions: &dyn InstructionsSource,
+    tuning: Tuning,
+) -> io::Result<()> {
     install_panic_hook();
-    let result = enter().and_then(|mut terminal| event_loop(&mut terminal, screen, store, clock));
+    let mut worker = ModelWorker::start(model)?;
+    let result = enter().and_then(|mut terminal| {
+        event_loop(
+            &mut terminal,
+            screen,
+            store,
+            clock,
+            &mut worker,
+            instructions,
+            tuning,
+        )
+    });
+    // Reap the model before restoring the terminal and releasing the instance lease.
+    let stopped = worker.shutdown();
     let restored = leave();
-    result.and(restored)
+    result.and(stopped).and(restored)
 }
 
 fn enter() -> io::Result<DefaultTerminal> {
@@ -66,21 +89,73 @@ fn event_loop(
     mut screen: MainScreen,
     store: &dyn DayStore,
     clock: &dyn Clock,
+    worker: &mut ModelWorker,
+    instructions: &dyn InstructionsSource,
+    tuning: Tuning,
 ) -> io::Result<()> {
     tracing::info!("tui opened");
+    screen = read_instructions(screen, instructions, clock.now(), store, worker);
     while !screen.finished() {
         let now = clock.now();
-        terminal.draw(|frame| view::draw(frame, &screen, now))?;
+        if let Some(completion) = worker.poll()? {
+            let (next, effects) = match completion {
+                Completion::Availability(result) => screen.record_availability(result, now.instant),
+                Completion::Answer(id, result) => screen.finish_chat(id, result, now),
+            };
+            screen = controller::process_effects(next, effects, now, store, || worker.cancel());
+        }
+        if !worker.busy() {
+            let (next, probe) = screen.prepare_availability(now.instant);
+            screen = next;
+            if probe {
+                worker.probe()?;
+            } else if screen.owner_waiting() {
+                screen = read_instructions(screen, instructions, now, store, worker);
+                if let Some(owner) = screen.instructions().cloned() {
+                    let (next, request, effects) = screen.prepare_chat(&owner, now);
+                    screen =
+                        controller::process_effects(next, effects, now, store, || worker.cancel());
+                    if let Some(request) = request {
+                        worker.respond(request)?;
+                    }
+                }
+            }
+        }
+        let mut metrics = (0, 0);
+        let times = screen
+            .day()
+            .messages()
+            .iter()
+            .map(|message| clock.local_at(message.time))
+            .collect::<Vec<_>>();
+        terminal.draw(|frame| {
+            metrics = view::draw_with_metrics(frame, &screen, now, &times);
+        })?;
+        screen = screen.record_chat_layout(metrics.0, metrics.1);
         // A timeout updates the header clock. Saving always completes before another read.
-        if event::poll(Duration::from_secs(1))?
+        if event::poll(tuning.chat.poll_interval)?
             && let Event::Key(key) = event::read()?
             && let Some(key) = screen_key(key)
         {
-            screen = controller::process_key(screen, key, clock.now(), store);
+            screen = controller::process_key(screen, key, clock.now(), store, || worker.cancel());
+            if screen.focus() == bunshin_core::screen::Focus::Instructions {
+                screen = read_instructions(screen, instructions, clock.now(), store, worker);
+            }
         }
     }
     tracing::info!("tui closed");
     Ok(())
+}
+
+fn read_instructions(
+    screen: MainScreen,
+    source: &dyn InstructionsSource,
+    now: bunshin_core::Now,
+    store: &dyn DayStore,
+    worker: &ModelWorker,
+) -> MainScreen {
+    let (screen, effects) = screen.reload_instructions(source);
+    controller::process_effects(screen, effects, now, store, || worker.cancel())
 }
 
 /// Only committed presses without Alt or unsupported control chords reach core.
@@ -139,9 +214,9 @@ fn screen_key(event: KeyEvent) -> Option<ScreenKey> {
         KeyCode::BackTab => Some(ScreenKey::BackTab),
         KeyCode::Delete => Some(ScreenKey::Delete),
         KeyCode::Esc => Some(ScreenKey::Esc),
-        KeyCode::PageUp
-        | KeyCode::PageDown
-        | KeyCode::Insert
+        KeyCode::PageUp => Some(ScreenKey::PageUp),
+        KeyCode::PageDown => Some(ScreenKey::PageDown),
+        KeyCode::Insert
         | KeyCode::F(_)
         | KeyCode::Null
         | KeyCode::CapsLock
@@ -203,6 +278,8 @@ mod tests {
             (KeyCode::Delete, ScreenKey::Delete),
             (KeyCode::Home, ScreenKey::Home),
             (KeyCode::End, ScreenKey::End),
+            (KeyCode::PageUp, ScreenKey::PageUp),
+            (KeyCode::PageDown, ScreenKey::PageDown),
         ] {
             assert_eq!(
                 screen_key(press(code, KeyModifiers::NONE)),
@@ -210,13 +287,7 @@ mod tests {
                 "{code:?}"
             );
         }
-        for code in [
-            KeyCode::F(1),
-            KeyCode::PageUp,
-            KeyCode::PageDown,
-            KeyCode::Insert,
-            KeyCode::Null,
-        ] {
+        for code in [KeyCode::F(1), KeyCode::Insert, KeyCode::Null] {
             assert_eq!(
                 screen_key(press(code, KeyModifiers::NONE)),
                 None,

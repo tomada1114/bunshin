@@ -10,9 +10,9 @@ mod tests;
 use crate::wording;
 use bunshin_core::{
     Now,
-    day::{MessageKind, TaskStatus},
+    day::{Author, MessageKind, TaskStatus},
     screen::{
-        Focus, MainScreen, SaveState, ScreenError,
+        ChatStatus, Focus, MainScreen, SaveState, ScreenError,
         help::{help_rows, task_help},
         keys::{KeyBinding, KeyRegion},
     },
@@ -33,8 +33,25 @@ const DROPPED_STYLE: Style = BASE_STYLE.add_modifier(Modifier::CROSSED_OUT);
 const ERROR_STYLE: Style = BASE_STYLE.fg(Color::Red);
 const ERROR_LABEL_STYLE: Style = ERROR_STYLE.add_modifier(Modifier::BOLD);
 const KEY_STYLE: Style = BASE_STYLE.add_modifier(Modifier::BOLD);
+const BUNSHIN_STYLE: Style = BASE_STYLE.fg(Color::Magenta);
+const SYSTEM_STYLE: Style = BASE_STYLE.fg(Color::Blue);
 
+#[cfg(test)]
 pub fn draw(frame: &mut Frame, screen: &MainScreen, now: Now) {
+    let times = screen
+        .day()
+        .messages()
+        .iter()
+        .map(|message| now.at_fixed_offset(message.time))
+        .collect::<Vec<_>>();
+    draw_with_metrics(frame, screen, now, &times);
+}
+pub(super) fn draw_with_metrics(
+    frame: &mut Frame,
+    screen: &MainScreen,
+    now: Now,
+    times: &[Option<Now>],
+) -> (usize, usize) {
     let area = frame.area();
     if area.width < 60 || area.height < 18 {
         let message = Rect::new(
@@ -51,7 +68,7 @@ pub fn draw(frame: &mut Frame, screen: &MainScreen, now: Now) {
             .alignment(Alignment::Center),
             message,
         );
-        return;
+        return (0, 0);
     }
     let [header, body, footer] = Layout::vertical([
         Constraint::Length(1),
@@ -75,12 +92,15 @@ pub fn draw(frame: &mut Frame, screen: &MainScreen, now: Now) {
         (tasks, right)
     };
     draw_tasks(frame, screen, tasks);
-    let [chat, input] = Layout::vertical([Constraint::Min(0), Constraint::Length(3)]).areas(right);
-    draw_errors(frame, screen, chat);
-    frame.render_widget(
-        region_block(wording::INPUT_TITLE, screen.focus() == Focus::Input),
-        input,
-    );
+    let rows = input_lines(screen, usize::from(right.width.saturating_sub(2)))
+        .0
+        .len()
+        .clamp(1, 3);
+    let input_height = u16::try_from(rows).unwrap_or(3).saturating_add(2);
+    let [chat, input] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(input_height)]).areas(right);
+    let metrics = draw_chat(frame, screen, now, chat, times);
+    draw_input(frame, screen, input);
     if screen.is_confirming_quit() {
         let confirmation = match screen.save_state() {
             SaveState::Saved | SaveState::NotSaved(_) => wording::QUIT_UNSAVED,
@@ -97,6 +117,7 @@ pub fn draw(frame: &mut Frame, screen: &MainScreen, now: Now) {
         );
     }
     overlays::draw(frame, screen);
+    metrics
 }
 fn draw_header(frame: &mut Frame, screen: &MainScreen, now: Now, area: Rect) {
     let mut spans = vec![
@@ -114,10 +135,26 @@ fn draw_header(frame: &mut Frame, screen: &MainScreen, now: Now, area: Rect) {
             ERROR_LABEL_STYLE,
         )),
     }
-    let [left, right] = Layout::horizontal([Constraint::Min(0), Constraint::Length(6)]).areas(area);
+    let status = match screen.model_availability() {
+        Some(bunshin_core::Availability::Unavailable(_)) => wording::MODEL_UNAVAILABLE,
+        Some(bunshin_core::Availability::Available) | None => match screen.chat_status(now.instant)
+        {
+            ChatStatus::Thinking | ChatStatus::LongWait => wording::THINKING,
+            ChatStatus::Waiting | ChatStatus::Idle => wording::WAITING,
+        },
+    };
+    let status_width = u16::try_from(Span::raw(status).width()).unwrap_or(u16::MAX);
+    let [left, right] =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(status_width)]).areas(area);
     frame.render_widget(Paragraph::new(Line::from(spans)), left);
+    let style = match screen.chat_status(now.instant) {
+        ChatStatus::Thinking | ChatStatus::LongWait => BUNSHIN_STYLE,
+        ChatStatus::Idle | ChatStatus::Waiting => BASE_STYLE,
+    };
     frame.render_widget(
-        Paragraph::new(wording::WAITING).alignment(Alignment::Right),
+        Paragraph::new(status)
+            .style(style)
+            .alignment(Alignment::Right),
         right,
     );
 }
@@ -223,49 +260,243 @@ fn truncate(text: &str, width: usize) -> String {
     result.push('…');
     result
 }
-fn draw_errors(frame: &mut Frame, screen: &MainScreen, area: Rect) {
-    let block = region_block(wording::CHAT_TITLE, false);
+fn draw_input(frame: &mut Frame, screen: &MainScreen, area: Rect) {
+    let counter = wording::input_count(screen.input().chars(), screen.input_limit());
+    let counter_style = if screen.input().at_limit(screen.input_limit()) {
+        ERROR_LABEL_STYLE
+    } else {
+        BASE_STYLE
+    };
+    let block = region_block(wording::INPUT_TITLE, screen.focus() == Focus::Input)
+        .title_bottom(Line::from(Span::styled(counter, counter_style)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let mut rows = screen
-        .day()
-        .messages()
-        .iter()
-        .rev()
-        .find(|message| message.kind == MessageKind::Error)
-        .into_iter()
-        .map(|message| {
-            Line::from(vec![
-                Span::styled(format!("{}  ", wording::ERROR_SPEAKER), ERROR_LABEL_STYLE),
-                Span::styled(&message.text, ERROR_STYLE),
-            ])
-        })
-        .collect::<Vec<_>>();
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+    let (rows, column, row) = input_lines(screen, usize::from(inner.width));
+    let start = row
+        .saturating_add(1)
+        .saturating_sub(usize::from(inner.height));
+    frame.render_widget(
+        Paragraph::new(rows.into_iter().skip(start).collect::<Vec<_>>()),
+        inner,
+    );
+    if screen.focus() == Focus::Input && !screen.is_confirming_quit() {
+        frame.set_cursor_position((
+            inner.x + u16::try_from(column).unwrap_or_default(),
+            inner.y + u16::try_from(row - start).unwrap_or_default(),
+        ));
+    }
+}
+fn input_lines(screen: &MainScreen, width: usize) -> (Vec<Line<'static>>, usize, usize) {
+    if width == 0 {
+        return (vec![Line::default()], 0, 0);
+    }
+    let text = Span::raw(screen.input().text());
+    let mut rows = vec![String::new()];
+    let mut column = 0;
+    let mut scalars = 0;
+    let mut cursor = None;
+    for grapheme in text.styled_graphemes(BASE_STYLE) {
+        let columns = Span::raw(grapheme.symbol).width();
+        if column + columns > width {
+            rows.push(String::new());
+            column = 0;
+        }
+        let end = scalars + grapheme.symbol.chars().count();
+        if cursor.is_none() && screen.input().cursor() < end {
+            cursor = Some((column, rows.len() - 1));
+        }
+        if let Some(row) = rows.last_mut() {
+            row.push_str(grapheme.symbol);
+        }
+        column += columns;
+        scalars = end;
+    }
+    if column == width {
+        rows.push(String::new());
+        column = 0;
+    }
+    let (column, row) = cursor.unwrap_or((column, rows.len() - 1));
+    (rows.into_iter().map(Line::from).collect(), column, row)
+}
+fn draw_chat(
+    frame: &mut Frame,
+    screen: &MainScreen,
+    now: Now,
+    area: Rect,
+    times: &[Option<Now>],
+) -> (usize, usize) {
+    let mut block = region_block(wording::CHAT_TITLE, false);
+    if screen.chat_new_messages() > 0 {
+        block = block.title_bottom(
+            Line::from(wording::chat_new_rows(screen.chat_new_messages())).right_aligned(),
+        );
+    }
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let mut rows = Vec::new();
+    for (index, message) in screen.day().messages().iter().enumerate() {
+        if message
+            .unprompted
+            .as_ref()
+            .is_some_and(|extra| extra.suppressed.is_some())
+        {
+            continue;
+        }
+        let speaker = if message.kind == MessageKind::Change {
+            wording::CHANGE
+        } else if message.kind == MessageKind::Error {
+            wording::ERROR_SPEAKER
+        } else {
+            match message.author {
+                Author::You => wording::OWNER,
+                Author::Bunshin => wording::APP_NAME,
+                Author::System => wording::SYSTEM,
+            }
+        };
+        let style = if message.kind == MessageKind::Error {
+            ERROR_STYLE
+        } else if message.kind == MessageKind::Change || message.author == Author::System {
+            SYSTEM_STYLE
+        } else if message.author == Author::Bunshin {
+            BUNSHIN_STYLE
+        } else {
+            BASE_STYLE
+        };
+        let text = message.change_set.as_ref().map_or_else(
+            || message.text.clone(),
+            |set| wording::chat_changes(set, times.get(index).copied().flatten()),
+        );
+        let text = if message.cancelled {
+            format!("{text}{}", wording::CANCELLED_MARK)
+        } else {
+            text
+        };
+        let clock = wording::chat_timestamp(times.get(index).copied().flatten());
+        let prefix = format!("{clock} {speaker}  ");
+        let mut parts = text.lines();
+        rows.push(Line::from(vec![
+            Span::styled(format!("{clock} "), BASE_STYLE),
+            Span::styled(format!("{speaker}  "), style.add_modifier(Modifier::BOLD)),
+            Span::styled(sanitize(parts.next().unwrap_or_default()), style),
+        ]));
+        for part in parts {
+            rows.push(Line::from(vec![
+                Span::raw(" ".repeat(Span::raw(&prefix).width())),
+                Span::styled(sanitize(part), style),
+            ]));
+        }
+    }
     if let Some(ScreenError::Day(error)) = screen.error() {
         rows.push(Line::from(vec![
             Span::styled(format!("{}  ", wording::ERROR_SPEAKER), ERROR_LABEL_STYLE),
             Span::styled(wording::day_error(error), ERROR_STYLE),
         ]));
     }
-    // Full chat history arrives with the chat use case. Keep the latest error visible now.
-    frame.render_widget(Paragraph::new(rows).wrap(Wrap { trim: false }), inner);
+    match screen.chat_status(now.instant) {
+        ChatStatus::Thinking => rows.push(Line::styled(
+            format!("{}  {}", wording::APP_NAME, wording::THINKING_ROW),
+            BUNSHIN_STYLE,
+        )),
+        ChatStatus::LongWait => rows.push(Line::styled(
+            format!("{}  {}", wording::APP_NAME, wording::LONG_WAIT),
+            BUNSHIN_STYLE,
+        )),
+        ChatStatus::Idle | ChatStatus::Waiting => {}
+    }
+    // Wrap by measured grapheme widths so the complete history has a stable row count
+    // and long responses can later be scrolled without truncating stored text.
+    let rows = wrap_chat_rows(rows, usize::from(inner.width));
+    let metrics = (rows.len(), usize::from(inner.height));
+    let last = rows.len().saturating_sub(usize::from(inner.height));
+    let start = if screen.chat_follows_latest() {
+        last
+    } else {
+        screen.chat_scroll_top().min(last)
+    };
+    frame.render_widget(
+        Paragraph::new(rows.into_iter().skip(start).collect::<Vec<_>>()),
+        inner,
+    );
+    metrics
+}
+fn sanitize(text: &str) -> String {
+    text.chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect()
+}
+fn wrap_chat_rows(rows: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut wrapped = Vec::new();
+    for line in rows {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        let mut used = 0;
+        for span in &line.spans {
+            for grapheme in span.styled_graphemes(BASE_STYLE) {
+                let size = Span::raw(grapheme.symbol).width();
+                if used + size > width && !spans.is_empty() {
+                    wrapped.push(Line::from(std::mem::take(&mut spans)));
+                    used = 0;
+                }
+                if let Some(last) = spans.last_mut()
+                    && last.style == grapheme.style
+                {
+                    last.content.to_mut().push_str(grapheme.symbol);
+                } else {
+                    spans.push(Span::styled(grapheme.symbol.to_owned(), grapheme.style));
+                }
+                used += size;
+            }
+        }
+        wrapped.push(Line::from(spans));
+    }
+    wrapped
 }
 fn footer_bindings(focus: Focus) -> Vec<&'static KeyBinding> {
     if focus == Focus::Tasks {
         return task_help();
     }
     let region = match focus {
-        Focus::Input => KeyRegion::Main,
+        Focus::Input => KeyRegion::Input,
         Focus::Tasks => KeyRegion::Tasks,
         Focus::Form => KeyRegion::Form,
         Focus::Help => KeyRegion::Help,
+        Focus::Instructions => KeyRegion::Instructions,
     };
-    help_rows()
+    let mut bindings = help_rows()
         .iter()
-        .filter(|binding| binding.region == region || binding.region == KeyRegion::Anywhere)
-        .collect()
+        .filter(|binding| {
+            binding.region == region
+                || binding.region == KeyRegion::Anywhere
+                || (focus == Focus::Input && binding.region == KeyRegion::Main)
+        })
+        .collect::<Vec<_>>();
+    let first = [
+        bunshin_core::screen::keys::ScreenAction::SendInput,
+        bunshin_core::screen::keys::ScreenAction::CancelInput,
+        bunshin_core::screen::keys::ScreenAction::Quit,
+        bunshin_core::screen::keys::ScreenAction::Undo,
+        bunshin_core::screen::keys::ScreenAction::MoveFocus,
+    ];
+    bindings.sort_by_key(|binding| {
+        first
+            .iter()
+            .position(|action| *action == binding.action)
+            .unwrap_or(first.len())
+    });
+    bindings
 }
 fn binding_line(bindings: &[&KeyBinding]) -> Line<'static> {
+    binding_line_with_gap(bindings, 2)
+}
+fn compact_binding_line(bindings: &[&KeyBinding]) -> Line<'static> {
+    binding_line_with_gap(bindings, 1)
+}
+fn binding_line_with_gap(bindings: &[&KeyBinding], gap: usize) -> Line<'static> {
     let mut spans = Vec::new();
     for binding in bindings {
         let keys = binding
@@ -276,8 +507,9 @@ fn binding_line(bindings: &[&KeyBinding]) -> Line<'static> {
             .join("/");
         spans.push(Span::styled(keys, KEY_STYLE));
         spans.push(Span::raw(format!(
-            " {}  ",
-            wording::action_label(binding.action)
+            " {}{}",
+            wording::action_label(binding.action),
+            " ".repeat(gap)
         )));
     }
     Line::from(spans)

@@ -13,6 +13,7 @@ pub struct ScriptedLanguageModel {
     availability: Result<Availability, ModelError>,
     answers: Mutex<VecDeque<Result<ModelAnswer, ModelError>>>,
     requests: Mutex<Vec<ModelRequest>>,
+    cancel_gate: Option<std::sync::mpsc::Sender<()>>,
 }
 impl ScriptedLanguageModel {
     /// An available model with the supplied sequence of results.
@@ -21,6 +22,7 @@ impl ScriptedLanguageModel {
             availability: Ok(Availability::Available),
             answers: Mutex::new(answers.into_iter().collect()),
             requests: Mutex::new(Vec::new()),
+            cancel_gate: None,
         }
     }
     /// Set the probe result independently of the answer script.
@@ -36,6 +38,14 @@ impl ScriptedLanguageModel {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+    /// Pause an available response until its cancellation flag is set. The returned
+    /// receiver signals entry, allowing worker tests to synchronize without sleeping.
+    #[must_use]
+    pub fn with_cancel_gate(mut self) -> (Self, std::sync::mpsc::Receiver<()>) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.cancel_gate = Some(sender);
+        (self, receiver)
     }
 }
 impl LanguageModel for ScriptedLanguageModel {
@@ -58,6 +68,16 @@ impl LanguageModel for ScriptedLanguageModel {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(request.clone());
+        if let Some(started) = &self.cancel_gate {
+            // A dropped observer must not leave a test worker waiting forever.
+            if started.send(()).is_err() {
+                return Err(ModelError::Failed);
+            }
+            while !cancel.is_cancelled() {
+                std::thread::yield_now();
+            }
+            return Err(ModelError::Cancelled);
+        }
         self.answers
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

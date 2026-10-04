@@ -57,6 +57,9 @@ pub struct InstructionsState {
     pub limit: usize,
     /// Resolved file location for viewing/editing.
     pub path: PathBuf,
+    /// Typed source failure when the TUI explicitly chooses a default fallback.
+    pub failure: Option<InstructionsError>,
+    source_revision: u64,
 }
 impl InstructionsState {
     /// Choose complete owner text or the default with an explicit reason.
@@ -81,6 +84,8 @@ impl InstructionsState {
             file_chars,
             limit: tuning.instructions_max_chars,
             path,
+            failure: None,
+            source_revision: text.map_or(0, text_revision),
         }
     }
     /// Read anew so a file change affects the next command/model call.
@@ -94,7 +99,9 @@ impl InstructionsState {
         let mut chars = 0_usize;
         let mut empty = true;
         let mut remaining = tuning.instructions_max_chars;
+        let mut source_revision = REVISION_SEED;
         let present = source.read(&mut |chunk| {
+            source_revision = revision_bytes(source_revision, chunk.as_bytes());
             let count = chunk.chars().count();
             chars = chars.saturating_add(count);
             empty &= chunk.trim().is_empty();
@@ -111,6 +118,8 @@ impl InstructionsState {
             file_chars: present.then_some(chars),
             limit: tuning.instructions_max_chars,
             path: source.path(),
+            failure: None,
+            source_revision: if present { source_revision } else { 0 },
         })
     }
     /// Report what the editor left, rather than the length of the fallback text.
@@ -128,6 +137,16 @@ impl InstructionsState {
             }),
         }
     }
+}
+const REVISION_SEED: u64 = 0xcbf2_9ce4_8422_2325;
+fn revision_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
+    for byte in bytes {
+        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+fn text_revision(text: &str) -> u64 {
+    revision_bytes(REVISION_SEED, text.as_bytes())
 }
 
 fn select_origin(present: bool, empty: bool, chars: usize, limit: usize) -> InstructionsOrigin {

@@ -229,6 +229,10 @@ pub struct Message {
     pub answers_question: Option<u64>,
     /// Typed visible change facts, including undo records.
     pub change_set: Option<ChangeSet>,
+    /// A cancelled owner call retains its original text but supplies no future context.
+    /// Absent in earlier format-one files and therefore decoded as false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cancelled: bool,
 }
 /// The previous day's record retained for context.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -324,6 +328,23 @@ impl Day {
     }
     pub(crate) fn append_message(&mut self, message: Message) {
         self.data.messages.push(message);
+    }
+    pub(crate) fn cancel_owner_message(&mut self, index: usize) {
+        if let Some(message) = self.data.messages.get_mut(index) {
+            message.cancelled = true;
+        }
+    }
+    pub(crate) fn chat_context_without_owner_rows(&self, indices: &[usize]) -> Self {
+        let mut context = self.clone();
+        context.data.messages = context
+            .data
+            .messages
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| !indices.contains(index))
+            .map(|(_, message)| message)
+            .collect();
+        context
     }
     /// Every persisted field, read-only; session undo is excluded.
     #[must_use]
@@ -662,6 +683,7 @@ impl Day {
             unprompted: None,
             answers_question: None,
             change_set: Some(set.clone()),
+            cancelled: false,
         });
     }
 }

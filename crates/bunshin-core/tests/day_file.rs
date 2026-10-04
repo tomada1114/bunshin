@@ -86,6 +86,7 @@ fn payload_has_all_day_and_message_fields_and_ignores_unknown_fields() {
         }),
         answers_question: Some(0),
         change_set: None,
+        cancelled: false,
     });
     let mut value = serde_json::to_value(&file).unwrap();
     for field in [

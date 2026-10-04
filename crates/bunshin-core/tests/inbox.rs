@@ -22,6 +22,7 @@ fn fixture(kinds: &[UnpromptedKind]) -> Day {
             kind: MessageKind::Unprompted,
             answers_question: None,
             change_set: None,
+            cancelled: false,
             unprompted: Some(UnpromptedMessage {
                 kind: *kind,
                 trigger: Trigger {

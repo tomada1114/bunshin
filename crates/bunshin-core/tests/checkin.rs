@@ -571,6 +571,7 @@ fn checkin_same_task_window_uses_delivered_rows_only_at_2959_and_3000() {
         }),
         answers_question: None,
         change_set: None,
+        cancelled: false,
     };
     let mut suppressed = delivered.clone();
     suppressed.time = UnixMillis(1_799_000);
@@ -770,6 +771,7 @@ fn checkin_suppressed_and_prompted_or_other_author_rows_never_suppress_a_task() 
         }),
         answers_question: None,
         change_set: None,
+        cancelled: false,
     };
     let mut prompted = row.clone();
     prompted.kind = MessageKind::Reply;

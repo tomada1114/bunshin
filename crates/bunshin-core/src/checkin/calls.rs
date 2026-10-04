@@ -661,6 +661,7 @@ fn append(
         }),
         answers_question: None,
         change_set: None,
+        cancelled: false,
     });
     delivered
 }

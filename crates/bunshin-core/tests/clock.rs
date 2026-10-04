@@ -5,6 +5,23 @@ use bunshin_test_support::{FixedClock, clock_contract};
 use jiff::{Timestamp, civil::date, tz::Offset};
 
 #[test]
+fn message_times_use_the_supplied_clock_zone_without_changing_its_reading() {
+    let clock = FixedClock::at(UnixMillis(0), Offset::constant(9)).unwrap();
+    let before = clock.now();
+    assert_eq!(
+        clock.local_at(UnixMillis(-1)).unwrap().local,
+        date(1970, 1, 1).at(8, 59, 59, 999_000_000)
+    );
+    assert_eq!(
+        clock.local_at(UnixMillis(-36_000_000)).unwrap().local,
+        date(1969, 12, 31).at(23, 0, 0, 0)
+    );
+    assert!(clock.local_at(UnixMillis(i64::MAX)).is_none());
+    assert!(clock.local_at(UnixMillis(i64::MIN)).is_none());
+    assert_eq!(clock.now(), before);
+}
+
+#[test]
 fn the_default_clock_returns_both_views_of_one_instant() {
     assert_eq!(
         FixedClock::default().now(),

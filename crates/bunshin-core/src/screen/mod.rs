@@ -1,6 +1,11 @@
-//! Pure task-pane state: keys change one Day or request an effect, never call a model.
+//! Pure screen state: keys change one Day or request an effect, never call a model.
 pub mod help;
 mod inbox;
+mod input;
+pub use input::InputBuffer;
+mod chat;
+mod viewport;
+pub use chat::{ChatNotice, ChatRequest, ChatStatus};
 pub mod keys;
 mod persistence;
 pub mod task_form;
@@ -15,7 +20,7 @@ use task_form::TaskForm;
 /// The one region owning keys at this instant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
-    /// Chat input; text editing is owned by its later screen use case.
+    /// Literal chat input, including send and cancellation.
     Input,
     /// Direct task operations.
     Tasks,
@@ -23,6 +28,8 @@ pub enum Focus {
     Form,
     /// Captured help overlay.
     Help,
+    /// Read-only owner-instructions overlay.
+    Instructions,
 }
 /// Requests the binary performs after accepting a new screen value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +38,10 @@ pub enum Effect {
     Save,
     /// Leave the terminal loop.
     Quit,
+    /// Set the running worker's cancellation flag; completion is still joined.
+    CancelModel,
+    /// Append a row with wording supplied by the binary before saving.
+    ChatNotice(ChatNotice),
 }
 /// A task-pane refusal, with user-facing wording owned by the binary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -39,7 +50,7 @@ pub enum ScreenError {
     #[error("day operation rejected")]
     Day(DayError),
 }
-/// State shared by the future TUI drawing and deterministic key tests.
+/// State shared by TUI drawing and deterministic key tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MainScreen {
     day: Day,
@@ -54,6 +65,8 @@ pub struct MainScreen {
     confirming_quit: bool,
     inbox_selected: Option<usize>,
     reply_target: Option<u64>,
+    chat: chat::ChatState,
+    instructions_scroll: usize,
 }
 impl MainScreen {
     /// Start in the input with the first display row selected, without reading I/O.
@@ -77,6 +90,8 @@ impl MainScreen {
             confirming_quit: false,
             inbox_selected: None,
             reply_target: None,
+            chat: chat::ChatState::default(),
+            instructions_scroll: 0,
         }
     }
     /// Day to render or persist after a Save effect.
@@ -133,12 +148,27 @@ impl MainScreen {
         if let Some(effects) = self.handle_inbox_key(command_key, now) {
             return (self, effects);
         }
+        if self.focus == Focus::Input
+            && !matches!(
+                key,
+                ScreenKey::Tab
+                    | ScreenKey::BackTab
+                    | ScreenKey::Interrupt
+                    | ScreenKey::Undo
+                    | ScreenKey::PageUp
+                    | ScreenKey::PageDown
+            )
+        {
+            let effects = self.chat_key(key, now.instant);
+            return (self, effects);
+        }
         let action = action_for(command_key, KeyRegion::Anywhere).or_else(|| match self.focus {
             Focus::Input => action_for(command_key, KeyRegion::Main),
             Focus::Tasks => action_for(command_key, KeyRegion::Tasks)
                 .or_else(|| action_for(command_key, KeyRegion::Main)),
             Focus::Form => action_for(command_key, KeyRegion::Form),
             Focus::Help => action_for(command_key, KeyRegion::Help),
+            Focus::Instructions => action_for(command_key, KeyRegion::Instructions),
         });
         let mut effects = Vec::new();
         if let Some(action) = action {
@@ -157,6 +187,28 @@ impl MainScreen {
         effects: &mut Vec<Effect>,
     ) {
         match action {
+            ScreenAction::ChatUp | ScreenAction::ChatDown | ScreenAction::ChatLatest => {
+                self.scroll_chat(action);
+            }
+            ScreenAction::SendInput | ScreenAction::CancelInput => {
+                effects.extend(self.chat_key(key, at));
+            }
+            ScreenAction::Instructions => {
+                self.instructions_scroll = 0;
+                self.focus = Focus::Instructions;
+            }
+            ScreenAction::CloseInstructions | ScreenAction::CloseHelp => self.focus = Focus::Tasks,
+            ScreenAction::InstructionsUp => {
+                self.instructions_scroll = self.instructions_scroll.saturating_sub(1);
+            }
+            ScreenAction::InstructionsDown => {
+                let limit = self
+                    .chat
+                    .instructions
+                    .as_ref()
+                    .map_or(0, |state| state.text.chars().count());
+                self.instructions_scroll = (self.instructions_scroll + 1).min(limit);
+            }
             ScreenAction::Quit => {
                 if self.save_state == SaveState::Saved {
                     self.finished = true;
@@ -210,7 +262,6 @@ impl MainScreen {
                 self.accept(Ok(result), effects);
             }
             ScreenAction::Help => self.focus = Focus::Help,
-            ScreenAction::CloseHelp => self.focus = Focus::Tasks,
             ScreenAction::SaveForm => self.save_form(at, effects),
             ScreenAction::NextField
             | ScreenAction::PreviousField
@@ -226,6 +277,11 @@ impl MainScreen {
                 self.focus = Focus::Tasks;
             }
         }
+    }
+    /// Read-only instructions scroll position in wrapped display rows.
+    #[must_use]
+    pub const fn instructions_scroll(&self) -> usize {
+        self.instructions_scroll
     }
     fn selected_task(&self) -> Option<TaskView> {
         self.selected
@@ -256,6 +312,15 @@ impl MainScreen {
             | ScreenAction::Mute
             | ScreenAction::Help
             | ScreenAction::CloseHelp
+            | ScreenAction::Instructions
+            | ScreenAction::CloseInstructions
+            | ScreenAction::InstructionsUp
+            | ScreenAction::InstructionsDown
+            | ScreenAction::ChatUp
+            | ScreenAction::ChatDown
+            | ScreenAction::ChatLatest
+            | ScreenAction::SendInput
+            | ScreenAction::CancelInput
             | ScreenAction::SaveForm
             | ScreenAction::NextField
             | ScreenAction::PreviousField
