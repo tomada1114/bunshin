@@ -26,6 +26,88 @@ fn apply_delivery_guard(
 }
 
 #[test]
+fn removing_the_last_queued_or_in_flight_deadline_keeps_untimed_work_on_a_planned_look() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::{
+            calls::{CheckinCalls, CheckinEffect},
+            plan_look,
+        },
+    };
+    for default_minutes in [120, 45] {
+        let mut tuning = Tuning::default();
+        tuning.checkin.planned_default_minutes = default_minutes;
+        for in_flight in [false, true] {
+            for deleted in [false, true] {
+                for preserve in [false, true] {
+                    let (day, owner, _, now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+                    let day = day
+                        .add(
+                            "時刻なしの作業".into(),
+                            TaskKind::Untimed,
+                            None,
+                            TaskOrigin::Key,
+                            now.instant,
+                        )
+                        .unwrap()
+                        .0;
+                    let day = if preserve {
+                        plan_look(day, now, Some(7), tuning)
+                    } else {
+                        day
+                    };
+                    let previous = day.data().next_planned_look;
+                    let mut calls = CheckinCalls::new(tuning);
+                    queue(&mut calls, &day, TriggerKind::BeforeDeadline, now.instant);
+                    let start = calls.prepare(
+                        day,
+                        &owner,
+                        ContextExtras::default(),
+                        bunshin_core::checkin::calls::CallContext {
+                            input_has_text: !in_flight,
+                            ..context(now)
+                        },
+                        fixed,
+                    );
+                    let day = if deleted {
+                        start.day.delete(1, now.instant).unwrap().0
+                    } else {
+                        start.day.done(1, now.instant).unwrap().0
+                    };
+                    let tasks = day.tasks().to_vec();
+                    let update = if in_flight {
+                        calls.finish(day, start.request.unwrap().id,
+                            Ok(ModelAnswer { json: r#"{"kind":"note","task":1,"message":"obsolete","next_look_minutes":5}"#.into() }),
+                            context(now), fixed)
+                    } else {
+                        calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed)
+                    };
+                    let expected = previous.unwrap_or_else(|| {
+                        now.local
+                            .checked_add(jiff::SignedDuration::from_mins(i64::from(
+                                default_minutes,
+                            )))
+                            .unwrap()
+                    });
+                    assert_eq!(update.day.data().next_planned_look, Some(expected));
+                    assert_eq!(update.effects, vec![CheckinEffect::Save]);
+                    assert_eq!(update.day.tasks(), tasks);
+                    assert!(
+                        update
+                            .day
+                            .messages()
+                            .iter()
+                            .all(|row| row.unprompted.is_none())
+                    );
+                    assert!(update.day.data().held_triggers.is_empty());
+                    assert!(update.request.is_none());
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn a_stale_mixed_answer_requeues_the_surviving_look_for_the_next_actual_tick() {
     use bunshin_core::{
         ModelAnswer,
@@ -578,7 +660,10 @@ fn before_deadline_answers_and_fallbacks_expire_during_the_call_or_completion_wa
         assert_eq!(update.day.messages(), original_messages, "{outcome}");
         assert!(update.day.data().held_triggers.is_empty());
         assert_eq!(update.day.data().last_unprompted_at, None);
-        assert_eq!(update.day.data().next_planned_look, None);
+        assert_eq!(
+            update.day.data().next_planned_look,
+            Some(now.local.date().at(17, 0, 1, 0))
+        );
         assert_eq!(
             update.effects,
             vec![bunshin_core::checkin::calls::CheckinEffect::Save]

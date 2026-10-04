@@ -220,7 +220,11 @@ impl CheckinCalls {
             self.completed = None;
         }
         let before = day.data().clone();
-        self.prune_queued_deadlines(&mut day, context.now);
+        if self.prune_queued_deadlines(&mut day, context.now)
+            && day.data().next_planned_look.is_none()
+        {
+            day = plan_look(day, context.now, None, self.tuning);
+        }
         self.retain_held_work(&mut day);
         if context.owner_waiting || context.input_has_text || self.flight.is_some() {
             return waiting(day, &before);
@@ -318,8 +322,9 @@ impl CheckinCalls {
             day.hold_checkin_triggers(&pending.batch.triggers);
         }
     }
-    fn prune_queued_deadlines(&mut self, day: &mut Day, now: Now) {
+    fn prune_queued_deadlines(&mut self, day: &mut Day, now: Now) -> bool {
         let tuning = self.tuning;
+        let mut removed = false;
         self.pending.retain_mut(|pending| {
             let obsolete = pending
                 .batch
@@ -338,6 +343,7 @@ impl CheckinCalls {
                 })
                 .cloned()
                 .collect::<Vec<_>>();
+            removed |= !obsolete.is_empty();
             day.take_held_triggers_matching(&obsolete);
             pending
                 .batch
@@ -345,6 +351,7 @@ impl CheckinCalls {
                 .retain(|trigger| !obsolete.contains(trigger));
             !pending.batch.triggers.is_empty()
         });
+        removed && self.pending.is_empty() && self.flight.is_none() && self.completed.is_none()
     }
     fn ready_index(&self, day: &Day, context: CallContext) -> Option<usize> {
         self.pending.iter().position(|pending| {
@@ -409,6 +416,9 @@ impl CheckinCalls {
             }
             current
         });
+        if flight.pending.batch.triggers.is_empty() && day.data().next_planned_look.is_none() {
+            day = plan_look(day, now, None, self.tuning);
+        }
         match result.and_then(|answer| parse_checkin(&answer.json, &day, self.tuning)) {
             Err(error) => self.failed(day, flight.pending, error, now, render, before),
             Ok(mut answer) => {
