@@ -99,6 +99,7 @@ struct Pending {
     date: Date,
     batch: ReadyBatch,
     attempt: Attempt,
+    tasks_at_enqueue: Vec<TaskView>,
 }
 struct Flight {
     id: u64,
@@ -130,8 +131,10 @@ impl CheckinCalls {
             tuning,
         }
     }
-    /// Queue a consumed scheduler batch, excluding duplicate events already queued.
-    pub fn enqueue(&mut self, date: Date, mut batch: ReadyBatch) {
+    /// Queue a consumed scheduler batch with its task facts, excluding duplicate
+    /// events already queued. These facts invalidate deadlines edited while waiting.
+    pub fn enqueue(&mut self, day: &Day, mut batch: ReadyBatch) {
+        let date = day.date();
         batch.triggers.retain(|trigger| {
             !self
                 .pending
@@ -150,6 +153,7 @@ impl CheckinCalls {
                 date,
                 batch,
                 attempt: Attempt::First,
+                tasks_at_enqueue: day.task_view(),
             });
         }
     }
@@ -172,6 +176,7 @@ impl CheckinCalls {
             self.completed = None;
         }
         let before = day.data().clone();
+        self.prune_queued_deadlines(&mut day);
         for pending in &self.pending {
             day.hold_checkin_triggers(&pending.batch.triggers);
         }
@@ -263,6 +268,28 @@ impl CheckinCalls {
             },
         }
     }
+    fn prune_queued_deadlines(&mut self, day: &mut Day) {
+        self.pending.retain_mut(|pending| {
+            let obsolete = pending
+                .batch
+                .triggers
+                .iter()
+                .filter(|trigger| {
+                    deadline(trigger.kind)
+                        && trigger.task.is_none_or(|number| {
+                            !current_task(number, day, &pending.tasks_at_enqueue)
+                        })
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            day.take_held_triggers_matching(&obsolete);
+            pending
+                .batch
+                .triggers
+                .retain(|trigger| !obsolete.contains(trigger));
+            !pending.batch.triggers.is_empty()
+        });
+    }
     fn ready_index(&self, day: &Day, context: CallContext) -> Option<usize> {
         self.pending.iter().position(|pending| {
             let tick_allows = match pending.attempt {
@@ -323,7 +350,6 @@ impl CheckinCalls {
         match result.and_then(|answer| parse_checkin(&answer.json, &day, self.tuning)) {
             Err(error) => self.failed(day, flight.pending, error, now, render, before),
             Ok(answer) => {
-                let mut day = plan_look(day, now, Some(answer.next_look_minutes), self.tuning);
                 let stale_task = answer.requested_task.map_or(invalid_deadline, |number| {
                     flight
                         .tasks_at_dispatch
@@ -332,13 +358,17 @@ impl CheckinCalls {
                         && !current_task(number, &day, &flight.tasks_at_dispatch)
                         || (answer.task.is_none() && invalid_deadline)
                 });
+                if stale_task {
+                    return waiting(day, before);
+                }
+                let mut day = plan_look(day, now, Some(answer.next_look_minutes), self.tuning);
                 let kind = match answer.kind {
                     CheckinKind::Silent => None,
                     CheckinKind::Note => Some(UnpromptedKind::Note),
                     CheckinKind::Question => Some(UnpromptedKind::Question),
                 };
                 let mut delivered = 0;
-                if let Some(kind) = kind.filter(|_| !stale_task) {
+                if let Some(kind) = kind {
                     let trigger = flight
                         .pending
                         .batch

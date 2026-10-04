@@ -7,6 +7,102 @@ use bunshin_core::{
 };
 
 #[test]
+fn queued_deadlines_edited_behind_owner_work_are_removed_before_model_or_fallback_dispatch() {
+    use bunshin_core::{
+        Availability, UnavailableReason,
+        checkin::calls::{CallContext, CheckinEffect},
+    };
+    for availability in [
+        Availability::Available,
+        Availability::Unavailable(UnavailableReason::NotInstalled),
+    ] {
+        let (day, owner, mut calls, now) = fixture(TriggerKind::AfterDeadline).unwrap();
+        let held = calls.prepare(
+            day,
+            &owner,
+            ContextExtras::default(),
+            CallContext {
+                owner_waiting: true,
+                ..context(now)
+            },
+            fixed,
+        );
+        assert_eq!(held.day.data().held_triggers.len(), 1);
+        let day = held
+            .day
+            .edit(
+                1,
+                "資料作成".into(),
+                TaskKind::Deadline,
+                Some("17:00".parse().unwrap()),
+                now.instant,
+            )
+            .unwrap()
+            .0;
+        let count = day.messages().len();
+        let result = calls.prepare(
+            day,
+            &owner,
+            ContextExtras::default(),
+            CallContext {
+                availability,
+                ..context(now)
+            },
+            fixed,
+        );
+        assert!(result.request.is_none());
+        assert_eq!(result.day.messages().len(), count);
+        assert!(result.day.data().held_triggers.is_empty());
+        assert_eq!(result.effects, vec![CheckinEffect::Save]);
+    }
+}
+
+#[test]
+fn discarding_a_stale_response_preserves_the_current_planned_look_for_notes_and_silence() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::{calls::CheckinEffect, plan_look},
+    };
+    for action in ["done", "drop", "delete", "edit"] {
+        for kind in ["note", "silent"] {
+            let (day, owner, mut calls, now) = fixture(TriggerKind::AfterDeadline).unwrap();
+            let day = plan_look(day, now, Some(60), Tuning::default());
+            let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+            let day = match action {
+                "done" => start.day.done(1, now.instant).unwrap().0,
+                "drop" => start.day.drop(1, now.instant).unwrap().0,
+                "delete" => start.day.delete(1, now.instant).unwrap().0,
+                "edit" => {
+                    start
+                        .day
+                        .edit(
+                            1,
+                            "資料作成".into(),
+                            TaskKind::Deadline,
+                            Some("17:00".parse().unwrap()),
+                            now.instant,
+                        )
+                        .unwrap()
+                        .0
+                }
+                _ => panic!("fixture action"),
+            };
+            let planned = day.data().next_planned_look;
+            let answer = ModelAnswer { json:serde_json::json!({"kind":kind,"task":1,"message":"old facts","next_look_minutes":5}).to_string() };
+            let result = calls.finish(
+                day,
+                start.request.unwrap().id,
+                Ok(answer),
+                context(now),
+                fixed,
+            );
+            assert_eq!(result.day.data().next_planned_look, planned);
+            assert!(!result.effects.contains(&CheckinEffect::Bell));
+        }
+    }
+}
+
+#[test]
 fn completed_checkins_wait_for_current_owner_input_and_queued_conversation_to_clear() {
     use bunshin_core::{
         ModelAnswer, ModelError,
@@ -273,7 +369,7 @@ fn checkin_retry_waits_for_active_hours_mute_and_delivery_gap_to_clear() {
     now.local = now.local.date().at(21, 59, 0, 0);
     let mut calls = CheckinCalls::new(Tuning::default());
     calls.enqueue(
-        day.date(),
+        &day,
         ReadyBatch {
             reason: BatchReason::Tick,
             triggers: vec![
@@ -354,7 +450,7 @@ fn checkin_previous_day_worker_remains_busy_until_its_matching_completion() {
     let old_id = old.request.unwrap().id;
     let new = Day::new(jiff::civil::date(2026, 10, 4), Tuning::default());
     calls.enqueue(
-        new.date(),
+        &new,
         ReadyBatch {
             reason: BatchReason::DayStart,
             triggers: vec![Trigger {
@@ -407,7 +503,7 @@ fn checkin_open_and_sleep_batches_preserve_catchup_on_both_model_and_fixed_deliv
             let (day, owner, _, now) = fixture(TriggerKind::AfterDeadline).unwrap();
             let mut calls = CheckinCalls::new(Tuning::default());
             calls.enqueue(
-                day.date(),
+                &day,
                 ReadyBatch {
                     reason,
                     triggers: vec![Trigger {
@@ -457,7 +553,7 @@ fn checkin_fixed_batch_emits_one_bell_for_each_delivered_row_and_none_for_suppre
         .0;
     let mut calls = CheckinCalls::new(Tuning::default());
     calls.enqueue(
-        day.date(),
+        &day,
         ReadyBatch {
             reason: BatchReason::Sleep,
             triggers: vec![
@@ -645,7 +741,7 @@ fn checkin_queue_waits_behind_owner_and_delivers_one_question_without_changing_t
     let owner = InstructionsState::resolve(None, "instructions.md".into(), tuning);
     let mut calls = CheckinCalls::new(tuning);
     calls.enqueue(
-        day.date(),
+        &day,
         ReadyBatch {
             triggers: vec![Trigger {
                 kind: TriggerKind::BeforeDeadline,
@@ -755,7 +851,7 @@ fn queue(
     at: UnixMillis,
 ) {
     calls.enqueue(
-        day.date(),
+        day,
         bunshin_core::checkin::ReadyBatch {
             triggers: vec![Trigger {
                 kind,
@@ -1312,7 +1408,7 @@ fn checkin_overdue_catchup_announces_the_passed_deadline_before_suppressing_the_
     // One scheduler batch contains the elapsed before/after events for this task.
     let mut calls2 = bunshin_core::checkin::calls::CheckinCalls::new(Tuning::default());
     calls2.enqueue(
-        day.date(),
+        &day,
         bunshin_core::checkin::ReadyBatch {
             reason: bunshin_core::checkin::BatchReason::Open,
             triggers: vec![

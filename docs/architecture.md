@@ -99,8 +99,12 @@ completion. A completed answer waits in memory until delivery is allowed, withou
 another model call; its trigger facts remain saved so a restart can reconsider
 them. Both dispatch and completion receive current owner-queue and unsent-input
 facts; a completed answer also waits until typing and owner work clear.
+Enqueuing captures task facts when the scheduler batch is consumed. Before
+dispatch, obsolete queued deadlines and their held facts are removed, including
+when an unavailable model would otherwise produce a fixed fallback.
 Task-specific replies are discarded when a task known at dispatch was closed,
-deleted or edited during the call. Deadline fallbacks compare current task facts
+deleted or edited during the call; discarding them leaves the current planned
+look unchanged. Deadline fallbacks compare current task facts
 with the dispatch snapshot too, so an edited time, kind or title cannot produce
 a notice based on an obsolete deadline. Held facts remain saved while the worker or
 guards prevent dispatch. A previous-day flight occupies the
