@@ -372,6 +372,7 @@ impl MainScreen {
                 (self, effects)
             }
             Err(ModelError::Unavailable(reason)) => {
+                self.chat.queue.push_front(flight.pending);
                 let (screen, mut effects) =
                     self.record_availability(Ok(Availability::Unavailable(reason)), now.instant);
                 if effects.is_empty() {
