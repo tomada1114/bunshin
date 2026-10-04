@@ -22,6 +22,12 @@ pub const INSTRUCTIONS_DEFAULT: &str = " 既定を使用中 ";
 pub fn instructions_path(path: &std::path::Path) -> String {
     format!("ファイル: {}", path.display())
 }
+pub fn input_title(question_time: Option<&str>) -> String {
+    question_time.map_or_else(
+        || super::INPUT_TITLE.into(),
+        |time| format!(" 入力（{time} の質問への返事） "),
+    )
+}
 pub fn chat_timestamp(time: Option<bunshin_core::Now>) -> String {
     time.map_or_else(
         || "--:--".into(),
@@ -148,7 +154,7 @@ fn refusal(reason: RefusalReason) -> &'static str {
     match reason {
         RefusalReason::Domain { reason } => super::day_error(reason),
         RefusalReason::InvalidTime => "時刻は 00:00〜23:59 で指定してください。",
-        RefusalReason::MuteOutOfRange => "ミュートは5〜120分で指定してください。",
+        RefusalReason::MuteOutOfRange => "ミュートは5〜480分で指定してください。",
         RefusalReason::MuteOverflow => "ミュートの終了時刻を扱えませんでした。",
         RefusalReason::MissingField { field } => match field {
             ProposalField::Task => "どのタスクか指定してください。",

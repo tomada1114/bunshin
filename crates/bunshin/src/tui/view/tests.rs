@@ -735,3 +735,76 @@ fn asynchronous_replies_show_one_new_message_divider_until_any_key_press() {
             .any(|(line, _)| line.to_string().contains("ここから新着"))
     );
 }
+
+#[test]
+fn input_title_identifies_recent_and_explicit_older_questions() {
+    use bunshin_core::day::{
+        Author, InboxState, Message, MessageKind, Trigger, TriggerKind, UnpromptedKind,
+        UnpromptedMessage, file::DayFile,
+    };
+    let (screen, now) = empty();
+    let mut data = screen.day().data().clone();
+    data.messages.push(Message {
+        author: Author::Bunshin,
+        text: "synthetic question".into(),
+        time: now.instant,
+        kind: MessageKind::Unprompted,
+        answers_question: None,
+        change_set: None,
+        cancelled: false,
+        in_reply_to: None,
+        unprompted: Some(UnpromptedMessage {
+            kind: UnpromptedKind::Question,
+            trigger: Trigger {
+                kind: TriggerKind::PlannedLook,
+                task: None,
+                due_at: now.instant,
+            },
+            task: None,
+            inbox_state: InboxState::Open,
+            state_changed_at: now.instant,
+            suppressed: None,
+        }),
+    });
+    let screen = MainScreen::new(
+        (DayFile { format: 1, data })
+            .into_day(Tuning::default())
+            .unwrap(),
+        Tuning::default(),
+    );
+    let target = format!(
+        "入力（{} の質問への返事）",
+        wording::chat_timestamp(Some(now))
+    );
+    let buffer = render(&screen, now, 100, 24);
+    assert!((0..24).any(|y| line(&buffer, y).contains(&target)));
+    let later = now
+        .at_fixed_offset(bunshin_core::UnixMillis(now.instant.0 + 900_000))
+        .unwrap();
+    let buffer = render(&screen, later, 100, 24);
+    assert!(!(0..24).any(|y| line(&buffer, y).contains("質問への返事")));
+    let screen = screen
+        .update(ScreenKey::Tab, later)
+        .0
+        .open_inbox()
+        .update(ScreenKey::Enter, later)
+        .0;
+    let buffer = render(&screen, later, 100, 24);
+    assert!((0..24).any(|y| line(&buffer, y).contains(&target)));
+    let screen = screen.update(ScreenKey::Esc, later).0;
+    let buffer = render(&screen, later, 100, 24);
+    assert!(!(0..24).any(|y| line(&buffer, y).contains("質問への返事")));
+}
+
+#[test]
+fn mute_refusal_reports_the_product_bounds() {
+    use bunshin_core::{prompt::answer::RefusalReason, screen::ChatNotice};
+    let tuning = Tuning::default().checkin;
+    assert_eq!(
+        wording::chat_notice(ChatNotice::Refused(RefusalReason::MuteOutOfRange)),
+        format!(
+            "ミュートは{}〜{}分で指定してください。",
+            tuning.chat_mute_min_minutes, tuning.chat_mute_max_minutes
+        )
+    );
+}

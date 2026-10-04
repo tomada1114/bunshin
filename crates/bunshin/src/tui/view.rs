@@ -100,7 +100,7 @@ pub(super) fn draw_with_metrics(
     let [chat, input] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(input_height)]).areas(right);
     let metrics = draw_chat(frame, screen, now, chat, times);
-    draw_input(frame, screen, input);
+    draw_input(frame, screen, now, times, input);
     if screen.is_confirming_quit() {
         let confirmation = match screen.save_state() {
             SaveState::Saved | SaveState::NotSaved(_) => wording::QUIT_UNSAVED,
@@ -260,14 +260,25 @@ fn truncate(text: &str, width: usize) -> String {
     result.push('…');
     result
 }
-fn draw_input(frame: &mut Frame, screen: &MainScreen, area: Rect) {
+fn draw_input(frame: &mut Frame, screen: &MainScreen, now: Now, times: &[Option<Now>], area: Rect) {
+    let target = screen
+        .reply_target()
+        .or_else(|| screen.day().implicit_reply_target(now.instant));
+    let time = target.map(|target| {
+        wording::chat_timestamp(
+            usize::try_from(target)
+                .ok()
+                .and_then(|index| times.get(index).copied().flatten()),
+        )
+    });
+    let title = wording::input_title(time.as_deref());
     let counter = wording::input_count(screen.input().chars(), screen.input_limit());
     let counter_style = if screen.input().at_limit(screen.input_limit()) {
         ERROR_LABEL_STYLE
     } else {
         BASE_STYLE
     };
-    let block = region_block(wording::INPUT_TITLE, screen.focus() == Focus::Input)
+    let block = region_block(&title, screen.focus() == Focus::Input)
         .title_bottom(Line::from(Span::styled(counter, counter_style)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
