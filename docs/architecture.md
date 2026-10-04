@@ -86,6 +86,78 @@ share one visible change set and one undo entry. The complete reply is retained 
 when it exceeds the length requested in the model instructions. The caller remains
 responsible for persistence and for displaying the reply and refusals.
 
+`prompt::checkin::build_checkin` uses the same assembly with a 300-token answer
+reserve and mandatory compact trigger tuples. `checkin::calls::CheckinCalls`
+queues one request behind owner conversation and rejects stale worker tokens.
+Strict check-in parsing permits only silent, note or question; integer references
+outside the task domain become general messages and planned looks are clamped.
+Notes and questions require nonblank text; silent answers may carry empty text.
+Delivery preserves tasks and undo, records suppression without updating the last
+actual delivery time, and emits typed Bell/Save effects with one Bell per
+unsuppressed row. Queued routine calls and retries recheck the same
+active-hours, mute and minimum-gap guards as scheduling, including at worker
+completion. A completed answer waits in memory until delivery is allowed, without
+another model call; its trigger facts remain saved so a restart can reconsider
+them. Both dispatch and completion receive current owner-queue and unsent-input
+facts; a completed answer also waits until typing and owner work clear.
+Enqueuing captures task facts when the scheduler batch is consumed. Before
+dispatch, obsolete queued deadlines and their held facts are removed, including
+when an unavailable model would otherwise produce a fixed fallback.
+Same-day waiting events with the same delivery guards merge into one request,
+retaining each event's enqueue facts and retry allowance. Opening-exempt events
+stay separate from later routine events.
+The scheduler marks an already mixed opening/routine batch as `GuardedOpen` or
+`GuardedDayStart`: it remains one request and ordinary guards also apply at
+completion. Pure opening batches retain their exemption.
+Deadline events also recheck the current civil deadline before dispatch,
+including after a restart; an obsolete
+held event is removed without rewriting the once-per-task/kind fired record.
+Before-deadline work expires once its deadline passes, both before dispatch and
+when a completed answer is applied. An expired notice cannot suppress the next
+tick's overdue notice or apply its stale next-look proposal.
+Dropping the final obsolete event before dispatch or at completion preserves
+an existing planned look, or schedules the configured default when none remains.
+If a mixed batch retains a valid trigger, a general answer still applies to it;
+only an answer referencing the obsolete task is discarded with that event.
+After discarding a stale answer, surviving events return to held storage and
+wait for the next actual tick, retaining their facts and retry allowances.
+Renaming a queued task keeps its deadline event: dispatch uses the current title
+and validates the deadline-defining facts rather than an unused earlier title.
+A failed in-flight batch also joins eligible events queued
+during its call; a retry waits for an actual tick, and fresh events retain their
+own single retry even when sent alongside a previously failed event.
+Task-specific replies are discarded when a task known at dispatch was closed,
+deleted or edited during the call; discarding them leaves the current planned
+look unchanged. Already closed task references remain valid when their
+dispatch-time status and facts are unchanged; reopening invalidates the old response.
+A task created during the call cannot capture a reference unknown at dispatch;
+that reference remains general. Deadline fallbacks compare current task facts
+with the dispatch snapshot too, so an edited time, kind or title cannot produce
+a notice based on an obsolete deadline. Held facts remain saved throughout the
+worker call and are removed only when its matching result is applied; a restart
+can reconsider them. They also remain saved while guards prevent dispatch.
+Queue preparation restores current-day worker/completed facts if a scheduler
+release hands those same events back; the caller composes both transitions before
+persisting the resulting day.
+A previous-day flight occupies the
+worker until its matching completion, which releases it without applying old data.
+Deadline failures use `FixedDeadline` facts with a pure formatter supplied by the binary.
+Consuming a deadline-only fallback preserves an existing planned look or schedules
+the configured default when no look exists. Non-deadline failures
+retry once at a scheduler tick after completion. Spending that retry preserves
+an existing planned look or schedules the configured default when none remains.
+Unavailable non-deadline events
+remain held in day data until recovery. A caller marks `CallContext.is_tick` only
+when the scheduler evaluates, rather than on every terminal poll.
+The fixed deadline formatter replaces title control characters with spaces.
+
+The compact check-in trigger codes are private prompt encoding: b (before), a
+(after), p (planned), s (day start), e (evening), and c (catch-up). They retain all
+one hundred before/after events in the maximum fifty-task batch. No stored format
+or task transition changes. The binary's fixed sentences and note/question labels
+live in `wording.rs`; its pure formatting entry points precede worker wiring and
+terminal rendering in the dependent issues.
+
 `crates/bunshin-core/tests/contracts.rs` runs each contract against the fake, on Linux,
 inside the coverage floor. `crates/bunshin-platform/tests/contracts.rs` runs the same
 function against the real adapter, on the Linux and macOS CI runners when it needs only
