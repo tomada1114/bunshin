@@ -409,7 +409,6 @@ impl CheckinCalls {
             }
             current
         });
-        let invalid_deadline = !obsolete_deadline_tasks.is_empty();
         match result.and_then(|answer| parse_checkin(&answer.json, &day, self.tuning)) {
             Err(error) => self.failed(day, flight.pending, error, now, render, before),
             Ok(mut answer) => {
@@ -422,7 +421,7 @@ impl CheckinCalls {
                         .iter()
                         .any(|task| task.number == *number)
                 });
-                let stale_task = answer.requested_task.map_or(invalid_deadline, |number| {
+                let stale_task = answer.requested_task.is_some_and(|number| {
                     flight
                         .tasks_at_dispatch
                         .iter()
@@ -435,7 +434,6 @@ impl CheckinCalls {
                                 .triggers
                                 .iter()
                                 .any(|event| event.task == Some(number)))
-                        || (answer.task.is_none() && invalid_deadline)
                 });
                 if stale_task {
                     return waiting(day, before);

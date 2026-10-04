@@ -26,6 +26,83 @@ fn apply_delivery_guard(
 }
 
 #[test]
+fn mixed_batch_keeps_general_answers_but_discards_references_to_the_expired_deadline() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::{BatchReason, ReadyBatch, calls::CheckinEffect},
+    };
+    for kind in ["note", "question", "silent"] {
+        for task in [None, Some(999_u64), Some(1)] {
+            let (day, owner, mut calls, mut now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+            now.local = now.local.date().at(14, 59, 59, 0);
+            let original_tasks = day.tasks().to_vec();
+            calls.enqueue(
+                &day,
+                ReadyBatch {
+                    reason: BatchReason::Tick,
+                    triggers: vec![Trigger {
+                        kind: TriggerKind::PlannedLook,
+                        task: None,
+                        due_at: now.instant,
+                    }],
+                },
+            );
+            let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+            let mut json =
+                serde_json::json!({"kind":kind,"message":"一般の回答","next_look_minutes":5});
+            if let Some(task) = task {
+                json["task"] = serde_json::json!(task);
+            }
+            now.instant = UnixMillis(3_000);
+            now.local = now.local.date().at(15, 0, 1, 0);
+            let update = calls.finish(
+                start.day,
+                start.request.unwrap().id,
+                Ok(ModelAnswer {
+                    json: json.to_string(),
+                }),
+                context(now),
+                fixed,
+            );
+            let valid = task != Some(1);
+            assert_eq!(
+                update.day.data().next_planned_look,
+                valid.then(|| now
+                    .local
+                    .checked_add(jiff::SignedDuration::from_mins(5))
+                    .unwrap())
+            );
+            let rows = update
+                .day
+                .messages()
+                .iter()
+                .filter(|row| row.unprompted.is_some())
+                .collect::<Vec<_>>();
+            let delivers = valid && kind != "silent";
+            assert_eq!(rows.len(), usize::from(delivers));
+            if delivers {
+                assert_eq!(rows[0].text, "一般の回答");
+                let metadata = rows[0].unprompted.as_ref().unwrap();
+                assert_eq!(metadata.trigger.kind, TriggerKind::PlannedLook);
+                assert_eq!(metadata.task, None);
+                assert_eq!(metadata.suppressed, None);
+            }
+            assert_eq!(
+                update.effects,
+                if delivers {
+                    vec![CheckinEffect::Bell, CheckinEffect::Save]
+                } else {
+                    vec![CheckinEffect::Save]
+                }
+            );
+            assert_eq!(update.day.tasks(), original_tasks);
+            assert!(update.day.data().held_triggers.is_empty());
+            assert!(update.request.is_none());
+        }
+    }
+}
+
+#[test]
 fn expired_before_deadline_work_does_not_suppress_the_next_overdue_tick() {
     use bunshin_core::{
         Availability, UnavailableReason,
