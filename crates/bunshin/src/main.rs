@@ -7,6 +7,9 @@ mod today;
 mod tui;
 mod wording;
 
+// Formatting entry points are kept available independently of the terminal worker.
+pub use wording::{fixed_deadline, unprompted_label};
+
 use bunshin_core::{Clock, Tuning, logical_date};
 use bunshin_platform::{
     JsonFileDayStore, SystemClock, app_data_dir, home_dir, init_logging, log_dir,

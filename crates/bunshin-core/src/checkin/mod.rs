@@ -1,11 +1,14 @@
 //! Pure check-in scheduling. A ready batch is data for the later model use case.
+pub mod answer;
+pub mod calls;
+
 use crate::{
     Now, Tuning, UnixMillis,
     day::{Author, Day, MessageKind, TaskKind, TaskStatus, Trigger, TriggerKind},
 };
 use jiff::{
     SignedDuration,
-    civil::{Date, DateTime},
+    civil::{Date, DateTime, Time},
 };
 
 /// How one consolidated batch became ready.
@@ -17,8 +20,12 @@ pub enum BatchReason {
     Sleep,
     /// The owner opened the screen; ordinary delivery guards are bypassed.
     Open,
+    /// Opening events combined with later routine events; ordinary guards apply.
+    GuardedOpen,
     /// A typed day-start hook bypasses ordinary delivery guards.
     DayStart,
+    /// Day-start events combined with later routine events; ordinary guards apply.
+    GuardedDayStart,
     /// An evening hook obeys ordinary delivery guards.
     EveningReview,
 }
@@ -171,17 +178,7 @@ impl Checkin {
             let Some(time) = task.time else {
                 continue;
             };
-            let date = if time < self.tuning.day_boundary {
-                day.date().tomorrow().unwrap_or(Date::MAX)
-            } else {
-                day.date()
-            };
-            let deadline = date.to_datetime(time);
-            let before_due = deadline
-                .checked_sub(SignedDuration::from_mins(i64::from(
-                    self.tuning.checkin.before_deadline_minutes,
-                )))
-                .unwrap_or(DateTime::MIN);
+            let (deadline, before_due) = deadline_times(day.date(), time, self.tuning);
             for (kind, is_due) in [
                 (TriggerKind::BeforeDeadline, now.local >= before_due),
                 (TriggerKind::AfterDeadline, now.local > deadline),
@@ -216,18 +213,7 @@ impl Checkin {
         input_has_text: bool,
         before: &crate::day::file::DayData,
     ) -> CheckinUpdate {
-        let tuning = self.tuning.checkin;
-        let active =
-            now.local.time() >= tuning.active_start && now.local.time() < tuning.active_end;
-        let muted = day
-            .data()
-            .muted_until
-            .is_some_and(|until| now.instant < until);
-        let gap = day
-            .data()
-            .last_unprompted_at
-            .is_some_and(|last| elapsed(now.instant, last) < minutes(tuning.minimum_gap_minutes));
-        let guards_allow = active && !muted && !gap;
+        let guards_allow = delivery_guards_allow(&day, now, self.tuning);
         let ready = if input_has_text || day.data().held_triggers.is_empty() {
             None
         } else if guards_allow {
@@ -235,7 +221,23 @@ impl Checkin {
             let reason = self
                 .opening_batch
                 .take()
-                .map_or(self.pending_reason, |batch| batch.reason);
+                .map_or(self.pending_reason, |batch| {
+                    if triggers.iter().all(|event| batch.triggers.contains(event)) {
+                        batch.reason
+                    } else {
+                        match batch.reason {
+                            BatchReason::Open | BatchReason::GuardedOpen => {
+                                BatchReason::GuardedOpen
+                            }
+                            BatchReason::DayStart | BatchReason::GuardedDayStart => {
+                                BatchReason::GuardedDayStart
+                            }
+                            BatchReason::Tick | BatchReason::Sleep | BatchReason::EveningReview => {
+                                batch.reason
+                            }
+                        }
+                    }
+                });
             Some(ReadyBatch { triggers, reason })
         } else if let Some(batch) = self.opening_batch.take() {
             // The exception belongs to the opening batch, never to routine events
@@ -264,6 +266,54 @@ impl Checkin {
             save,
         }
     }
+}
+fn deadline_times(date: Date, time: Time, tuning: Tuning) -> (DateTime, DateTime) {
+    let date = if time < tuning.day_boundary {
+        date.tomorrow().unwrap_or(Date::MAX)
+    } else {
+        date
+    };
+    let deadline = date.to_datetime(time);
+    let before = deadline
+        .checked_sub(SignedDuration::from_mins(i64::from(
+            tuning.checkin.before_deadline_minutes,
+        )))
+        .unwrap_or(DateTime::MIN);
+    (deadline, before)
+}
+pub(crate) fn deadline_is_due(day: &Day, trigger: &Trigger, now: Now, tuning: Tuning) -> bool {
+    let Some(task) = day.tasks().iter().find(|task| {
+        Some(task.number) == trigger.task
+            && task.kind == TaskKind::Deadline
+            && task.status == TaskStatus::Open
+    }) else {
+        return false;
+    };
+    let Some(time) = task.time else {
+        return false;
+    };
+    let (deadline, before) = deadline_times(day.date(), time, tuning);
+    match trigger.kind {
+        TriggerKind::BeforeDeadline => now.local >= before && now.local <= deadline,
+        TriggerKind::AfterDeadline => now.local > deadline,
+        TriggerKind::PlannedLook
+        | TriggerKind::DayStart
+        | TriggerKind::EveningReview
+        | TriggerKind::CatchUp => false,
+    }
+}
+pub(crate) fn delivery_guards_allow(day: &Day, now: Now, tuning: Tuning) -> bool {
+    let tuning = tuning.checkin;
+    let active = now.local.time() >= tuning.active_start && now.local.time() < tuning.active_end;
+    let muted = day
+        .data()
+        .muted_until
+        .is_some_and(|until| now.instant < until);
+    let gap = day
+        .data()
+        .last_unprompted_at
+        .is_some_and(|last| elapsed(now.instant, last) < minutes(tuning.minimum_gap_minutes));
+    active && !muted && !gap
 }
 fn spent(day: &Day, kind: TriggerKind, task: Option<u64>) -> bool {
     day.data()
