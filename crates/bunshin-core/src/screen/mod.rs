@@ -68,6 +68,7 @@ pub struct MainScreen {
     chat: chat::ChatState,
     instructions_scroll: usize,
     instructions_scroll_limit: usize,
+    last_key_messages: usize,
 }
 impl MainScreen {
     /// Start in the input with the first display row selected, without reading I/O.
@@ -78,6 +79,7 @@ impl MainScreen {
         } else {
             Some(0)
         };
+        let last_key_messages = day.messages().len();
         Self {
             day,
             tuning,
@@ -94,6 +96,7 @@ impl MainScreen {
             chat: chat::ChatState::default(),
             instructions_scroll: 0,
             instructions_scroll_limit: 0,
+            last_key_messages,
         }
     }
     /// Day to render or persist after a Save effect.
@@ -134,7 +137,12 @@ impl MainScreen {
     /// Normalize command lookup while preserving form text; time is supplied by the caller.
     /// Successful Day mutations emit exactly one Save; navigation emits no effects.
     #[must_use]
-    pub fn update(mut self, key: ScreenKey, now: Now) -> (Self, Vec<Effect>) {
+    pub fn update(self, key: ScreenKey, now: Now) -> (Self, Vec<Effect>) {
+        let (mut next, effects) = self.update_key(key, now);
+        next.last_key_messages = next.day.messages().len();
+        (next, effects)
+    }
+    fn update_key(mut self, key: ScreenKey, now: Now) -> (Self, Vec<Effect>) {
         if self.finished {
             return (self, Vec::new());
         }

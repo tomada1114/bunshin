@@ -71,6 +71,7 @@ pub(super) struct ChatState {
     next_id: u64,
     availability: Option<Availability>,
     probe_at: Option<UnixMillis>,
+    probe_observed_at: Option<UnixMillis>,
     probing: bool,
     pub(super) instructions: Option<InstructionsState>,
 }
@@ -84,6 +85,7 @@ impl Default for ChatState {
             next_id: 1,
             availability: None,
             probe_at: None,
+            probe_observed_at: None,
             probing: false,
             instructions: None,
         }
@@ -396,6 +398,14 @@ impl MainScreen {
     /// Claim one initial/recovery availability probe, avoiding repeated queued probes.
     #[must_use]
     pub fn prepare_availability(mut self, at: UnixMillis) -> (Self, bool) {
+        if self
+            .chat
+            .probe_observed_at
+            .is_some_and(|previous| at < previous)
+        {
+            self.chat.probe_at = Some(at);
+        }
+        self.chat.probe_observed_at = Some(at);
         let due = self.chat.probe_at.is_none_or(|instant| at >= instant);
         let needed = self.chat.availability != Some(Availability::Available);
         let probe = needed && due && !self.chat.probing && !self.owner_waiting();
@@ -410,6 +420,7 @@ impl MainScreen {
         at: UnixMillis,
     ) -> (Self, Vec<Effect>) {
         self.chat.probing = false;
+        self.chat.probe_observed_at = Some(at);
         self.chat.probe_at = Some(UnixMillis(at.0.saturating_add(
             i64::try_from(self.tuning.chat.availability_recheck.as_millis()).unwrap_or(i64::MAX),
         )));

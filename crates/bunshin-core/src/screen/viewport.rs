@@ -44,6 +44,21 @@ impl MainScreen {
     pub const fn chat_follows_latest(&self) -> bool {
         self.chat.viewport.following
     }
+    /// First visible row posted after the owner's last key, even while following.
+    #[must_use]
+    pub fn chat_first_unseen(&self) -> Option<usize> {
+        self.day
+            .messages()
+            .iter()
+            .enumerate()
+            .skip(self.last_key_messages)
+            .find(|(_, row)| {
+                row.unprompted
+                    .as_ref()
+                    .is_none_or(|extra| extra.suppressed.is_none())
+            })
+            .map(|(index, _)| index)
+    }
     /// New visible messages since the owner scrolled away from the latest row.
     #[must_use]
     pub fn chat_new_messages(&self) -> usize {

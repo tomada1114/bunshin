@@ -621,3 +621,30 @@ fn instructions_scroll_clamps_to_measured_rows_and_reclamps_after_resize() {
         0
     );
 }
+
+#[test]
+fn availability_clock_rollback_makes_recovery_due_without_duplicate_probes() {
+    use bunshin_core::{Availability, UnavailableReason, UnixMillis};
+    let tuning = Tuning::default();
+    let now = FixedClock::default().now();
+    let unavailable = Availability::Unavailable(UnavailableReason::TermsNotAccepted);
+    let screen = MainScreen::new(Day::new(now.local.date(), tuning), tuning);
+    let (screen, _) = screen.record_availability(Ok(unavailable), UnixMillis(600_000));
+    let (screen, needed) = screen.prepare_availability(UnixMillis(900_000));
+    assert!(!needed);
+    let (screen, needed) = screen.prepare_availability(UnixMillis(899_999));
+    assert!(
+        needed,
+        "clock rollback must not leave the old future deadline"
+    );
+    let (screen, needed) = screen.prepare_availability(UnixMillis(899_998));
+    assert!(!needed, "an outstanding probe remains the only probe");
+    let (screen, _) = screen.record_availability(Ok(unavailable), UnixMillis(899_998));
+    let (screen, needed) = screen.prepare_availability(UnixMillis(1_499_997));
+    assert!(!needed);
+    let (_, needed) = screen.prepare_availability(UnixMillis(1_499_998));
+    assert!(
+        needed,
+        "completion restarts the ten-minute interval from the corrected clock"
+    );
+}

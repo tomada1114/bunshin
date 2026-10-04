@@ -12,6 +12,7 @@ pub const MODEL_UNAVAILABLE: &str = "モデル: 使えません";
 pub const OWNER: &str = "あなた";
 pub const SYSTEM: &str = "システム";
 pub const CHANGE: &str = "変更";
+pub const NEW_MESSAGE_DIVIDER: &str = "── ここから新着 ──";
 pub const CANCELLED_MARK: &str = "（中止）";
 pub const INSTRUCTIONS_TITLE: &str = " 指示文（読み取り専用） ";
 pub const INSTRUCTIONS_EDIT: &str =

@@ -381,6 +381,7 @@ fn draw_chat(
 }
 fn persisted_chat_rows(screen: &MainScreen, times: &[Option<Now>]) -> Vec<(Line<'static>, usize)> {
     let mut rows = Vec::new();
+    let unseen = screen.chat_first_unseen();
     for (index, message) in screen.day().messages().iter().enumerate() {
         if message
             .unprompted
@@ -388,6 +389,9 @@ fn persisted_chat_rows(screen: &MainScreen, times: &[Option<Now>]) -> Vec<(Line<
             .is_some_and(|extra| extra.suppressed.is_some())
         {
             continue;
+        }
+        if unseen == Some(index) {
+            rows.push((Line::styled(wording::NEW_MESSAGE_DIVIDER, SYSTEM_STYLE), 0));
         }
         let speaker = if message.kind == MessageKind::Change {
             wording::CHANGE

@@ -291,7 +291,7 @@ fn failed_save_and_visible_but_unconfirmed_save_are_labeled_separately() {
     );
     let buffer = render(&screen, now, 80, 24);
     assert!(line(&buffer, 0).contains("保存できません"));
-    assert!(line(&buffer, 5).contains("エラー"));
+    assert!((1..24).any(|y| line(&buffer, y).contains("エラー")));
     let screen = screen.record_save_result(
         Err(DayStoreError::PublishedButNotDurable),
         now.instant,
@@ -676,4 +676,62 @@ fn instruction_scrolling_keeps_the_last_wrapped_row_visible() {
     let visible = (0..18).map(|y| line(&buffer, y)).collect::<String>();
     assert!(visible.contains("bunshin instructions edit"), "{visible}");
     assert_eq!(screen.instructions_scroll(), rows - height);
+}
+
+#[test]
+fn asynchronous_replies_show_one_new_message_divider_until_any_key_press() {
+    use bunshin_core::{ModelAnswer, instructions::InstructionsState, screen::ChatNotice};
+    let (mut screen, now) = empty();
+    for character in "synthetic owner".chars() {
+        screen = screen.update(ScreenKey::Char(character), now).0;
+    }
+    screen = screen.update(ScreenKey::Enter, now).0;
+    let owner = InstructionsState::resolve(
+        Some("synthetic"),
+        "instructions.md".into(),
+        Tuning::default(),
+    );
+    let (screen, request, _) = screen.prepare_chat(&owner, now);
+    assert!(
+        !persisted_chat_rows(&screen, &[])
+            .iter()
+            .any(|(line, _)| line.to_string().contains("ここから新着"))
+    );
+    let screen = screen
+        .finish_chat(
+            request.unwrap().id,
+            Ok(ModelAnswer {
+                json: r#"{"changes":[],"reply":"synthetic reply"}"#.into(),
+            }),
+            now,
+        )
+        .0
+        .record_chat_notice(ChatNotice::Failed, "synthetic error", now.instant);
+    let rows = persisted_chat_rows(&screen, &[]);
+    let divider = rows
+        .iter()
+        .position(|(line, _)| line.to_string().contains("── ここから新着 ──"))
+        .unwrap();
+    assert!(rows[divider + 1].0.to_string().contains("synthetic reply"));
+    assert_eq!(
+        rows.iter()
+            .filter(|(line, _)| line.to_string().contains("ここから新着"))
+            .count(),
+        1
+    );
+    assert!(screen.chat_follows_latest());
+    let buffer = render(&screen, now, 100, 24);
+    assert!((0..24).any(|y| line(&buffer, y).contains("ここから新着")));
+    let screen = screen.update(ScreenKey::Tab, now).0;
+    assert!(
+        !persisted_chat_rows(&screen, &[])
+            .iter()
+            .any(|(line, _)| line.to_string().contains("ここから新着"))
+    );
+    let reloaded = MainScreen::new(screen.day().clone(), Tuning::default());
+    assert!(
+        !persisted_chat_rows(&reloaded, &[])
+            .iter()
+            .any(|(line, _)| line.to_string().contains("ここから新着"))
+    );
 }
