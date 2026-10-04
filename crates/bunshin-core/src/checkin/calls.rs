@@ -389,7 +389,7 @@ impl CheckinCalls {
     }
     fn apply_result(
         &mut self,
-        day: Day,
+        mut day: Day,
         mut flight: Flight,
         result: Result<ModelAnswer, ModelError>,
         now: Now,
@@ -436,6 +436,9 @@ impl CheckinCalls {
                                 .any(|event| event.task == Some(number)))
                 });
                 if stale_task {
+                    flight.pending.attempt = Attempt::NextTick;
+                    day.hold_checkin_triggers(&flight.pending.batch.triggers);
+                    self.queue_pending(flight.pending);
                     return waiting(day, before);
                 }
                 let mut day = plan_look(day, now, Some(answer.next_look_minutes), self.tuning);

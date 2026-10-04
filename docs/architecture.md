@@ -117,6 +117,8 @@ when a completed answer is applied. An expired notice cannot suppress the next
 tick's overdue notice or change the current planned look.
 If a mixed batch retains a valid trigger, a general answer still applies to it;
 only an answer referencing the obsolete task is discarded with that event.
+After discarding a stale answer, surviving events return to held storage and
+wait for the next actual tick, retaining their facts and retry allowances.
 Renaming a queued task keeps its deadline event: dispatch uses the current title
 and validates the deadline-defining facts rather than an unused earlier title.
 A failed in-flight batch also joins eligible events queued

@@ -26,6 +26,109 @@ fn apply_delivery_guard(
 }
 
 #[test]
+fn a_stale_mixed_answer_requeues_the_surviving_look_for_the_next_actual_tick() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::{
+            Checkin,
+            calls::{CheckinCalls, CheckinEffect},
+            plan_look,
+        },
+    };
+    let (day, owner, _, mut now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+    let day = plan_look(day, now, Some(5), Tuning::default());
+    now.instant = UnixMillis(240_000);
+    now.local = now.local.date().at(14, 34, 0, 0);
+    let timer = Checkin::new(now, Tuning::default());
+    now.instant = UnixMillis(300_000);
+    now.local = now.local.date().at(14, 35, 0, 0);
+    let scheduled = timer.tick(day, now, false);
+    assert_eq!(scheduled.day.data().next_planned_look, None);
+    let batch = scheduled.ready.unwrap();
+    let surviving = batch
+        .triggers
+        .iter()
+        .filter(|event| event.kind == TriggerKind::PlannedLook)
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(batch.triggers.len(), 2);
+    assert_eq!(surviving.len(), 1);
+    let mut calls = CheckinCalls::new(Tuning::default());
+    calls.enqueue(&scheduled.day, batch);
+    let start = calls.prepare(
+        scheduled.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
+    let day = start.day.done(1, now.instant).unwrap().0;
+    let tasks = day.tasks().to_vec();
+    let held = calls.finish(
+        day,
+        start.request.unwrap().id,
+        Ok(ModelAnswer {
+            json: r#"{"kind":"note","task":1,"message":"obsolete","next_look_minutes":5}"#.into(),
+        }),
+        context(now),
+        fixed,
+    );
+    assert_eq!(held.day.data().held_triggers, surviving);
+    assert_eq!(held.day.data().next_planned_look, None);
+    assert_eq!(held.effects, vec![CheckinEffect::Save]);
+    assert!(
+        held.day
+            .messages()
+            .iter()
+            .all(|row| row.unprompted.is_none())
+    );
+    assert_eq!(held.day.tasks(), tasks);
+    let between = calls.prepare(
+        held.day,
+        &owner,
+        ContextExtras::default(),
+        bunshin_core::checkin::calls::CallContext {
+            is_tick: false,
+            ..context(now)
+        },
+        fixed,
+    );
+    assert!(between.request.is_none());
+    now.instant = UnixMillis(360_000);
+    now.local = now.local.date().at(14, 36, 0, 0);
+    let retry = calls.prepare(
+        between.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
+    let delivered = calls.finish(
+        retry.day,
+        retry.request.unwrap().id,
+        Ok(ModelAnswer {
+            json: r#"{"kind":"note","message":"有効な見回りの回答","next_look_minutes":5}"#.into(),
+        }),
+        context(now),
+        fixed,
+    );
+    assert_eq!(
+        delivered.effects,
+        vec![CheckinEffect::Bell, CheckinEffect::Save]
+    );
+    assert_eq!(
+        delivered.day.messages().last().unwrap().text,
+        "有効な見回りの回答"
+    );
+    assert_eq!(delivered.day.tasks(), tasks);
+    assert!(delivered.day.data().held_triggers.is_empty());
+    assert_eq!(
+        delivered.day.data().next_planned_look,
+        Some(now.local.date().at(14, 41, 0, 0))
+    );
+}
+
+#[test]
 fn planned_responses_accept_unchanged_closed_tasks_and_reject_reopened_tasks() {
     use bunshin_core::{ModelAnswer, checkin::calls::CheckinEffect};
     for status in ["done", "dropped"] {
@@ -73,12 +176,25 @@ fn planned_responses_accept_unchanged_closed_tasks_and_reject_reopened_tasks() {
                     update.effects,
                     if delivers {
                         vec![CheckinEffect::Bell, CheckinEffect::Save]
+                    } else if reopened {
+                        vec![]
                     } else {
                         vec![CheckinEffect::Save]
                     }
                 );
                 assert_eq!(update.day.tasks(), tasks);
-                assert!(update.day.data().held_triggers.is_empty());
+                assert_eq!(
+                    update.day.data().held_triggers,
+                    if reopened {
+                        vec![Trigger {
+                            kind: TriggerKind::PlannedLook,
+                            task: Some(1),
+                            due_at: now.instant,
+                        }]
+                    } else {
+                        vec![]
+                    }
+                );
                 assert!(update.request.is_none());
             }
         }
@@ -313,7 +429,18 @@ fn mixed_batch_keeps_general_answers_but_discards_references_to_the_expired_dead
                 }
             );
             assert_eq!(update.day.tasks(), original_tasks);
-            assert!(update.day.data().held_triggers.is_empty());
+            assert_eq!(
+                update.day.data().held_triggers,
+                if valid {
+                    vec![]
+                } else {
+                    vec![Trigger {
+                        kind: TriggerKind::PlannedLook,
+                        task: None,
+                        due_at: UnixMillis(0),
+                    }]
+                }
+            );
             assert!(update.request.is_none());
         }
     }
