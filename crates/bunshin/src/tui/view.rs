@@ -147,9 +147,16 @@ fn draw_header(frame: &mut Frame, screen: &MainScreen, now: Now, area: Rect) {
     let [left, right] =
         Layout::horizontal([Constraint::Min(0), Constraint::Length(status_width)]).areas(area);
     frame.render_widget(Paragraph::new(Line::from(spans)), left);
-    let style = match screen.chat_status(now.instant) {
-        ChatStatus::Thinking | ChatStatus::LongWait => BUNSHIN_STYLE,
-        ChatStatus::Idle | ChatStatus::Waiting => BASE_STYLE,
+    let style = if matches!(
+        screen.model_availability(),
+        Some(bunshin_core::Availability::Unavailable(_))
+    ) {
+        ERROR_LABEL_STYLE
+    } else {
+        match screen.chat_status(now.instant) {
+            ChatStatus::Thinking | ChatStatus::LongWait => BUNSHIN_STYLE,
+            ChatStatus::Idle | ChatStatus::Waiting => BASE_STYLE,
+        }
     };
     frame.render_widget(
         Paragraph::new(status)

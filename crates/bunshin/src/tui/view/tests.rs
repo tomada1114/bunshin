@@ -808,3 +808,31 @@ fn mute_refusal_reports_the_product_bounds() {
         )
     );
 }
+
+#[test]
+fn unavailable_model_header_is_red_and_bold_until_recovery() {
+    use bunshin_core::{Availability, UnavailableReason};
+    let (screen, now) = empty();
+    let screen = screen
+        .record_availability(
+            Ok(Availability::Unavailable(UnavailableReason::NotInstalled)),
+            now.instant,
+        )
+        .0;
+    let buffer = render(&screen, now, 80, 24);
+    assert!(line(&buffer, 0).contains(wording::MODEL_UNAVAILABLE));
+    let start = 80 - u16::try_from(Span::raw(wording::MODEL_UNAVAILABLE).width()).unwrap();
+    let mut x = start;
+    while x < 80 {
+        let cell = &buffer[(x, 0)];
+        assert_eq!(cell.fg, Color::Red);
+        assert!(cell.modifier.contains(Modifier::BOLD));
+        x += u16::try_from(Span::raw(cell.symbol()).width().max(1)).unwrap();
+    }
+    let screen = screen
+        .record_availability(Ok(Availability::Available), now.instant)
+        .0;
+    let buffer = render(&screen, now, 80, 24);
+    assert!(!line(&buffer, 0).contains(wording::MODEL_UNAVAILABLE));
+    assert_ne!(buffer[(79, 0)].fg, Color::Red);
+}
