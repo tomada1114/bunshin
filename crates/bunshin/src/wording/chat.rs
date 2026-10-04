@@ -36,7 +36,7 @@ pub fn chat_timestamp(time: Option<bunshin_core::Now>) -> String {
 }
 pub fn chat_changes(
     set: &bunshin_core::day::ChangeSet,
-    local: Option<bunshin_core::Now>,
+    local_at: &dyn Fn(bunshin_core::UnixMillis) -> Option<bunshin_core::Now>,
 ) -> String {
     use bunshin_core::day::Change;
     let rows = set
@@ -46,12 +46,7 @@ pub fn chat_changes(
             Change::Task { before, after } => task_change(before.as_ref(), after.as_ref()),
             Change::Mute { before: _, after } => after.map_or_else(
                 || "ミュート解除".into(),
-                |at| {
-                    format!(
-                        "ミュート 〜{}",
-                        chat_timestamp(local.and_then(|now| now.at_fixed_offset(at)))
-                    )
-                },
+                |at| format!("ミュート 〜{}", chat_timestamp(local_at(at))),
             ),
         })
         .collect::<Vec<_>>()
@@ -188,7 +183,10 @@ mod tests {
                 now.instant,
             )
             .unwrap();
-        assert_eq!(chat_changes(&added, Some(now)), "+ 1 〜16:00 資料（締切）");
+        assert_eq!(
+            chat_changes(&added, &|at| now.at_fixed_offset(at)),
+            "+ 1 〜16:00 資料（締切）"
+        );
         let (day, renamed) = day
             .edit(
                 1,
@@ -198,7 +196,10 @@ mod tests {
                 now.instant,
             )
             .unwrap();
-        assert_eq!(chat_changes(&renamed, Some(now)), "~ 1 資料 → 資料提出");
+        assert_eq!(
+            chat_changes(&renamed, &|at| now.at_fixed_offset(at)),
+            "~ 1 資料 → 資料提出"
+        );
         let (day, moved) = day
             .edit(
                 1,
@@ -209,11 +210,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            chat_changes(&moved, Some(now)),
+            chat_changes(&moved, &|at| now.at_fixed_offset(at)),
             "~ 1 〜16:00 → 〜17:00 資料提出"
         );
         let (_, muted) = day.mute(UnixMillis(3_600_000), now.instant);
-        assert_eq!(chat_changes(&muted, Some(now)), "ミュート 〜16:31");
+        assert_eq!(
+            chat_changes(&muted, &|at| now.at_fixed_offset(at)),
+            "ミュート 〜16:31"
+        );
     }
 }
 
@@ -240,14 +244,60 @@ mod status_tests {
             .unwrap()
             .0;
         let (done, set) = day.clone().done(1, now.instant).unwrap();
-        assert_eq!(chat_changes(&set, Some(now)), "x 1 資料");
         assert_eq!(
-            chat_changes(&done.undo(now.instant).unwrap().1, Some(now)),
+            chat_changes(&set, &|at| now.at_fixed_offset(at)),
+            "x 1 資料"
+        );
+        assert_eq!(
+            chat_changes(&done.undo(now.instant).unwrap().1, &|at| now
+                .at_fixed_offset(at)),
             "取り消し: x 1 資料"
         );
         assert_eq!(
-            chat_changes(&day.drop(1, now.instant).unwrap().1, Some(now)),
+            chat_changes(&day.drop(1, now.instant).unwrap().1, &|at| now
+                .at_fixed_offset(at)),
             "- 1 資料"
         );
+    }
+}
+
+#[cfg(test)]
+mod zone_tests {
+    use super::*;
+    use bunshin_core::{Now, Tuning, UnixMillis, day::Day};
+    #[test]
+    fn mute_end_uses_the_resolved_zone_offset_across_daylight_saving_changes() {
+        for (instant, local, minutes, end_local, expected) in [
+            (
+                1_772_951_400_000,
+                "2026-03-08T01:30:00",
+                60,
+                "2026-03-08T03:30:00",
+                "ミュート 〜03:30",
+            ),
+            (
+                1_793_511_000_000,
+                "2026-11-01T01:30:00",
+                120,
+                "2026-11-01T02:30:00",
+                "ミュート 〜02:30",
+            ),
+        ] {
+            let now = Now {
+                instant: UnixMillis(instant),
+                local: local.parse().unwrap(),
+            };
+            let end = UnixMillis(instant + minutes * 60_000);
+            let endpoint = Now {
+                instant: end,
+                local: end_local.parse().unwrap(),
+            };
+            let (_, set) = Day::new(now.local.date(), Tuning::default()).mute(end, now.instant);
+            assert_eq!(
+                chat_changes(&set, &|at| (at == end).then_some(endpoint)),
+                expected
+            );
+            assert_ne!(now.at_fixed_offset(end).unwrap().local, endpoint.local);
+        }
     }
 }

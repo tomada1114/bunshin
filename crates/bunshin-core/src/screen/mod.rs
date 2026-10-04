@@ -134,6 +134,19 @@ impl MainScreen {
     pub const fn finished(&self) -> bool {
         self.finished
     }
+    /// Complete a quit effect after its preceding saves. A failed cancellation save
+    /// keeps the screen open for the existing explicit unsaved-quit confirmation.
+    #[must_use]
+    pub fn complete_quit(mut self) -> Self {
+        if !self.finished {
+            if self.save_state == SaveState::Saved {
+                self.finished = true;
+            } else {
+                self.confirming_quit = true;
+            }
+        }
+        self
+    }
     /// Normalize command lookup while preserving form text; time is supplied by the caller.
     /// Successful Day mutations emit exactly one Save; navigation emits no effects.
     #[must_use]
@@ -216,7 +229,9 @@ impl MainScreen {
                     (self.instructions_scroll + 1).min(self.instructions_scroll_limit);
             }
             ScreenAction::Quit => {
-                if self.save_state == SaveState::Saved {
+                if self.cancel_pending_chat() {
+                    effects.extend([Effect::CancelModel, Effect::Save, Effect::Quit]);
+                } else if self.save_state == SaveState::Saved {
                     self.finished = true;
                     effects.push(Effect::Quit);
                 } else {

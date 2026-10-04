@@ -648,3 +648,113 @@ fn availability_clock_rollback_makes_recovery_due_without_duplicate_probes() {
         "completion restarts the ten-minute interval from the corrected clock"
     );
 }
+
+#[test]
+fn quitting_cancels_running_and_queued_owner_rows_before_restart_history() {
+    use bunshin_core::day::file::DayFile;
+    let tuning = Tuning::default();
+    let now = FixedClock::default().now();
+    let owner = InstructionsState::resolve(Some("秘書"), PathBuf::from("instructions.md"), tuning);
+    for key in [ScreenKey::Interrupt, ScreenKey::Char('q')] {
+        let screen = MainScreen::new(Day::new(now.local.date(), tuning), tuning);
+        let screen = type_text(screen, "中止する先頭", now)
+            .update(ScreenKey::Enter, now)
+            .0;
+        let (screen, _, _) = screen.prepare_chat(&owner, now);
+        let screen = type_text(screen, "中止する待機", now)
+            .update(ScreenKey::Enter, now)
+            .0;
+        let screen = screen.update(ScreenKey::Tab, now).0;
+        let (screen, effects) = screen.update(key, now);
+        assert_eq!(
+            effects,
+            vec![Effect::CancelModel, Effect::Save, Effect::Quit]
+        );
+        assert!(!screen.owner_waiting());
+        assert!(
+            screen
+                .day()
+                .messages()
+                .iter()
+                .all(|message| message.cancelled)
+        );
+        let file = serde_json::to_string(&DayFile::from(screen.day())).unwrap();
+        let day = serde_json::from_str::<DayFile>(&file)
+            .unwrap()
+            .into_day(tuning)
+            .unwrap();
+        let screen = MainScreen::new(day, tuning);
+        let screen = type_text(screen, "再起動した文章", now)
+            .update(ScreenKey::Enter, now)
+            .0;
+        let (_, request, _) = screen.prepare_chat(&owner, now);
+        let prompt = request.unwrap().request.prompt;
+        assert!(!prompt.contains("中止する先頭"));
+        assert!(!prompt.contains("中止する待機"));
+    }
+}
+
+#[test]
+fn quitting_during_a_probe_cancels_queued_answers_and_restores_open_questions() {
+    use bunshin_core::day::{
+        Author, InboxState, Message, MessageKind, Trigger, TriggerKind, UnpromptedKind,
+        UnpromptedMessage, file::DayFile,
+    };
+    let tuning = Tuning::default();
+    let now = FixedClock::default().now();
+    let mut data = Day::new(now.local.date(), tuning).data().clone();
+    data.messages.push(Message {
+        author: Author::Bunshin,
+        text: "synthetic question".into(),
+        time: now.instant,
+        kind: MessageKind::Unprompted,
+        answers_question: None,
+        change_set: None,
+        cancelled: false,
+        in_reply_to: None,
+        unprompted: Some(UnpromptedMessage {
+            kind: UnpromptedKind::Question,
+            trigger: Trigger {
+                kind: TriggerKind::PlannedLook,
+                task: None,
+                due_at: now.instant,
+            },
+            task: None,
+            inbox_state: InboxState::Open,
+            state_changed_at: now.instant,
+            suppressed: None,
+        }),
+    });
+    let day = (DayFile { format: 1, data }).into_day(tuning).unwrap();
+    let (screen, probe) = MainScreen::new(day, tuning).prepare_availability(now.instant);
+    assert!(probe);
+    let screen = type_text(screen, "queued answer during probe", now)
+        .update(ScreenKey::Enter, now)
+        .0;
+    assert_eq!(
+        screen.day().messages()[0]
+            .unprompted
+            .as_ref()
+            .unwrap()
+            .inbox_state,
+        InboxState::Answered
+    );
+    let (screen, effects) = screen.update(ScreenKey::Interrupt, now);
+    assert_eq!(
+        effects,
+        vec![Effect::CancelModel, Effect::Save, Effect::Quit]
+    );
+    assert!(
+        !screen.finished(),
+        "quit waits for the cancellation save result"
+    );
+    assert!(!screen.owner_waiting());
+    assert!(screen.day().messages()[1].cancelled);
+    let question = screen.day().messages()[0].unprompted.as_ref().unwrap();
+    assert_eq!(question.inbox_state, InboxState::Open);
+    assert_eq!(question.state_changed_at, now.instant);
+    let screen = screen
+        .record_save_result(Ok(()), now.instant, "")
+        .complete_quit();
+    assert!(screen.finished());
+}

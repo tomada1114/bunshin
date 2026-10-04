@@ -38,19 +38,13 @@ const SYSTEM_STYLE: Style = BASE_STYLE.fg(Color::Blue);
 
 #[cfg(test)]
 pub fn draw(frame: &mut Frame, screen: &MainScreen, now: Now) {
-    let times = screen
-        .day()
-        .messages()
-        .iter()
-        .map(|message| now.at_fixed_offset(message.time))
-        .collect::<Vec<_>>();
-    draw_with_metrics(frame, screen, now, &times);
+    draw_with_metrics(frame, screen, now, &|at| now.at_fixed_offset(at));
 }
 pub(super) fn draw_with_metrics(
     frame: &mut Frame,
     screen: &MainScreen,
     now: Now,
-    times: &[Option<Now>],
+    local_at: &dyn Fn(bunshin_core::UnixMillis) -> Option<Now>,
 ) -> (usize, usize, Option<(usize, usize)>) {
     let area = frame.area();
     if area.width < 60 || area.height < 18 {
@@ -99,8 +93,8 @@ pub(super) fn draw_with_metrics(
     let input_height = u16::try_from(rows).unwrap_or(3).saturating_add(2);
     let [chat, input] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(input_height)]).areas(right);
-    let metrics = draw_chat(frame, screen, now, chat, times);
-    draw_input(frame, screen, now, times, input);
+    let metrics = draw_chat(frame, screen, now, chat, local_at);
+    draw_input(frame, screen, now, local_at, input);
     if screen.is_confirming_quit() {
         let confirmation = match screen.save_state() {
             SaveState::Saved | SaveState::NotSaved(_) => wording::QUIT_UNSAVED,
@@ -267,16 +261,24 @@ fn truncate(text: &str, width: usize) -> String {
     result.push('…');
     result
 }
-fn draw_input(frame: &mut Frame, screen: &MainScreen, now: Now, times: &[Option<Now>], area: Rect) {
+fn draw_input(
+    frame: &mut Frame,
+    screen: &MainScreen,
+    now: Now,
+    local_at: &dyn Fn(bunshin_core::UnixMillis) -> Option<Now>,
+    area: Rect,
+) {
     let target = screen
         .reply_target()
         .or_else(|| screen.day().implicit_reply_target(now.instant));
     let time = target.map(|target| {
-        wording::chat_timestamp(
-            usize::try_from(target)
-                .ok()
-                .and_then(|index| times.get(index).copied().flatten()),
-        )
+        wording::chat_timestamp(usize::try_from(target).ok().and_then(|index| {
+            screen
+                .day()
+                .messages()
+                .get(index)
+                .and_then(|message| local_at(message.time))
+        }))
     });
     let title = wording::input_title(time.as_deref());
     let counter = wording::input_count(screen.input().chars(), screen.input_limit());
@@ -344,7 +346,7 @@ fn draw_chat(
     screen: &MainScreen,
     now: Now,
     area: Rect,
-    times: &[Option<Now>],
+    local_at: &dyn Fn(bunshin_core::UnixMillis) -> Option<Now>,
 ) -> (usize, usize) {
     let mut block = region_block(wording::CHAT_TITLE, false);
     if screen.chat_new_messages() > 0 {
@@ -354,7 +356,7 @@ fn draw_chat(
     }
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let mut rows = persisted_chat_rows(screen, times);
+    let mut rows = persisted_chat_rows(screen, local_at);
     if let Some(ScreenError::Day(error)) = screen.error() {
         rows.push((
             Line::from(vec![
@@ -397,7 +399,10 @@ fn draw_chat(
     );
     metrics
 }
-fn persisted_chat_rows(screen: &MainScreen, times: &[Option<Now>]) -> Vec<(Line<'static>, usize)> {
+fn persisted_chat_rows(
+    screen: &MainScreen,
+    local_at: &dyn Fn(bunshin_core::UnixMillis) -> Option<Now>,
+) -> Vec<(Line<'static>, usize)> {
     let mut rows = Vec::new();
     let unseen = screen.chat_first_unseen();
     for (index, message) in screen.day().messages().iter().enumerate() {
@@ -433,14 +438,14 @@ fn persisted_chat_rows(screen: &MainScreen, times: &[Option<Now>]) -> Vec<(Line<
         };
         let text = message.change_set.as_ref().map_or_else(
             || message.text.clone(),
-            |set| wording::chat_changes(set, times.get(index).copied().flatten()),
+            |set| wording::chat_changes(set, local_at),
         );
         let text = if message.cancelled {
             format!("{text}{}", wording::CANCELLED_MARK)
         } else {
             text
         };
-        let clock = wording::chat_timestamp(times.get(index).copied().flatten());
+        let clock = wording::chat_timestamp(local_at(message.time));
         let speaker = format!(
             "{speaker}{}",
             " ".repeat(8_usize.saturating_sub(Span::raw(speaker).width()))

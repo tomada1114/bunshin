@@ -94,6 +94,9 @@ availability rechecks use supplied clock readings; drawing and Unicode input are
 covered without entering a real terminal. Instructions are reread before dispatch
 and before their read-only view opens. Cancelled owner rows stay visible but never
 enter later model history, and queued owner rows are withheld until dispatch.
+Accepted quit keys cancel and save all outstanding owner rows before exit; a failed
+save retains the explicit unsaved-quit confirmation. Persisted message and mute-end
+instants are converted through `Clock::local_at`, including daylight-saving changes.
 
 `prompt::checkin::build_checkin` uses the same assembly with a 300-token answer
 reserve and mandatory compact trigger tuples. `checkin::calls::CheckinCalls`

@@ -664,7 +664,9 @@ fn instruction_scrolling_keeps_the_last_wrapped_row_visible() {
     let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
     let mut metrics = (0, 0, None);
     terminal
-        .draw(|frame| metrics = draw_with_metrics(frame, &screen, now, &[]))
+        .draw(|frame| {
+            metrics = draw_with_metrics(frame, &screen, now, &|at| now.at_fixed_offset(at));
+        })
         .unwrap();
     let (rows, height) = metrics.2.unwrap();
     assert!(rows > height);
@@ -693,7 +695,7 @@ fn asynchronous_replies_show_one_new_message_divider_until_any_key_press() {
     );
     let (screen, request, _) = screen.prepare_chat(&owner, now);
     assert!(
-        !persisted_chat_rows(&screen, &[])
+        !persisted_chat_rows(&screen, &|at| now.at_fixed_offset(at))
             .iter()
             .any(|(line, _)| line.to_string().contains("ここから新着"))
     );
@@ -707,7 +709,7 @@ fn asynchronous_replies_show_one_new_message_divider_until_any_key_press() {
         )
         .0
         .record_chat_notice(ChatNotice::Failed, "synthetic error", now.instant);
-    let rows = persisted_chat_rows(&screen, &[]);
+    let rows = persisted_chat_rows(&screen, &|at| now.at_fixed_offset(at));
     let divider = rows
         .iter()
         .position(|(line, _)| line.to_string().contains("── ここから新着 ──"))
@@ -724,13 +726,13 @@ fn asynchronous_replies_show_one_new_message_divider_until_any_key_press() {
     assert!((0..24).any(|y| line(&buffer, y).contains("ここから新着")));
     let screen = screen.update(ScreenKey::Tab, now).0;
     assert!(
-        !persisted_chat_rows(&screen, &[])
+        !persisted_chat_rows(&screen, &|at| now.at_fixed_offset(at))
             .iter()
             .any(|(line, _)| line.to_string().contains("ここから新着"))
     );
     let reloaded = MainScreen::new(screen.day().clone(), Tuning::default());
     assert!(
-        !persisted_chat_rows(&reloaded, &[])
+        !persisted_chat_rows(&reloaded, &|at| now.at_fixed_offset(at))
             .iter()
             .any(|(line, _)| line.to_string().contains("ここから新着"))
     );
@@ -835,4 +837,39 @@ fn unavailable_model_header_is_red_and_bold_until_recovery() {
     let buffer = render(&screen, now, 80, 24);
     assert!(!line(&buffer, 0).contains(wording::MODEL_UNAVAILABLE));
     assert_ne!(buffer[(79, 0)].fg, Color::Red);
+}
+
+#[test]
+fn mute_change_rows_resolve_the_endpoint_instead_of_reusing_the_posted_offset() {
+    let now = Now {
+        instant: bunshin_core::UnixMillis(1_772_951_400_000),
+        local: "2026-03-08T01:30:00".parse().unwrap(),
+    };
+    let end = bunshin_core::UnixMillis(now.instant.0 + 3_600_000);
+    let endpoint = Now {
+        instant: end,
+        local: "2026-03-08T03:30:00".parse().unwrap(),
+    };
+    let day = Day::new(now.local.date(), Tuning::default())
+        .mute(end, now.instant)
+        .0;
+    let screen = MainScreen::new(day, Tuning::default());
+    let resolved_endpoint = std::cell::Cell::new(false);
+    let local_at = |at| {
+        if at == end {
+            resolved_endpoint.set(true);
+            Some(endpoint)
+        } else {
+            now.at_fixed_offset(at)
+        }
+    };
+    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    terminal
+        .draw(|frame| {
+            draw_with_metrics(frame, &screen, now, &local_at);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    assert!((0..24).any(|y| line(buffer, y).contains("ミュート 〜03:30")));
+    assert!(resolved_endpoint.get());
 }

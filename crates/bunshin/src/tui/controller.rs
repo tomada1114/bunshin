@@ -35,7 +35,7 @@ pub(super) fn process_effects(
                     .map_or_else(String::new, crate::wording::save_failure);
                 screen = screen.record_save_result(result, now.instant, &notice);
             }
-            Effect::Quit => {}
+            Effect::Quit => screen = screen.complete_quit(),
             Effect::CancelModel => cancel(),
             Effect::ChatNotice(notice) => {
                 let text = crate::wording::chat_notice(notice);
@@ -138,6 +138,35 @@ mod tests {
         let saved = store.load(screen.day().date()).expect("retried");
         assert_eq!(saved.tasks()[0].status, TaskStatus::Open);
         assert_eq!(DayFile::from(&saved), DayFile::from(screen.day()));
+    }
+
+    #[test]
+    fn quitting_pending_chat_saves_cancellation_and_a_failed_write_keeps_confirmation() {
+        let clock = FixedClock::default();
+        let now = clock.now();
+        let tuning = Tuning::default();
+        let mut screen = MainScreen::new(Day::new(now.local.date(), tuning), tuning);
+        for character in "queued owner message".chars() {
+            screen = screen.update(ScreenKey::Char(character), now).0;
+        }
+        screen = screen.update(ScreenKey::Enter, now).0;
+        let mut cancelled = false;
+        let failed = super::process_key(
+            screen.clone(),
+            ScreenKey::Interrupt,
+            now,
+            &FailingDayStore,
+            || cancelled = true,
+        );
+        assert!(cancelled);
+        assert!(!failed.finished());
+        assert!(failed.is_confirming_quit());
+        assert!(failed.day().messages()[0].cancelled);
+        assert!(process_key(failed, ScreenKey::Char('y'), now, &FailingDayStore).finished());
+        let store = InMemoryDayStore::new(tuning);
+        let saved = process_key(screen, ScreenKey::Interrupt, now, &store);
+        assert!(saved.finished());
+        assert!(store.load(saved.day().date()).unwrap().messages()[0].cancelled);
     }
 
     #[test]

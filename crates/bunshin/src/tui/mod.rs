@@ -122,14 +122,8 @@ fn event_loop(
             }
         }
         let mut metrics = (0, 0, None);
-        let times = screen
-            .day()
-            .messages()
-            .iter()
-            .map(|message| clock.local_at(message.time))
-            .collect::<Vec<_>>();
         terminal.draw(|frame| {
-            metrics = view::draw_with_metrics(frame, &screen, now, &times);
+            metrics = view::draw_with_metrics(frame, &screen, now, &|at| clock.local_at(at));
         })?;
         screen = screen.record_chat_layout(metrics.0, metrics.1);
         if let Some((rows, height)) = metrics.2 {

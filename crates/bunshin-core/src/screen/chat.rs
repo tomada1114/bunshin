@@ -395,6 +395,18 @@ impl MainScreen {
             ),
         }
     }
+    pub(super) fn cancel_pending_chat(&mut self) -> bool {
+        let pending = self.owner_waiting();
+        while let Some(queued) = self.chat.queue.pop_back() {
+            self.day
+                .cancel_owner_message(queued.index, queued.question_before);
+        }
+        if let Some(flight) = self.chat.flight.take() {
+            self.day
+                .cancel_owner_message(flight.pending.index, flight.pending.question_before);
+        }
+        pending
+    }
     /// Claim one initial/recovery availability probe, avoiding repeated queued probes.
     #[must_use]
     pub fn prepare_availability(mut self, at: UnixMillis) -> (Self, bool) {
