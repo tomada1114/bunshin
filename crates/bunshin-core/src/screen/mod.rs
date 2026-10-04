@@ -69,6 +69,7 @@ pub struct MainScreen {
     instructions_scroll: usize,
     instructions_scroll_limit: usize,
     last_key_messages: usize,
+    chat_has_key: bool,
 }
 impl MainScreen {
     /// Start in the input with the first display row selected, without reading I/O.
@@ -97,6 +98,7 @@ impl MainScreen {
             instructions_scroll: 0,
             instructions_scroll_limit: 0,
             last_key_messages,
+            chat_has_key: false,
         }
     }
     /// Day to render or persist after a Save effect.
@@ -153,6 +155,7 @@ impl MainScreen {
     pub fn update(self, key: ScreenKey, now: Now) -> (Self, Vec<Effect>) {
         let (mut next, effects) = self.update_key(key, now);
         next.last_key_messages = next.day.messages().len();
+        next.chat_has_key = true;
         (next, effects)
     }
     fn update_key(mut self, key: ScreenKey, now: Now) -> (Self, Vec<Effect>) {

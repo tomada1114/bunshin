@@ -44,6 +44,14 @@ impl MainScreen {
     pub const fn chat_follows_latest(&self) -> bool {
         self.chat.viewport.following
     }
+    /// Establish the initial-notice baseline without acknowledging rows after owner input.
+    #[must_use]
+    pub fn record_chat_bootstrap(mut self) -> Self {
+        if !self.chat_has_key {
+            self.last_key_messages = self.day.messages().len();
+        }
+        self
+    }
     /// First visible row posted after the owner's last key, even while following.
     #[must_use]
     pub fn chat_first_unseen(&self) -> Option<usize> {

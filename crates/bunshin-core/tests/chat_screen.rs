@@ -758,3 +758,73 @@ fn quitting_during_a_probe_cancels_queued_answers_and_restores_open_questions() 
         .complete_quit();
     assert!(screen.finished());
 }
+
+#[test]
+fn unavailable_model_keeps_owner_queue_until_recovery_and_dispatches_each_turn_once() {
+    use bunshin_core::{Availability, UnavailableReason, UnixMillis};
+    let tuning = Tuning::default();
+    let mut now = FixedClock::default().now();
+    now.instant = UnixMillis(0);
+    let owner =
+        InstructionsState::resolve(Some("synthetic"), PathBuf::from("instructions.md"), tuning);
+    let unavailable = Availability::Unavailable(UnavailableReason::TermsNotAccepted);
+    let (screen, _) = MainScreen::new(Day::new(now.local.date(), tuning), tuning)
+        .record_availability(Ok(unavailable), now.instant);
+    let screen = type_text(screen, "first held owner turn", now)
+        .update(ScreenKey::Enter, now)
+        .0;
+    let screen = type_text(screen, "future queued owner turn", now)
+        .update(ScreenKey::Enter, now)
+        .0;
+    let (screen, request, effects) = screen.prepare_chat(&owner, now);
+    assert!(request.is_none());
+    assert!(effects.is_empty());
+    assert!(
+        screen.owner_waiting(),
+        "unavailable readiness must preserve the queue"
+    );
+    let (screen, probe) = screen.prepare_availability(UnixMillis(599_999));
+    assert!(!probe);
+    let (screen, probe) = screen.prepare_availability(UnixMillis(600_000));
+    assert!(probe, "queued owner work must not block recovery probes");
+    let (screen, probe) = screen.prepare_availability(UnixMillis(600_001));
+    assert!(!probe);
+    now.instant = UnixMillis(600_002);
+    let (screen, _) = screen.record_availability(Ok(Availability::Available), now.instant);
+    let (screen, request, _) = screen.prepare_chat(&owner, now);
+    let request = request.unwrap();
+    assert!(request.request.prompt.contains("first held owner turn"));
+    assert!(!request.request.prompt.contains("future queued owner turn"));
+    let (screen, duplicate, _) = screen.prepare_chat(&owner, now);
+    assert!(duplicate.is_none());
+    let (screen, _) = screen.finish_chat(
+        request.id,
+        Ok(ModelAnswer {
+            json: r#"{"changes":[],"reply":"first completed"}"#.into(),
+        }),
+        now,
+    );
+    let (screen, request, _) = screen.prepare_chat(&owner, now);
+    let request = request.unwrap();
+    assert!(request.request.prompt.contains("future queued owner turn"));
+    assert!(request.request.prompt.contains("first completed"));
+    let (screen, _) = screen.finish_chat(
+        request.id,
+        Ok(ModelAnswer {
+            json: r#"{"changes":[],"reply":"second completed"}"#.into(),
+        }),
+        now,
+    );
+    let (screen, request, effects) = screen.prepare_chat(&owner, now);
+    assert!(request.is_none());
+    assert!(effects.is_empty());
+    assert!(!screen.owner_waiting());
+    assert!(
+        screen
+            .day()
+            .messages()
+            .iter()
+            .all(|message| !message.cancelled)
+    );
+    assert_eq!(screen.day().messages().len(), 4);
+}

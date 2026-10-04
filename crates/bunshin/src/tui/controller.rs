@@ -19,6 +19,17 @@ pub(super) fn process_key(
     screen
 }
 
+/// Recover pending owner rows before the terminal's error path drops the screen.
+pub(super) fn cancel_after_error(
+    screen: MainScreen,
+    now: Now,
+    store: &dyn DayStore,
+    mut cancel: impl FnMut(),
+) -> MainScreen {
+    cancel();
+    process_key(screen, ScreenKey::Interrupt, now, store, || {})
+}
+
 pub(super) fn process_effects(
     mut screen: MainScreen,
     effects: Vec<Effect>,
@@ -167,6 +178,85 @@ mod tests {
         let saved = process_key(screen, ScreenKey::Interrupt, now, &store);
         assert!(saved.finished());
         assert!(store.load(saved.day().date()).unwrap().messages()[0].cancelled);
+    }
+
+    #[test]
+    fn terminal_error_cleanup_cancels_pending_rows_and_persists_restored_questions() {
+        use bunshin_core::day::{
+            Author, InboxState, Message, MessageKind, Trigger, TriggerKind, UnpromptedKind,
+            UnpromptedMessage,
+        };
+        let clock = FixedClock::default();
+        let now = clock.now();
+        let tuning = Tuning::default();
+        let mut data = Day::new(now.local.date(), tuning).data().clone();
+        data.messages.push(Message {
+            author: Author::Bunshin,
+            text: "synthetic question".into(),
+            time: now.instant,
+            kind: MessageKind::Unprompted,
+            answers_question: None,
+            change_set: None,
+            cancelled: false,
+            in_reply_to: None,
+            unprompted: Some(UnpromptedMessage {
+                kind: UnpromptedKind::Question,
+                trigger: Trigger {
+                    kind: TriggerKind::PlannedLook,
+                    task: None,
+                    due_at: now.instant,
+                },
+                task: None,
+                inbox_state: InboxState::Open,
+                state_changed_at: now.instant,
+                suppressed: None,
+            }),
+        });
+        let day = (DayFile { format: 1, data }).into_day(tuning).unwrap();
+        let mut screen = MainScreen::new(day, tuning);
+        for character in "pending answer".chars() {
+            screen = screen.update(ScreenKey::Char(character), now).0;
+        }
+        screen = screen.update(ScreenKey::Enter, now).0;
+        let store = InMemoryDayStore::new(tuning);
+        let mut cancelled = false;
+        let saved = super::cancel_after_error(screen.clone(), now, &store, || cancelled = true);
+        assert!(cancelled);
+        assert!(saved.finished());
+        let day = store.load(saved.day().date()).unwrap();
+        assert!(day.messages()[1].cancelled);
+        assert_eq!(
+            day.messages()[0].unprompted.as_ref().unwrap().inbox_state,
+            InboxState::Open
+        );
+        let failed = super::cancel_after_error(screen, now, &FailingDayStore, || {});
+        assert!(!failed.finished());
+        assert!(failed.is_confirming_quit());
+        assert!(failed.day().messages()[1].cancelled);
+    }
+
+    #[test]
+    fn terminal_error_cleanup_cancels_running_and_queued_rows_without_a_terminal() {
+        use bunshin_core::instructions::InstructionsState;
+        use std::path::PathBuf;
+        let now = FixedClock::default().now();
+        let tuning = Tuning::default();
+        let owner =
+            InstructionsState::resolve(Some("synthetic"), PathBuf::from("instructions.md"), tuning);
+        let mut screen = MainScreen::new(Day::new(now.local.date(), tuning), tuning);
+        for text in ["running owner text", "queued owner text"] {
+            for character in text.chars() {
+                screen = screen.update(ScreenKey::Char(character), now).0;
+            }
+            screen = screen.update(ScreenKey::Enter, now).0;
+            screen = screen.prepare_chat(&owner, now).0;
+        }
+        let store = InMemoryDayStore::new(tuning);
+        let screen = super::cancel_after_error(screen, now, &store, || {});
+        assert!(!screen.owner_waiting());
+        let day = store.load(screen.day().date()).unwrap();
+        assert_eq!(day.messages().len(), 2);
+        assert!(day.messages().iter().all(|message| message.cancelled));
     }
 
     #[test]

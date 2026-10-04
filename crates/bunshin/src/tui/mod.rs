@@ -93,22 +93,50 @@ fn event_loop(
     instructions: &dyn InstructionsSource,
     tuning: Tuning,
 ) -> io::Result<()> {
+    // Keep ownership of the current screen until every fallible boundary has succeeded.
+    // Error recovery moves it once; ordinary ticks never clone the day's history.
+    macro_rules! event_try {
+        ($operation:expr) => {
+            match $operation {
+                Ok(value) => value,
+                Err(error) => {
+                    let recovered = controller::cancel_after_error(
+                        screen,
+                        clock.now(),
+                        store,
+                        || worker.cancel(),
+                    );
+                    if recovered.save_state() != bunshin_core::screen::SaveState::Saved {
+                        tracing::error!(state = ?recovered.save_state(), "pending chat cancellation save failed");
+                    }
+                    return Err(error);
+                }
+            }
+        };
+    }
     tracing::info!("tui opened");
-    screen = read_instructions(screen, instructions, clock.now(), store, worker);
+    screen =
+        read_instructions(screen, instructions, clock.now(), store, worker).record_chat_bootstrap();
+    let mut initial_probe = true;
     while !screen.finished() {
         let now = clock.now();
-        if let Some(completion) = worker.poll()? {
+        if let Some(completion) = event_try!(worker.poll()) {
+            let bootstrap = initial_probe && matches!(&completion, Completion::Availability(_));
             let (next, effects) = match completion {
                 Completion::Availability(result) => screen.record_availability(result, now.instant),
                 Completion::Answer(id, result) => screen.finish_chat(id, result, now),
             };
             screen = controller::process_effects(next, effects, now, store, || worker.cancel());
+            if bootstrap {
+                screen = screen.record_chat_bootstrap();
+                initial_probe = false;
+            }
         }
         if !worker.busy() {
             let (next, probe) = screen.prepare_availability(now.instant);
             screen = next;
             if probe {
-                worker.probe()?;
+                event_try!(worker.probe());
             } else if screen.owner_waiting() {
                 screen = read_instructions(screen, instructions, now, store, worker);
                 if let Some(owner) = screen.instructions().cloned() {
@@ -116,22 +144,22 @@ fn event_loop(
                     screen =
                         controller::process_effects(next, effects, now, store, || worker.cancel());
                     if let Some(request) = request {
-                        worker.respond(request)?;
+                        event_try!(worker.respond(request));
                     }
                 }
             }
         }
         let mut metrics = (0, 0, None);
-        terminal.draw(|frame| {
+        event_try!(terminal.draw(|frame| {
             metrics = view::draw_with_metrics(frame, &screen, now, &|at| clock.local_at(at));
-        })?;
+        }));
         screen = screen.record_chat_layout(metrics.0, metrics.1);
         if let Some((rows, height)) = metrics.2 {
             screen = screen.record_instructions_layout(rows, height);
         }
         // A timeout updates the header clock. Saving always completes before another read.
-        if event::poll(tuning.chat.poll_interval)?
-            && let Event::Key(key) = event::read()?
+        if event_try!(event::poll(tuning.chat.poll_interval))
+            && let Event::Key(key) = event_try!(event::read())
             && let Some(key) = screen_key(key)
         {
             screen = controller::process_key(screen, key, clock.now(), store, || worker.cancel());

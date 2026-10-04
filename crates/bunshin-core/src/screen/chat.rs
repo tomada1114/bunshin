@@ -274,20 +274,16 @@ impl MainScreen {
         owner: &InstructionsState,
         now: Now,
     ) -> (Self, Option<ChatRequest>, Vec<Effect>) {
-        if self.finished || self.chat.flight.is_some() {
+        if self.finished
+            || self.chat.flight.is_some()
+            || self.chat.probing
+            || matches!(self.chat.availability, Some(Availability::Unavailable(_)))
+        {
             return (self, None, Vec::new());
         }
         let Some(pending) = self.chat.queue.pop_front() else {
             return (self, None, Vec::new());
         };
-        if let Some(Availability::Unavailable(reason)) = self.chat.availability {
-            let _ = reason;
-            return (
-                self,
-                None,
-                vec![Effect::ChatNotice(ChatNotice::Failed), Effect::Save],
-            );
-        }
         let mut indices = self
             .chat
             .queue
@@ -420,7 +416,7 @@ impl MainScreen {
         self.chat.probe_observed_at = Some(at);
         let due = self.chat.probe_at.is_none_or(|instant| at >= instant);
         let needed = self.chat.availability != Some(Availability::Available);
-        let probe = needed && due && !self.chat.probing && !self.owner_waiting();
+        let probe = needed && due && !self.chat.probing && self.chat.flight.is_none();
         self.chat.probing |= probe;
         (self, probe)
     }

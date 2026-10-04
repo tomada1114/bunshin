@@ -873,3 +873,26 @@ fn mute_change_rows_resolve_the_endpoint_instead_of_reusing_the_posted_offset() 
     assert!((0..24).any(|y| line(buffer, y).contains("ミュート 〜03:30")));
     assert!(resolved_endpoint.get());
 }
+
+#[test]
+fn bootstrap_notices_are_seen_but_later_arrivals_and_early_owner_input_are_not() {
+    use bunshin_core::screen::ChatNotice;
+    let (screen, now) = empty();
+    let screen = screen
+        .record_chat_notice(ChatNotice::Failed, "synthetic bootstrap", now.instant)
+        .record_chat_bootstrap();
+    assert_eq!(screen.chat_first_unseen(), None);
+    let buffer = render(&screen, now, 100, 24);
+    assert!(!(0..24).any(|y| line(&buffer, y).contains("ここから新着")));
+    let screen = screen.record_chat_notice(ChatNotice::Failed, "synthetic later", now.instant);
+    assert_eq!(screen.chat_first_unseen(), Some(1));
+    let buffer = render(&screen, now, 100, 24);
+    assert!((0..24).any(|y| line(&buffer, y).contains("ここから新着")));
+    let (screen, now) = empty();
+    let screen = screen
+        .update(ScreenKey::Char('a'), now)
+        .0
+        .record_chat_notice(ChatNotice::Failed, "synthetic after key", now.instant)
+        .record_chat_bootstrap();
+    assert_eq!(screen.chat_first_unseen(), Some(0));
+}
