@@ -72,6 +72,13 @@ Core's prompt module reuses the workspace's existing `serde_json` runtime depend
 for structured context and strict answer parsing. Its version and features stay
 unchanged; the platform already ships it for persisted JSON. No crate is added.
 
+The binary directly uses the existing workspace `serde_json` to write the public
+`TodayView`. This adds no package, version or feature to the shipped dependency graph;
+the platform already uses the same crate for day JSON.
+
+The binary's tests reuse the workspace's existing `bunshin-test-support` port
+fakes through a dev dependency. This shared test-only crate does not ship.
+
 Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
 
 ## Data
@@ -107,7 +114,10 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   A failure before rename preserves the old file. A directory sync failure after
   rename instead returns `PublishedButNotDurable`: the complete new data is already
   visible, but crash durability is unconfirmed. Callers must distinguish this from
-  "not saved" and keep the in-memory day available for another save.
+  "not saved" and keep the in-memory day available for another save. The screen
+  shows 「保存済み・耐久性未確認」 for the latter, retries on the next change, and
+  uses a distinct quit confirmation on the help line. Repeated failures of the
+  same kind add no duplicate error row; a new cause adds one.
 - **The lock:** `bunshin tui` opens `tui.lock` and takes `File::try_lock` for its whole
   life and writes its PID into the file; `WouldBlock` means another screen runs, and the
   refusal reads that PID for its message (§3.7, `docs/product/ux-flows.md` C4). The PID
@@ -197,7 +207,9 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   and the header shows thinking. The answer's changes are validated, applied as one
   change set, saved, and shown as a change line with the reply; an error is one line and
   nothing changes.
-- **A key.** Core applies the change set, saves, redraws; no model involved (§3.4).
+- **A key.** Core applies the change set and emits `Save`. The binary completes the
+  synchronous store call, records its typed result in core and redraws before reading
+  another input; no model is involved (§3.4).
 - **The tick.** The loop polls the terminal with a short timeout and hands core the
   clock's `now` at least once a second; core runs the check-in rules when 60 s† have
   passed. A gap over 5 min† since the last tick is a sleep and becomes one catch-up. No

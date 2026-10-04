@@ -204,3 +204,20 @@ why), and **Sources** where an external fact carried weight.
 - **Rejected:** a hand-written JSON encoder and parser — duplicates escaping,
   Unicode handling and strict validation already supplied by the existing crate;
   parsing domain proposals in platform — moves core decisions outside its tests.
+
+### 2026-10-03 — Reuse existing serde_json for the public task output
+
+- **Decided:** the binary directly reuses the workspace's existing `serde_json`
+  to serialize the independently versioned core task view. The owner explicitly
+  accepted this reuse on 2026-10-03; no package, version or feature is introduced.
+- **Rejected:** serializing the persisted day object — exposes bookkeeping and
+  couples script output to storage; hand-written JSON formatting — duplicates
+  escaping and risks invalid output for complete owner titles.
+
+### 2026-10-03 — Reuse shared port fakes in binary tests
+
+- **Decided:** the binary takes the existing workspace `bunshin-test-support`
+  as a dev dependency for TUI and CLI tests against the shared port fakes. The
+  owner explicitly accepted this reuse on 2026-10-03. It does not ship.
+- **Rejected:** duplicating fakes inside the binary — separates them from the
+  shared port contracts and creates a second implementation to keep consistent.

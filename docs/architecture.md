@@ -128,8 +128,8 @@ a missing task from an invalid title. The binary owns each user-facing sentence 
 as data serializes as a typed code. Adapters translate OS failures at the boundary.
 
 `crates/bunshin/src/main.rs` is the composition root, the place that constructs real
-adapters and hands them to core. The current empty shell only initializes file logging;
-future day storage and model wiring belong here rather than in core.
+adapters and hands them to core. It constructs `JsonFileDayStore`, `SystemClock` and
+file logging for the task screen; model wiring belongs here rather than in core.
 
 The platform crate and the binary are outside the coverage floor. That is a
 constraint, not a licence: they translate, so they have no branch worth a numeric gate.
@@ -146,8 +146,8 @@ checkout, so it is a human's recipe. The command-line contract, which
   stderr: `error: <wording>` for a failed action, `warning: <wording>` for a degraded run
   (logging unavailable), and, in a debug build, a copy of each log line.
 - **Exit codes.** 0 on success (including `--help` and `--version`), 1 when the action
-  failed (missing terminal or `HOME`, terminal I/O), 2 on a usage error (clap's own code, with its
-  message and usage on stderr).
+  failed (missing terminal or `HOME`, terminal I/O, locked or invalid day data), 2 on a
+  usage error (clap's own code, with its message and usage on stderr).
 - **`--version`** prints `bunshin <version>`, the workspace version from `Cargo.toml`'s
   `[workspace.package]`.
 
@@ -167,14 +167,26 @@ Only the explicit edit path repairs permissions, without rewriting existing text
 No-editor failure guidance uses symbolic `~/` or `$XDG_DATA_HOME` locations as in UX
 flow C3, while the read-only source view displays the resolved path.
 
-`bunshin tui` is an empty-day shell, drawn with ratatui over its
-crossterm backend (reached only as `ratatui::crossterm`). The screen's state and what a
-key does are core's `ShellScreen`, `ShellAction`, and `ShellKey`, tested with plain values; `crates/bunshin/src/tui/` only enters and leaves the terminal, translates its key
-events, and draws (`view.rs`, tested against ratatui's `TestBackend`). It refuses with
-exit 1 unless standard input and standard output are both a terminal, logs to the file
-only while it owns the screen, and restores the terminal — raw mode off, the main screen
-back, the cursor shown — on a normal exit, on an error, and from a panic hook. No check
-runs the loop itself; a human running `bunshin tui` is its test.
+`bunshin tui` draws today's task screen with ratatui over its crossterm backend
+(reached only as `ratatui::crossterm`). Core's `MainScreen` owns focus, task forms,
+`ScreenKey` dispatch, save-result state and quit confirmation. Tab moves between input
+and tasks; `q` quits from tasks and Ctrl+C from anywhere. The binary executes each
+`Save` synchronously before reading another event, then reports its typed result to
+core. A failure retains the day, retries on the next change, and asks once before
+quit; a published replacement with unconfirmed durability has a distinct header and
+confirmation. The screen shows an error notice while full chat and model interaction
+are forthcoming.
+
+Startup refuses with exit 1 unless stdin and stdout are both terminals, before any
+file I/O. It then takes the writer lease and loads the logical day before entering
+raw mode. Locked, unreadable and unsupported data are refused without overwriting
+day bytes; stderr uses symbolic storage locations rather than private owner paths.
+The lease remains alive until the terminal is restored. Startup and save effects are
+tested headlessly with shared fakes and the real file adapter; the existing non-TTY
+CLI test proves no-I/O refusal. Tests never manufacture a terminal to get past that
+guard. Logging goes only to the file while the screen owns the terminal. Raw mode,
+the main screen and cursor are restored on a normal exit, an error and a panic hook.
+No check runs the loop itself; a human running `bunshin tui` is its test.
 
 ## Logging
 
@@ -214,7 +226,24 @@ private.
 | **Core's public API** — public items reachable from `crates/bunshin-core/src/lib.rs`, including `day`'s transitions, `TaskView` and file DTOs, the shared `Tuning`, `LanguageModel`, `ModelRequest`, `ModelAnswer`, `Availability`, `UnavailableReason`, `ModelError`, `CancelFlag`, and the clock and shell APIs | `bunshin-platform`, `bunshin-test-support`, `bunshin`, and their tests | Update every caller in the same pull request; the compiler finds them. A new port is a recorded decision. |
 | **The data and log locations** — the bundle identifier `io.github.tomada1114.bunshin` (`BUNDLE_IDENTIFIER` in `crates/bunshin-platform/src/paths.rs` and `bundle_id` in the justfile) and the XDG directory name `bunshin` (`XDG_APP_NAME`) | Where the tool's files are on a machine that ran it: on macOS `~/Library/Application Support/io.github.tomada1114.bunshin/` and `~/Library/Logs/io.github.tomada1114.bunshin/` (and any privacy grant, keyed by the identifier); on Linux `$XDG_DATA_HOME/bunshin/` and `$XDG_STATE_HOME/bunshin/logs/` | Fixed once the tool has run anywhere but your checkout: a new name leaves the user's data behind under the old one. Changing it is a human's decision, recorded as a decision (`deciding-architecture`); the bootstrap sets both once. |
 | **On-disk file formats** — see below | Files already on a user's disk; `just logs` and anyone reading the logs | A new version still reads the old format: a format version and a migration, with a test that reads a sample of the previous format. |
-| **The command line** — `bunshin tui`, `--help`, `--version`, what goes to stdout and what to stderr, and the exit codes (0 success, 1 the action failed, 2 a usage error) — see [The binary](#the-binary) | A person, a script, or a scheduled job that runs `bunshin` | Keep the old form working, or treat the change as breaking and say so in `CHANGELOG.md`. |
+| **The command line** — `bunshin tui`, `bunshin today [--json]`, `--help`, `--version`, what goes to stdout and what to stderr, and the exit codes (0 success, 1 the action failed, 2 a usage error) — see [The binary](#the-binary) | A person, a script, or a scheduled job that runs `bunshin` | Keep the old form working, or treat the change as breaking and say so in `CHANGELOG.md`. |
+
+### Read-only task output
+
+`bunshin today` reads the logical date once from `Clock`, then loads that day through
+`DayStore` without taking a writer lease or initializing logging. It prints tasks in
+pane order: number, status mark, time, full title. Untimed rows have a blank time field.
+Control characters become spaces in plain output so a saved title cannot split a row
+or issue terminal control sequences; full-width text remains unchanged.
+
+`bunshin today --json` writes one object and a final newline:
+`format` (currently 1), `date` (the logical date), and `tasks` (number, title, kind,
+time, status). Time is an HH:MM string or null. JSON preserves the complete title.
+This output is core's `TodayView`, independently versioned from day files; origins,
+messages, triggers and other persisted bookkeeping stay outside the output contract.
+A missing day is empty: plain output has no bytes, while JSON has an empty task array.
+Unreadable or unsupported data returns one Japanese `error:` line and exit 1; files
+remain unchanged. Failed stdout writes also return exit 1 without a panic.
 
 ### On-disk file formats
 

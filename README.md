@@ -6,14 +6,15 @@
 
 A personal Rust command-line tool: one binary, `bunshin`, whose clap
 subcommands do the work and whose `tui` subcommand opens a full-screen ratatui view over
-the same core, built and run on macOS and Linux. It opens an empty-day terminal shell backed by a deterministic day model and an
-injected clock, with
+the same core, built and run on macOS and Linux. It shows today's tasks in a responsive
+terminal pane, supports direct task keys, and saves every change through a deterministic
+day model and injected clock. It has
 coverage floors, architecture boundaries that fail a build, and supply-chain-hardened
 CI, all from the first commit.
 
 It runs on macOS (Apple Silicon) and Linux. Windows, any graphical interface, a release
-pipeline or release artifacts, crates.io publishing, localization, and an in-app LLM are
-non-goals.
+pipeline or release artifacts, crates.io publishing, localization, and network access
+are non-goals.
 
 ## Quickstart
 
@@ -36,17 +37,30 @@ runs (`RUSTUP_AUTO_INSTALL`, on by default:
 <https://rust-lang.github.io/rustup/environment-variables.html>, checked 2026-09-30).
 `just install` needs no `sudo` and opens no installer; a missing Command Line Tools
 install is reported with the command to run. `cargo run --locked -p bunshin -- tui` opens
-the full-screen view in the terminal you run it from; `q` quits.
+the full-screen view in the terminal you run it from. Tab moves to the task pane;
+`a` adds, Space finishes or reopens, `e` edits, and `?` shows all supported keys.
+`q` quits from the task pane; Ctrl+C quits from anywhere. Chat and model-driven
+interaction are forthcoming.
+
+Read the saved logical day's tasks without opening a screen:
+
+```bash
+cargo run -p bunshin -- today
+cargo run -p bunshin -- today --json
+```
+
+These commands take no writer lock. Before 04:00 they read the previous day's file.
+A missing day prints nothing in plain output and an empty task list in JSON.
 
 ## Day data
 
-The DayStore foundation defines storage outside the checkout: on macOS in
+The TUI stores its day outside the checkout: on macOS in
 `~/Library/Application Support/io.github.tomada1114.bunshin/`, and on Linux in
 `$XDG_DATA_HOME/bunshin/` (default `~/.local/share/bunshin/`). Each logical date has
 one `days/YYYY-MM-DD.json` file. The data directory and `days/` are private (`0700`);
 day files and `tui.lock` are owner-only (`0600`). The adapter supplies an OS lock
-lease for the writing screen; readers need no lock. The current empty TUI is not yet
-wired to this store or its lock; TUI integration is forthcoming. Whole-day writes use
+lease for the writing screen; readers need no lock. The TUI takes the lease and
+loads the logical day before entering the terminal. Whole-day writes use
 a temporary file, flush, fsync, and rename, so readers see a complete old or new day.
 Unreadable and newer-format
 files are refused without overwriting them. No day is deleted automatically; removing
@@ -57,7 +71,10 @@ or other resources for very large files. The lock PID is advisory and can be abs
 or stale while a new holder publishes it; the OS lock guarantees exclusion. Saving
 syncs the containing directory after rename. If that sync fails,
 `PublishedButNotDurable` means the complete new file is visible but crash durability
-is unconfirmed; a pre-publication `Unavailable` leaves the old file intact.
+is unconfirmed; a pre-publication `Unavailable` leaves the old file intact. The
+screen distinguishes these states, retains its day, and retries on the next change.
+Quitting while either state remains asks once; only `y` exits, and any other key
+returns to the screen.
 
 ## Design Philosophy
 
