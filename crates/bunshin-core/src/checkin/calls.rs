@@ -99,7 +99,8 @@ struct Pending {
     date: Date,
     batch: ReadyBatch,
     attempt: Attempt,
-    tasks_at_enqueue: Vec<TaskView>,
+    tasks_at_enqueue: Vec<(Trigger, TaskView)>,
+    retrying: Vec<Trigger>,
 }
 struct Flight {
     id: u64,
@@ -149,12 +150,60 @@ impl CheckinCalls {
                 })
         });
         if !batch.triggers.is_empty() {
-            self.pending.push_back(Pending {
+            let tasks = day.task_view();
+            let facts = batch
+                .triggers
+                .iter()
+                .filter_map(|trigger| {
+                    tasks
+                        .iter()
+                        .find(|task| Some(task.number) == trigger.task)
+                        .map(|task| (trigger.clone(), task.clone()))
+                })
+                .collect::<Vec<_>>();
+            self.queue_pending(Pending {
                 date,
                 batch,
                 attempt: Attempt::First,
-                tasks_at_enqueue: day.task_view(),
+                tasks_at_enqueue: facts,
+                retrying: Vec::new(),
             });
+        }
+    }
+    fn queue_pending(&mut self, incoming: Pending) {
+        if let Some(pending) = self.pending.iter_mut().find(|p| p.date == incoming.date) {
+            let incoming_open = matches!(incoming.attempt, Attempt::First)
+                && matches!(
+                    incoming.batch.reason,
+                    BatchReason::Open | BatchReason::DayStart
+                );
+            let pending_open = matches!(pending.attempt, Attempt::First)
+                && matches!(
+                    pending.batch.reason,
+                    BatchReason::Open | BatchReason::DayStart
+                );
+            if incoming_open {
+                pending.batch.reason = incoming.batch.reason;
+                pending.attempt = Attempt::First;
+            } else if !pending_open {
+                if matches!(pending.batch.reason, BatchReason::Tick)
+                    || matches!(incoming.batch.reason, BatchReason::Sleep)
+                {
+                    pending.batch.reason = incoming.batch.reason;
+                }
+                if matches!(incoming.attempt, Attempt::NextTick) {
+                    pending.attempt = Attempt::NextTick;
+                } else if matches!(pending.attempt, Attempt::First)
+                    && matches!(incoming.attempt, Attempt::Retry)
+                {
+                    pending.attempt = Attempt::Retry;
+                }
+            }
+            pending.batch.triggers.extend(incoming.batch.triggers);
+            pending.tasks_at_enqueue.extend(incoming.tasks_at_enqueue);
+            pending.retrying.extend(incoming.retrying);
+        } else {
+            self.pending.push_back(incoming);
         }
     }
     /// Give a free worker one batch, after any waiting owner message. A pure
@@ -276,8 +325,9 @@ impl CheckinCalls {
                 .iter()
                 .filter(|trigger| {
                     deadline(trigger.kind)
-                        && trigger.task.is_none_or(|number| {
-                            !current_task(number, day, &pending.tasks_at_enqueue)
+                        && !pending.tasks_at_enqueue.iter().any(|(event, task)| {
+                            event == *trigger
+                                && current_task(task.number, day, std::slice::from_ref(task))
                         })
                 })
                 .cloned()
@@ -453,22 +503,32 @@ impl CheckinCalls {
             match error {
                 ModelError::Unavailable(_) => {
                     day.hold_checkin_triggers(&pending.batch.triggers);
-                    self.pending.push_back(pending);
+                    self.queue_pending(pending);
                 }
                 ModelError::TimedOut
                 | ModelError::Cancelled
                 | ModelError::Refused
                 | ModelError::Malformed
-                | ModelError::Failed => match pending.attempt {
-                    Attempt::First => {
-                        pending.attempt = Attempt::NextTick;
-                        day.hold_checkin_triggers(&pending.batch.triggers);
-                        self.pending.push_back(pending);
-                    }
-                    Attempt::NextTick | Attempt::Retry => {
+                | ModelError::Failed => {
+                    let spent = pending
+                        .batch
+                        .triggers
+                        .iter()
+                        .any(|trigger| pending.retrying.contains(trigger));
+                    pending
+                        .batch
+                        .triggers
+                        .retain(|trigger| !pending.retrying.contains(trigger));
+                    if spent {
                         day = plan_look(day, now, None, self.tuning);
                     }
-                },
+                    if !pending.batch.triggers.is_empty() {
+                        pending.attempt = Attempt::NextTick;
+                        pending.retrying.clone_from(&pending.batch.triggers);
+                        day.hold_checkin_triggers(&pending.batch.triggers);
+                        self.queue_pending(pending);
+                    }
+                }
             }
         }
         let effects = save_effect(&day, before, delivered);

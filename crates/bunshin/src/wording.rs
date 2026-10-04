@@ -273,7 +273,8 @@ const LABEL_CLOSE: &str = "]";
 const LABEL_SEPARATOR: &str = " / ";
 const LABEL_TASK_SEPARATOR: &str = ": ";
 
-/// Render core's fixed deadline facts, preserving the complete task title.
+/// Render core's fixed deadline facts, replacing title control characters with
+/// spaces while preserving all other title characters.
 /// The time is supplied by the validated deadline task, never guessed here.
 #[must_use]
 pub fn fixed_deadline(note: &bunshin_core::checkin::calls::FixedDeadline) -> String {
@@ -285,10 +286,13 @@ pub fn fixed_deadline(note: &bunshin_core::checkin::calls::FixedDeadline) -> Str
     let time = note.task.time.map_or_else(String::new, |at| {
         format!("{:02}:{:02}", at.hour(), at.minute())
     });
-    format!(
-        "{}{DEADLINE_OPEN}{time}{DEADLINE_CLOSE}{suffix}",
-        note.task.title
-    )
+    let title = note
+        .task
+        .title
+        .chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect::<String>();
+    format!("{title}{DEADLINE_OPEN}{time}{DEADLINE_CLOSE}{suffix}")
 }
 /// Format the note/question and trigger tag for a later terminal renderer.
 /// Control characters in a supplied title cannot split or control the tag line.
@@ -328,6 +332,41 @@ mod checkin_tests {
         checkin::calls::{DeadlineNotice, FixedDeadline},
         day::{Day, TaskKind, TaskOrigin, Trigger, TriggerKind, UnpromptedKind},
     };
+    #[test]
+    fn fixed_deadline_titles_replace_control_characters_without_truncation() {
+        let day = Day::new("2026-10-03".parse().unwrap(), Tuning::default())
+            .add(
+                "資料\n作成\t\r\u{1b}確認".into(),
+                TaskKind::Deadline,
+                Some("15:00".parse().unwrap()),
+                TaskOrigin::Key,
+                UnixMillis(0),
+            )
+            .unwrap()
+            .0;
+        for (kind, expected) in [
+            (
+                DeadlineNotice::Before,
+                "資料 作成   確認（〜15:00）の締切が近づいています。",
+            ),
+            (
+                DeadlineNotice::After,
+                "資料 作成   確認（〜15:00）の締切を過ぎました。",
+            ),
+        ] {
+            let note = FixedDeadline {
+                kind,
+                task: day.task_view().remove(0),
+                trigger: Trigger {
+                    kind: TriggerKind::BeforeDeadline,
+                    task: Some(1),
+                    due_at: UnixMillis(0),
+                },
+            };
+            assert_eq!(fixed_deadline(&note), expected);
+        }
+    }
+
     #[test]
     fn fixed_deadline_notes_and_all_tags_use_literal_japanese_wording() {
         let tuning = Tuning::default();

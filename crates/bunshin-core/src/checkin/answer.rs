@@ -58,6 +58,9 @@ where
 /// Returns `ModelError::Malformed` without any model text.
 pub fn parse_checkin(json: &str, day: &Day, tuning: Tuning) -> Result<CheckinAnswer, ModelError> {
     let raw: Envelope = serde_json::from_str(json).map_err(|_| ModelError::Malformed)?;
+    if raw.kind != CheckinKind::Silent && raw.message.trim().is_empty() {
+        return Err(ModelError::Malformed);
+    }
     let bounds = tuning.checkin;
     let delay = raw
         .next_look_minutes

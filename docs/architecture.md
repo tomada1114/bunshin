@@ -91,6 +91,7 @@ reserve and mandatory compact trigger tuples. `checkin::calls::CheckinCalls`
 queues one request behind owner conversation and rejects stale worker tokens.
 Strict check-in parsing permits only silent, note or question; integer references
 outside the task domain become general messages and planned looks are clamped.
+Notes and questions require nonblank text; silent answers may carry empty text.
 Delivery preserves tasks and undo, records suppression without updating the last
 actual delivery time, and emits typed Bell/Save effects with one Bell per
 unsuppressed row. Queued routine calls and retries recheck the same
@@ -102,6 +103,10 @@ facts; a completed answer also waits until typing and owner work clear.
 Enqueuing captures task facts when the scheduler batch is consumed. Before
 dispatch, obsolete queued deadlines and their held facts are removed, including
 when an unavailable model would otherwise produce a fixed fallback.
+Same-day waiting events merge into one request, retaining each event's enqueue
+facts and retry allowance. A failed in-flight batch also joins events queued
+during its call; a retry waits for an actual tick, and fresh events retain their
+own single retry even when sent alongside a previously failed event.
 Task-specific replies are discarded when a task known at dispatch was closed,
 deleted or edited during the call; discarding them leaves the current planned
 look unchanged. Deadline fallbacks compare current task facts
@@ -113,6 +118,7 @@ Deadline failures use `FixedDeadline` facts with a pure formatter supplied by th
 retry once at a scheduler tick after completion. Unavailable non-deadline events
 remain held in day data until recovery. A caller marks `CallContext.is_tick` only
 when the scheduler evaluates, rather than on every terminal poll.
+The fixed deadline formatter replaces title control characters with spaces.
 
 The compact check-in trigger codes are private prompt encoding: b (before), a
 (after), p (planned), s (day start), e (evening), and c (catch-up). They retain all

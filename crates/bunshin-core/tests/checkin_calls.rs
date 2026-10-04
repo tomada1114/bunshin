@@ -7,6 +7,275 @@ use bunshin_core::{
 };
 
 #[test]
+fn a_trigger_queued_during_a_call_joins_its_failed_trigger_at_the_next_tick() {
+    use bunshin_core::{ModelAnswer, ModelError};
+    let (day, owner, mut calls, now) = fixture(TriggerKind::PlannedLook).unwrap();
+    let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+    queue(
+        &mut calls,
+        &start.day,
+        TriggerKind::EveningReview,
+        UnixMillis(1),
+    );
+    let held = calls.prepare(
+        start.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
+    let failed = calls.finish(
+        held.day,
+        start.request.unwrap().id,
+        Err(ModelError::TimedOut),
+        context(now),
+        fixed,
+    );
+    let blocked = calls.prepare(
+        failed.day,
+        &owner,
+        ContextExtras::default(),
+        bunshin_core::checkin::calls::CallContext {
+            is_tick: false,
+            ..context(now)
+        },
+        fixed,
+    );
+    assert!(blocked.request.is_none());
+    let next = calls.prepare(
+        blocked.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
+    let expected = build_checkin(
+        &next.day,
+        &owner,
+        now,
+        &[
+            Trigger {
+                kind: TriggerKind::EveningReview,
+                task: Some(1),
+                due_at: UnixMillis(1),
+            },
+            Trigger {
+                kind: TriggerKind::PlannedLook,
+                task: Some(1),
+                due_at: now.instant,
+            },
+        ],
+        ContextExtras::default(),
+        Tuning::default(),
+    )
+    .unwrap();
+    let request = next.request.unwrap();
+    assert_eq!(request.request.prompt, expected.request.prompt);
+    let done = calls.finish(
+        next.day,
+        request.id,
+        Ok(ModelAnswer {
+            json: r#"{"kind":"silent","message":""}"#.into(),
+        }),
+        context(now),
+        fixed,
+    );
+    assert!(
+        calls
+            .prepare(
+                done.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed
+            )
+            .request
+            .is_none()
+    );
+}
+
+#[test]
+fn merging_a_fresh_event_into_a_retry_preserves_each_events_one_retry() {
+    use bunshin_core::{
+        ModelError,
+        checkin::{BatchReason, ReadyBatch},
+    };
+    let (day, owner, mut calls, now) = fixture(TriggerKind::PlannedLook).unwrap();
+    let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+    let failed = calls.finish(
+        start.day,
+        start.request.unwrap().id,
+        Err(ModelError::TimedOut),
+        context(now),
+        fixed,
+    );
+    let new = Trigger {
+        kind: TriggerKind::EveningReview,
+        task: None,
+        due_at: UnixMillis(1),
+    };
+    calls.enqueue(
+        &failed.day,
+        ReadyBatch {
+            reason: BatchReason::Tick,
+            triggers: vec![new.clone()],
+        },
+    );
+    let retry = calls.prepare(
+        failed.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
+    let second = calls.finish(
+        retry.day,
+        retry.request.unwrap().id,
+        Err(ModelError::TimedOut),
+        context(now),
+        fixed,
+    );
+    assert_eq!(second.day.data().held_triggers, vec![new.clone()]);
+    let fresh_retry = calls.prepare(
+        second.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
+    let expected = build_checkin(
+        &fresh_retry.day,
+        &owner,
+        now,
+        &[new],
+        ContextExtras::default(),
+        Tuning::default(),
+    )
+    .unwrap();
+    let request = fresh_retry.request.unwrap();
+    assert_eq!(request.request.prompt, expected.request.prompt);
+    let spent = calls.finish(
+        fresh_retry.day,
+        request.id,
+        Err(ModelError::Refused),
+        context(now),
+        fixed,
+    );
+    assert!(spent.day.data().held_triggers.is_empty());
+    assert!(
+        calls
+            .prepare(
+                spent.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed
+            )
+            .request
+            .is_none()
+    );
+}
+
+#[test]
+fn unavailable_held_triggers_and_new_events_recover_in_one_call() {
+    use bunshin_core::{
+        Availability, ModelAnswer, UnavailableReason,
+        checkin::{BatchReason, ReadyBatch},
+    };
+    let (day, owner, mut calls, now) = fixture(TriggerKind::PlannedLook).unwrap();
+    let held = calls.prepare(
+        day,
+        &owner,
+        ContextExtras::default(),
+        bunshin_core::checkin::calls::CallContext {
+            availability: Availability::Unavailable(UnavailableReason::NotInstalled),
+            ..context(now)
+        },
+        fixed,
+    );
+    let old = held.day.data().held_triggers[0].clone();
+    let new = Trigger {
+        kind: TriggerKind::EveningReview,
+        task: None,
+        due_at: UnixMillis(1),
+    };
+    calls.enqueue(
+        &held.day,
+        ReadyBatch {
+            reason: BatchReason::Tick,
+            triggers: vec![old, new],
+        },
+    );
+    let start = calls.prepare(
+        held.day,
+        &owner,
+        ContextExtras::default(),
+        context(now),
+        fixed,
+    );
+    let expected = build_checkin(
+        &start.day,
+        &owner,
+        now,
+        &[
+            Trigger {
+                kind: TriggerKind::PlannedLook,
+                task: Some(1),
+                due_at: now.instant,
+            },
+            Trigger {
+                kind: TriggerKind::EveningReview,
+                task: None,
+                due_at: UnixMillis(1),
+            },
+        ],
+        ContextExtras::default(),
+        Tuning::default(),
+    )
+    .unwrap();
+    let request = start.request.unwrap();
+    assert_eq!(request.request.prompt, expected.request.prompt);
+    let done = calls.finish(
+        start.day,
+        request.id,
+        Ok(ModelAnswer {
+            json: r#"{"kind":"silent","message":""}"#.into(),
+        }),
+        context(now),
+        fixed,
+    );
+    assert!(done.day.data().held_triggers.is_empty());
+    assert!(
+        calls
+            .prepare(
+                done.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed
+            )
+            .request
+            .is_none()
+    );
+}
+
+#[test]
+fn checkin_rejects_blank_notes_and_questions_but_accepts_silent_empty_text() {
+    use bunshin_core::{ModelError, checkin::answer::parse_checkin};
+    let (day, _, _, _) = fixture(TriggerKind::PlannedLook).unwrap();
+    for kind in ["note", "question"] {
+        for message in ["", " \t\n", "　"] {
+            let json = serde_json::json!({"kind":kind,"message":message}).to_string();
+            assert_eq!(
+                parse_checkin(&json, &day, Tuning::default()),
+                Err(ModelError::Malformed)
+            );
+        }
+    }
+    assert!(parse_checkin(r#"{"kind":"silent","message":""}"#, &day, Tuning::default()).is_ok());
+}
+
+#[test]
 fn queued_deadlines_edited_behind_owner_work_are_removed_before_model_or_fallback_dispatch() {
     use bunshin_core::{
         Availability, UnavailableReason,
