@@ -294,7 +294,7 @@ pub(crate) fn deadline_is_due(day: &Day, trigger: &Trigger, now: Now, tuning: Tu
     };
     let (deadline, before) = deadline_times(day.date(), time, tuning);
     match trigger.kind {
-        TriggerKind::BeforeDeadline => now.local >= before,
+        TriggerKind::BeforeDeadline => now.local >= before && now.local <= deadline,
         TriggerKind::AfterDeadline => now.local > deadline,
         TriggerKind::PlannedLook
         | TriggerKind::DayStart

@@ -26,6 +26,146 @@ fn apply_delivery_guard(
 }
 
 #[test]
+fn expired_before_deadline_work_does_not_suppress_the_next_overdue_tick() {
+    use bunshin_core::{
+        Availability, UnavailableReason,
+        checkin::{
+            Checkin,
+            calls::{CheckinCalls, CheckinEffect},
+        },
+    };
+    for availability in [
+        Availability::Available,
+        Availability::Unavailable(UnavailableReason::NotInstalled),
+    ] {
+        let (day, owner, _, mut now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+        let original_messages = day.messages().to_vec();
+        now.local = now.local.date().at(14, 59, 59, 0);
+        let scheduled = Checkin::new(now, Tuning::default()).open(day, now, false);
+        let mut calls = CheckinCalls::new(Tuning::default());
+        calls.enqueue(&scheduled.day, scheduled.ready.unwrap());
+        let waiting = calls.prepare(
+            scheduled.day,
+            &owner,
+            ContextExtras::default(),
+            bunshin_core::checkin::calls::CallContext {
+                input_has_text: true,
+                ..context(now)
+            },
+            fixed,
+        );
+        assert!(waiting.request.is_none());
+        now.instant = UnixMillis(3_000);
+        now.local = now.local.date().at(15, 0, 1, 0);
+        let expired = calls.prepare(
+            waiting.day,
+            &owner,
+            ContextExtras::default(),
+            bunshin_core::checkin::calls::CallContext {
+                availability,
+                is_tick: false,
+                ..context(now)
+            },
+            fixed,
+        );
+        assert!(expired.request.is_none());
+        assert_eq!(expired.day.messages(), original_messages);
+        assert!(expired.day.data().held_triggers.is_empty());
+        assert_eq!(expired.day.data().last_unprompted_at, None);
+        assert_eq!(expired.effects, vec![CheckinEffect::Save]);
+        now.instant = UnixMillis(60_000);
+        now.local = now.local.date().at(15, 0, 59, 0);
+        let next = scheduled.checkin.tick(expired.day, now, false);
+        calls.enqueue(&next.day, next.ready.unwrap());
+        let delivered = calls.prepare(
+            next.day,
+            &owner,
+            ContextExtras::default(),
+            bunshin_core::checkin::calls::CallContext {
+                availability: Availability::Unavailable(UnavailableReason::NotInstalled),
+                ..context(now)
+            },
+            fixed,
+        );
+        let rows = delivered
+            .day
+            .messages()
+            .iter()
+            .filter(|row| row.unprompted.is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, "fixed AfterDeadline");
+        let metadata = rows[0].unprompted.as_ref().unwrap();
+        assert_eq!(metadata.trigger.kind, TriggerKind::AfterDeadline);
+        assert_eq!(metadata.suppressed, None);
+        assert_eq!(
+            delivered.effects,
+            vec![CheckinEffect::Bell, CheckinEffect::Save]
+        );
+        assert_eq!(delivered.day.data().triggers_fired.len(), 2);
+    }
+}
+
+#[test]
+fn before_deadline_answers_and_fallbacks_expire_during_the_call_or_completion_wait() {
+    use bunshin_core::{ModelAnswer, ModelError};
+    for outcome in ["success", "timeout", "held"] {
+        let (day, owner, mut calls, mut now) = fixture(TriggerKind::BeforeDeadline).unwrap();
+        let original_messages = day.messages().to_vec();
+        now.local = now.local.date().at(14, 59, 59, 0);
+        let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+        let result = if outcome == "timeout" {
+            Err(ModelError::TimedOut)
+        } else {
+            Ok(ModelAnswer {
+                json: r#"{"kind":"note","task":1,"message":"approaching","next_look_minutes":5}"#
+                    .into(),
+            })
+        };
+        let finish_now = if outcome == "held" {
+            now
+        } else {
+            Now {
+                instant: UnixMillis(3_000),
+                local: now.local.date().at(15, 0, 1, 0),
+            }
+        };
+        let finished = calls.finish(
+            start.day,
+            start.request.unwrap().id,
+            result,
+            bunshin_core::checkin::calls::CallContext {
+                owner_waiting: outcome == "held",
+                ..context(finish_now)
+            },
+            fixed,
+        );
+        let update = if outcome == "held" {
+            now.instant = UnixMillis(3_000);
+            now.local = now.local.date().at(15, 0, 1, 0);
+            calls.prepare(
+                finished.day,
+                &owner,
+                ContextExtras::default(),
+                context(now),
+                fixed,
+            )
+        } else {
+            finished
+        };
+        assert!(update.request.is_none());
+        assert_eq!(update.day.messages(), original_messages, "{outcome}");
+        assert!(update.day.data().held_triggers.is_empty());
+        assert_eq!(update.day.data().last_unprompted_at, None);
+        assert_eq!(update.day.data().next_planned_look, None);
+        assert_eq!(
+            update.effects,
+            vec![bunshin_core::checkin::calls::CheckinEffect::Save]
+        );
+    }
+}
+
+#[test]
 fn scheduler_releases_during_a_call_cannot_remove_the_workers_persisted_events() {
     use bunshin_core::{
         ModelAnswer,
@@ -2216,10 +2356,8 @@ fn suppressed_checkin_rows_never_enter_visible_chat_history_sent_to_the_model() 
 }
 
 #[test]
-fn checkin_overdue_catchup_announces_the_passed_deadline_before_suppressing_the_old_before_event() {
-    use bunshin_core::{
-        Availability, UnavailableReason, checkin::calls::CheckinEffect, day::SuppressionReason,
-    };
+fn checkin_overdue_catchup_announces_only_the_current_deadline_phase() {
+    use bunshin_core::{Availability, UnavailableReason, checkin::calls::CheckinEffect};
     let (day, owner, mut calls, mut now) = fixture(TriggerKind::BeforeDeadline).unwrap();
     now.local = now.local.date().at(15, 0, 1, 0);
     // One scheduler batch contains the elapsed before/after events for this task.
@@ -2254,10 +2392,8 @@ fn checkin_overdue_catchup_announces_the_passed_deadline_before_suppressing_the_
         .filter(|row| row.unprompted.is_some())
         .collect::<Vec<_>>();
     assert_eq!(rows[0].text, "fixed AfterDeadline");
-    assert_eq!(
-        rows[1].unprompted.as_ref().unwrap().suppressed,
-        Some(SuppressionReason::SameTask)
-    );
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].unprompted.as_ref().unwrap().suppressed, None);
     assert_eq!(
         update.effects,
         vec![CheckinEffect::Bell, CheckinEffect::Save]

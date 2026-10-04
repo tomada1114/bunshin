@@ -112,6 +112,9 @@ completion. Pure opening batches retain their exemption.
 Deadline events also recheck the current civil deadline before dispatch,
 including after a restart; an obsolete
 held event is removed without rewriting the once-per-task/kind fired record.
+Before-deadline work expires once its deadline passes, both before dispatch and
+when a completed answer is applied. An expired notice cannot suppress the next
+tick's overdue notice or change the current planned look.
 Renaming a queued task keeps its deadline event: dispatch uses the current title
 and validates the deadline-defining facts rather than an unused earlier title.
 A failed in-flight batch also joins eligible events queued

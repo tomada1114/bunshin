@@ -396,17 +396,26 @@ impl CheckinCalls {
         render: impl Fn(&FixedDeadline) -> String,
         before: &crate::day::file::DayData,
     ) -> CallUpdate {
-        let old_count = flight.pending.batch.triggers.len();
+        let mut obsolete_deadline_tasks = Vec::new();
         flight.pending.batch.triggers.retain(|trigger| {
-            !deadline(trigger.kind)
-                || trigger
-                    .task
-                    .is_some_and(|number| current_task(number, &day, &flight.tasks_at_dispatch))
+            let current = !deadline(trigger.kind)
+                || ((!matches!(trigger.kind, TriggerKind::BeforeDeadline)
+                    || super::deadline_is_due(&day, trigger, now, self.tuning))
+                    && trigger.task.is_some_and(|number| {
+                        current_task(number, &day, &flight.tasks_at_dispatch)
+                    }));
+            if !current {
+                obsolete_deadline_tasks.push(trigger.task);
+            }
+            current
         });
-        let invalid_deadline = flight.pending.batch.triggers.len() != old_count;
+        let invalid_deadline = !obsolete_deadline_tasks.is_empty();
         match result.and_then(|answer| parse_checkin(&answer.json, &day, self.tuning)) {
             Err(error) => self.failed(day, flight.pending, error, now, render, before),
             Ok(mut answer) => {
+                if flight.pending.batch.triggers.is_empty() {
+                    return waiting(day, before);
+                }
                 answer.task = answer.task.filter(|number| {
                     flight
                         .tasks_at_dispatch
@@ -419,6 +428,13 @@ impl CheckinCalls {
                         .iter()
                         .any(|task| task.number == number)
                         && !current_task(number, &day, &flight.tasks_at_dispatch)
+                        || (obsolete_deadline_tasks.contains(&Some(number))
+                            && !flight
+                                .pending
+                                .batch
+                                .triggers
+                                .iter()
+                                .any(|event| event.task == Some(number)))
                         || (answer.task.is_none() && invalid_deadline)
                 });
                 if stale_task {
