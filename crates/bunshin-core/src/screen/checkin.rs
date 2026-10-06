@@ -6,9 +6,8 @@ use super::{Effect, MainScreen};
 use crate::{
     Availability, ModelAnswer, ModelError, Now, Tuning, UnixMillis,
     checkin::{
-        Checkin,
+        Checkin, ReadyBatch,
         calls::{CallContext, CheckinCalls, CheckinEffect, CheckinRequest, FixedDeadline},
-        delivery_guards_allow,
     },
     day::Day,
     instructions::InstructionsState,
@@ -72,7 +71,7 @@ impl MainScreen {
         let update = Checkin::new(now, self.tuning).open(day, now, typing);
         self.day = update.day;
         self.rhythm.checkin = Some(update.checkin);
-        self.rhythm.ready.extend(update.ready);
+        self.receive_ready(update.ready);
         self.checkins.last_evaluation = Some(now.instant);
         let mut effects = Vec::new();
         if update.save {
@@ -106,7 +105,7 @@ impl MainScreen {
         self.checkins.held_while_typing = typing && !update.day.data().held_triggers.is_empty();
         self.day = update.day;
         self.rhythm.checkin = Some(update.checkin);
-        self.rhythm.ready.extend(update.ready);
+        self.receive_ready(update.ready);
         if update.save {
             effects.push(Effect::Save);
         }
@@ -228,7 +227,11 @@ impl MainScreen {
             inbox: self.day.inbox_view().header_count(),
             held: (typing
                 && !data.held_triggers.is_empty()
-                && delivery_guards_allow(&self.day, now, self.tuning))
+                && self.checkins.calls.deliverable_now(
+                    &self.day,
+                    now,
+                    !matches!(self.chat.availability, Some(Availability::Unavailable(_))),
+                ))
             .then_some(1),
             muted_until: data.muted_until.filter(|until| now.instant < *until),
             outside_hours_until: (time < tuning.active_start || time >= tuning.active_end)
@@ -244,6 +247,29 @@ impl MainScreen {
             input_has_text: !self.input().text().is_empty(),
             is_tick,
             availability,
+        }
+    }
+    /// Queue released batches and re-hold them on the day before any save, so quitting
+    /// or crashing before the next dispatch cannot lose triggers the scheduler consumed.
+    pub(super) fn receive_ready(&mut self, ready: impl IntoIterator<Item = ReadyBatch>) {
+        let mut received = false;
+        let date = self.day.date();
+        for mut batch in ready {
+            // A trigger re-held for an earlier batch comes back with the next release.
+            batch
+                .triggers
+                .retain(|trigger| !self.checkins.calls.is_queued(date, trigger));
+            if batch.triggers.is_empty() {
+                continue;
+            }
+            self.checkins.calls.enqueue(&self.day, batch.clone());
+            self.rhythm.ready.push(batch);
+            received = true;
+        }
+        if received {
+            let mut day = self.take_day();
+            self.checkins.calls.hold_queued(&mut day);
+            self.day = day;
         }
     }
     fn take_day(&mut self) -> Day {

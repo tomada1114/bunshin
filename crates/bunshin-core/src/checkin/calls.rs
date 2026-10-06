@@ -340,6 +340,41 @@ impl CheckinCalls {
             },
         }
     }
+    /// Re-hold every queued, running, and completed batch on `day`, so a day saved
+    /// right after the scheduler released triggers still carries them.
+    pub(crate) fn hold_queued(&self, day: &mut Day) {
+        self.retain_held_work(day);
+    }
+    /// Whether held work would be delivered at `now` if the owner were not typing: a
+    /// trigger the scheduler holds outside this queue, or a queued batch that is not
+    /// waiting for the next tick's retry, when `model_ready` and the guards allow; or a
+    /// completed answer the guards allow.
+    pub(crate) fn deliverable_now(&self, day: &Day, now: Now, model_ready: bool) -> bool {
+        let date = day.date();
+        let scheduler_held = day
+            .data()
+            .held_triggers
+            .iter()
+            .any(|trigger| !self.is_queued(date, trigger));
+        self.completed.as_ref().is_some_and(|completed| {
+            completed.flight.pending.date == date
+                && delivery_allowed(&completed.flight.pending, day, now, self.tuning)
+        }) || (model_ready
+            && ((scheduler_held && super::delivery_guards_allow(day, now, self.tuning))
+                || self.pending.iter().any(|pending| {
+                    pending.date == date
+                        && matches!(pending.attempt, Attempt::First | Attempt::Retry)
+                        && delivery_allowed(pending, day, now, self.tuning)
+                })))
+    }
+    /// Whether `trigger` of `date` is queued, running, or completed in this queue.
+    pub(crate) fn is_queued(&self, date: Date, trigger: &Trigger) -> bool {
+        self.pending
+            .iter()
+            .chain(self.flight.iter().map(|flight| &flight.pending))
+            .chain(self.completed.iter().map(|done| &done.flight.pending))
+            .any(|pending| pending.date == date && pending.batch.triggers.contains(trigger))
+    }
     fn retain_held_work(&self, day: &mut Day) {
         let date = day.date();
         for pending in self

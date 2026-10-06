@@ -69,7 +69,7 @@ impl MainScreen {
         self.day = started.day;
         self.rhythm.previous = started.previous;
         self.rhythm.checkin = Some(started.checkin);
-        self.rhythm.ready.extend(started.ready);
+        self.receive_ready(started.ready);
         self.rhythm.failed = None;
         self.rhythm.cursor = (!self.leftovers().is_empty()).then_some(0);
         let mut effects = Vec::new();
@@ -280,7 +280,7 @@ impl MainScreen {
         );
         self.day = update.day;
         self.rhythm.checkin = Some(update.checkin);
-        self.rhythm.ready.extend(update.ready);
+        self.receive_ready(update.ready);
         if update.save && !effects.contains(&Effect::Save) {
             effects.push(Effect::Save);
         }

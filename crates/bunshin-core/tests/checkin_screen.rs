@@ -434,3 +434,70 @@ fn b_opens_the_inbox_only_from_the_task_pane_and_its_line_comes_from_the_table()
         ]
     );
 }
+
+fn held_after_round_trip(day: &Day) -> Vec<bunshin_core::day::Trigger> {
+    bunshin_core::day::file::DayFile::from(day)
+        .into_day(Tuning::default())
+        .unwrap_or_else(|error| panic!("round trip: {error:?}"))
+        .data()
+        .held_triggers
+        .clone()
+}
+
+#[test]
+fn a_trigger_released_at_open_before_the_first_probe_stays_held_in_the_saved_day() {
+    let now = hm(14, 30);
+    let store = InMemoryDayStore::new(Tuning::default());
+    let screen = opened(deadline_day(&[("資料作成", 14)]), now, &store);
+    let held = &screen.day().data().held_triggers;
+    assert!(
+        held.iter()
+            .any(|trigger| trigger.kind == TriggerKind::AfterDeadline),
+        "{held:?}"
+    );
+    assert_eq!(held_after_round_trip(screen.day()), *held);
+    let saved = store
+        .load(DAY)
+        .unwrap_or_else(|error| panic!("load: {error:?}"));
+    assert_eq!(saved.data().held_triggers, *held);
+}
+
+#[test]
+fn a_planned_look_released_by_a_tick_before_the_first_probe_stays_held() {
+    let now = hm(9, 0);
+    let store = InMemoryDayStore::new(Tuning::default());
+    let day = plan_look(
+        Day::new(DAY, Tuning::default()),
+        now,
+        Some(30),
+        Tuning::default(),
+    );
+    let screen = opened(day, now, &store);
+    let due = hm(9, 31);
+    let (screen, effects) = screen.tick(due);
+    assert!(effects.contains(&Effect::Save), "{effects:?}");
+    let held = screen.day().data().held_triggers.clone();
+    assert!(
+        held.iter()
+            .any(|trigger| trigger.kind == TriggerKind::PlannedLook),
+        "{held:?}"
+    );
+    assert_eq!(held_after_round_trip(screen.day()), held);
+}
+
+#[test]
+fn work_waiting_for_the_next_tick_retry_is_not_counted_as_held_while_typing() {
+    let now = hm(14, 30);
+    let store = InMemoryDayStore::new(Tuning::default());
+    let screen = available(opened(Day::new(DAY, Tuning::default()), now, &store), now);
+    let (screen, request, _) = screen.prepare_checkin(&owner(), now, render);
+    let (screen, _) = screen.finish_checkin(
+        request.unwrap_or_else(|| panic!("day start dispatches")).id,
+        Err(ModelError::Malformed),
+        now,
+        render,
+    );
+    assert!(!screen.day().data().held_triggers.is_empty());
+    let screen = screen.update(ScreenKey::Char('あ'), now).0;
+    assert_eq!(screen.checkin_header(now).held, None);
+}
