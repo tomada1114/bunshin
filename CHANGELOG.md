@@ -62,6 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local civil time alongside each clock instant, with a tunable 04:00 boundary for
   the logical day and fixed-offset clocks for deterministic tests.
 
+### Fixed
+
+- **Day file format 2:** a check-in that failed once keeps its single spent retry across
+  a restart. Day files gain `retryingTriggers` and are written as format 2; format-1
+  files are read and migrated with no check-in counted as retrying. A build that only
+  knows format 1 refuses a format-2 file without overwriting it. The output of
+  `bunshin today --json` is unchanged.
+
 ### Removed
 
 - **Breaking:** removed the counter sample, its public APIs, and the `counter`
