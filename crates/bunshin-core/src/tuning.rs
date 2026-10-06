@@ -21,6 +21,8 @@ pub struct Tuning {
     pub key_mute_minutes: u16,
     /// Task limits and session undo capacity.
     pub day: DayTuning,
+    /// Evening review time and the size of yesterday's record.
+    pub rhythm: RhythmTuning,
     /// 04:00 keeps late-night work on the preceding logical day; callers may tune it.
     pub day_boundary: Time,
     /// Maximum model call and availability-probe wait; callers may tune it.
@@ -38,6 +40,7 @@ impl Default for Tuning {
             key_mute_minutes: 60,
             inbox_reaction_minutes: 15,
             day: DayTuning::shipped(),
+            rhythm: RhythmTuning::shipped(),
             day_boundary: DEFAULT_DAY_BOUNDARY,
             model_timeout: DEFAULT_MODEL_TIMEOUT,
             instructions_max_chars: 600,
@@ -123,6 +126,28 @@ impl DayTuning {
     }
 }
 impl Default for DayTuning {
+    fn default() -> Self {
+        Self::shipped()
+    }
+}
+
+/// The day's rhythm: when the look back happens and how much of yesterday is kept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RhythmTuning {
+    /// 18:00 local civil time on the logical day starts the evening review.
+    pub evening_review: Time,
+    /// Three titles per count keep yesterday's record short enough for every call.
+    pub record_titles: usize,
+}
+impl RhythmTuning {
+    const fn shipped() -> Self {
+        Self {
+            evening_review: Time::constant(18, 0, 0, 0),
+            record_titles: 3,
+        }
+    }
+}
+impl Default for RhythmTuning {
     fn default() -> Self {
         Self::shipped()
     }

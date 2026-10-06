@@ -1,7 +1,9 @@
 //! Schema validation precedes all domain transitions; proposals share one undo.
 use crate::{
     Tuning, UnixMillis,
-    day::{Change, ChangeSet, Day, DayError, TaskKind, TaskOrigin},
+    day::{
+        Change, ChangeSet, Day, DayError, LeftoverChange, LeftoverDecision, TaskKind, TaskOrigin,
+    },
     model::{ModelAnswer, ModelError},
 };
 use jiff::civil::Time;
@@ -71,6 +73,8 @@ pub struct ChatOutcome {
     pub reply: String,
     /// Domain-invalid operations, in original order.
     pub refused: Vec<RefusedChange>,
+    /// The last day on record after accepted leftover decisions; absent when none.
+    pub leftovers: Option<Day>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -88,6 +92,8 @@ enum Operation {
     ChangeTime,
     Rename,
     Mute,
+    CarryOver,
+    DropLeftover,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -180,8 +186,35 @@ impl Proposal {
                         .ok_or(RefusalReason::MuteOverflow)?;
                 Ok(day.mute(UnixMillis(until), at))
             }
+            Operation::CarryOver | Operation::DropLeftover => Err(DayError::TaskNotFound.into()),
         }
     }
+    fn leftover(&self) -> Option<LeftoverDecision> {
+        match self.op {
+            Operation::CarryOver => Some(LeftoverDecision::CarryOver),
+            Operation::DropLeftover => Some(LeftoverDecision::Drop),
+            Operation::Add
+            | Operation::Done
+            | Operation::Drop
+            | Operation::Reopen
+            | Operation::ChangeTime
+            | Operation::Rename
+            | Operation::Mute => None,
+        }
+    }
+}
+// A leftover decision changes the earlier day and, for a carry-over, adds today's task.
+fn decide_leftover(
+    proposal: &Proposal,
+    decision: LeftoverDecision,
+    day: Day,
+    previous: Option<&Day>,
+    at: UnixMillis,
+) -> Result<(Day, Day, LeftoverChange, Vec<Change>), RefusalReason> {
+    let previous = previous.ok_or(DayError::TaskNotFound)?.clone();
+    let (previous, fact) = previous.settle_leftover(number(proposal.task)?, decision, at)?;
+    let (day, set) = day.record_leftovers(vec![fact.clone()], at)?;
+    Ok((day, previous, fact, set.changes))
 }
 fn edit(
     day: Day,
@@ -211,12 +244,40 @@ pub fn apply_chat(
     at: UnixMillis,
     tuning: Tuning,
 ) -> Result<ChatOutcome, ModelError> {
+    apply_chat_with_leftovers(day, None, answer, at, tuning)
+}
+/// As [`apply_chat`], also accepting carry-over and drop proposals for the leftovers of
+/// `previous`, the last day on record. Both days' changes form the one change set.
+///
+/// # Errors
+/// `Malformed` for invalid JSON, envelope, operation or field types, as [`apply_chat`].
+pub fn apply_chat_with_leftovers(
+    day: &Day,
+    previous: Option<&Day>,
+    answer: &ModelAnswer,
+    at: UnixMillis,
+    tuning: Tuning,
+) -> Result<ChatOutcome, ModelError> {
     let envelope: Envelope =
         serde_json::from_str(&answer.json).map_err(|_| ModelError::Malformed)?;
     let mut next = day.clone();
+    let mut earlier = previous.cloned();
     let mut changes = Vec::new();
+    let mut leftovers = Vec::new();
     let mut refused = Vec::new();
     for (index, proposal) in envelope.changes.into_iter().enumerate() {
+        if let Some(decision) = proposal.leftover() {
+            match decide_leftover(&proposal, decision, next.clone(), earlier.as_ref(), at) {
+                Ok((candidate, settled, fact, facts)) => {
+                    next = candidate;
+                    earlier = Some(settled);
+                    changes.extend(facts);
+                    leftovers.push(fact);
+                }
+                Err(reason) => refused.push(RefusedChange { index, reason }),
+            }
+            continue;
+        }
         match proposal.apply(next.clone(), at, tuning) {
             Ok((candidate, set)) => {
                 let facts = set
@@ -235,11 +296,13 @@ pub fn apply_chat(
             Err(reason) => refused.push(RefusedChange { index, reason }),
         }
     }
-    let (day, change_set) = next.group_changes(day, changes, at);
+    let decided = !leftovers.is_empty();
+    let (day, change_set) = next.group_changes(day, changes, leftovers, at);
     Ok(ChatOutcome {
         day,
         change_set,
         reply: envelope.reply,
         refused,
+        leftovers: earlier.filter(|_| decided),
     })
 }

@@ -1,13 +1,15 @@
 //! A logical day's deterministic state and undoable task operations.
 pub mod change;
 pub mod file;
+mod leftover;
 mod serde_civil;
 pub mod store;
 pub mod today_view;
 
 use crate::{Tuning, UnixMillis};
-pub use change::{Change, ChangeSet};
+pub use change::{Change, ChangeSet, LeftoverChange};
 use jiff::civil::{Date, DateTime, Time};
+pub use leftover::{LeftoverDecision, offered_as_leftover};
 use serde::{Deserialize, Serialize};
 
 /// The meaning of a task's optional civil time.
@@ -237,14 +239,14 @@ pub struct Message {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_reply_to: Option<u64>,
 }
-/// The previous day's record retained for context.
+/// The last day on record, summarized by core at the day start for every model call.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct YesterdayRecord {
     /// Logical date summarized.
     #[serde(with = "serde_civil::date")]
     pub date: Date,
-    /// Short model summary supplied by the day-start use case.
+    /// Core-written model input: counts and a few titles, bounded by the prompt tuning.
     pub text: String,
 }
 /// A pure day's state, with a session-only undo stack.
@@ -434,6 +436,26 @@ impl Day {
         origin: TaskOrigin,
         at: UnixMillis,
     ) -> Result<(Self, ChangeSet), DayError> {
+        let before = self.snapshot();
+        let task = self.push_task(title, kind, time, origin, at)?;
+        Ok(self.record(
+            before,
+            vec![Change::Task {
+                before: None,
+                after: Some(task),
+            }],
+            at,
+        ))
+    }
+    // Validate and append one open task without recording a change set.
+    fn push_task(
+        &mut self,
+        title: String,
+        kind: TaskKind,
+        time: Option<Time>,
+        origin: TaskOrigin,
+        at: UnixMillis,
+    ) -> Result<Task, DayError> {
         validate_task(&title, kind, time, self.tuning)?;
         let creation_limit = u64::try_from(self.tuning.day.tasks_per_day).unwrap_or(u64::MAX);
         if self.data.next_task_number.saturating_sub(1) >= creation_limit {
@@ -441,7 +463,6 @@ impl Day {
         }
         let number = self.data.next_task_number;
         let next = number.checked_add(1).ok_or(DayError::NumberExhausted)?;
-        let before = self.snapshot();
         let task = Task {
             number,
             title,
@@ -455,14 +476,7 @@ impl Day {
         };
         self.data.tasks.push(task.clone());
         self.data.next_task_number = next;
-        Ok(self.record(
-            before,
-            vec![Change::Task {
-                before: None,
-                after: Some(task),
-            }],
-            at,
-        ))
+        Ok(task)
     }
     /// Edit only title, kind and time; metadata is retained.
     /// # Errors
@@ -574,6 +588,7 @@ impl Day {
             time: at,
             changes: entry.changes,
             undo: true,
+            leftovers: entry.leftovers,
         };
         self.append_change(&set);
         Ok((self, set))
@@ -706,14 +721,24 @@ impl Day {
         }
     }
     fn record(
+        self,
+        snapshot: change::Snapshot,
+        changes: Vec<Change>,
+        at: UnixMillis,
+    ) -> (Self, ChangeSet) {
+        self.record_with_leftovers(snapshot, changes, Vec::new(), at)
+    }
+    fn record_with_leftovers(
         mut self,
         snapshot: change::Snapshot,
         changes: Vec<Change>,
+        leftovers: Vec<LeftoverChange>,
         at: UnixMillis,
     ) -> (Self, ChangeSet) {
         self.undo.push(change::UndoEntry {
             snapshot,
             changes: changes.clone(),
+            leftovers: leftovers.clone(),
         });
         if self.undo.len() > self.tuning.day.undo_depth {
             self.undo.remove(0);
@@ -722,6 +747,7 @@ impl Day {
             time: at,
             changes,
             undo: false,
+            leftovers,
         };
         self.append_change(&set);
         (self, set)

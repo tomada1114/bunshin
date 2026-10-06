@@ -5,7 +5,7 @@ use crate::{
     day::{Author, Message, MessageKind},
     instructions::InstructionsState,
     prompt::{
-        answer::{RefusalReason, apply_chat},
+        answer::{RefusalReason, apply_chat_with_leftovers},
         chat::{ContextExtras, build_chat},
     },
 };
@@ -298,12 +298,16 @@ impl MainScreen {
             .collect::<Vec<_>>();
         indices.push(pending.index);
         let context = self.day.chat_context_without_owner_rows(&indices);
+        let leftovers = self.leftovers();
         if let Ok(built) = build_chat(
             &context,
             owner,
             &pending.text,
             now,
-            ContextExtras::default(),
+            ContextExtras {
+                leftovers: &leftovers,
+                ..ContextExtras::default()
+            },
             self.tuning,
         ) {
             let id = self.chat.next_id;
@@ -350,8 +354,15 @@ impl MainScreen {
         if flight.cancelled || self.finished {
             return (self, Vec::new());
         }
-        let result =
-            answer.and_then(|answer| apply_chat(&self.day, &answer, now.instant, self.tuning));
+        let result = answer.and_then(|answer| {
+            apply_chat_with_leftovers(
+                &self.day,
+                self.leftovers_day(),
+                &answer,
+                now.instant,
+                self.tuning,
+            )
+        });
         match result {
             Ok(outcome) => {
                 self.day = outcome.day;
@@ -371,6 +382,9 @@ impl MainScreen {
                     .map(|refusal| Effect::ChatNotice(ChatNotice::Refused(refusal.reason)))
                     .collect::<Vec<_>>();
                 effects.push(Effect::Save);
+                if let Some(previous) = outcome.leftovers {
+                    self.record_chat_leftovers(previous, now, &mut effects);
+                }
                 (self, effects)
             }
             Err(ModelError::Unavailable(reason)) => {

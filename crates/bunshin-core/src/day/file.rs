@@ -125,6 +125,13 @@ impl DayFile {
         // mark must not make one of those already-used numbers reusable after load.
         for message in &self.data.messages {
             if let Some(set) = &message.change_set {
+                // An earlier day's leftover keeps that day's numbering, so it is held to
+                // the task rules but not to this day's consumed numbers.
+                for leftover in &set.leftovers {
+                    for task in [&leftover.before, &leftover.after] {
+                        validate_task_fields(task, tuning)?;
+                    }
+                }
                 for change in &set.changes {
                     match change {
                         super::Change::Task { before, after } => {
@@ -159,6 +166,9 @@ impl DayFile {
 }
 // Live tasks and historical snapshots obey the same domain invariants. Numbers
 // may recur in history; uniqueness is checked only in the current task collection.
+fn validate_task_fields(task: &Task, tuning: Tuning) -> Result<(), DayFileError> {
+    validate_stored_task(task, tuning, u64::MAX)
+}
 fn validate_stored_task(
     task: &Task,
     tuning: Tuning,

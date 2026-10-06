@@ -37,7 +37,8 @@ pub(super) fn process_effects(
     store: &dyn DayStore,
     mut cancel: impl FnMut(),
 ) -> MainScreen {
-    for effect in effects {
+    let mut queue = std::collections::VecDeque::from(effects);
+    while let Some(effect) = queue.pop_front() {
         match effect {
             Effect::Save => {
                 let result = store.save(screen.day());
@@ -51,6 +52,22 @@ pub(super) fn process_effects(
             Effect::ChatNotice(notice) => {
                 let text = crate::wording::chat_notice(notice);
                 screen = screen.record_chat_notice(notice, &text, now.instant);
+            }
+            Effect::SaveLeftovers => {
+                if let Some(previous) = screen.leftovers_day() {
+                    let result = store.save(previous);
+                    let notice = result
+                        .err()
+                        .map_or_else(String::new, crate::wording::save_failure);
+                    screen = screen.record_save_result(result, now.instant, &notice);
+                }
+            }
+            Effect::StartDay => {
+                let (next, effects) = screen.start_day(store, now);
+                screen = next;
+                for effect in effects.into_iter().rev() {
+                    queue.push_front(effect);
+                }
             }
         }
     }

@@ -15,11 +15,12 @@ pub mod inbox;
 pub mod instructions;
 pub mod model;
 pub mod prompt;
+pub mod rhythm;
 pub mod screen;
 pub mod shell;
 pub mod time;
 pub mod tuning;
-pub use tuning::{CheckinTuning, DayTuning, PromptTuning};
+pub use tuning::{CheckinTuning, DayTuning, PromptTuning, RhythmTuning};
 
 pub use shell::{ShellAction, ShellKey, ShellScreen};
 pub use time::{Clock, Now, UnixMillis, logical_date};

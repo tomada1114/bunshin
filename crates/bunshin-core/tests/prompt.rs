@@ -230,6 +230,7 @@ fn optional_context_is_bounded_and_newest_chat_is_kept_before_oldest() {
         "current",
         now(),
         ContextExtras {
+            leftovers: &[],
             yesterday: Some(&"昨".repeat(200)),
             unprompted_states: &states,
             triggers: &triggers,
@@ -391,6 +392,7 @@ fn lower_priority_states_and_triggers_never_shorten_open_titles_that_fit() {
             "current",
             now(),
             ContextExtras {
+                leftovers: &[],
                 yesterday: None,
                 unprompted_states: states,
                 triggers,
@@ -440,6 +442,7 @@ fn tiny_optional_slots_never_displace_mandatory_context_and_tuning_cannot_raise_
         "current",
         now(),
         ContextExtras {
+            leftovers: &[],
             yesterday: Some(&"昨".repeat(200)),
             unprompted_states: &states,
             triggers: &triggers,
