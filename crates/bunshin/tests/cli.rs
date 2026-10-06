@@ -694,7 +694,7 @@ fn today_refuses_newer_and_unreadable_files_with_one_line_and_preserves_bytes() 
     let directory = home.path().join(".local/share/bunshin/days");
     for (bytes, line) in [
         (
-            b"{\"format\":2}".as_slice(),
+            b"{\"format\":3}".as_slice(),
             "error: 今日のデータを読めませんでした（ファイルの形式が新しすぎます）\n",
         ),
         (

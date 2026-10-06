@@ -84,7 +84,7 @@ fn save_replaces_the_whole_day_and_creates_private_directories_and_files() {
     );
     let bytes = fs::read(&path).expect("bytes");
     let json: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
-    assert_eq!(json["format"], 1);
+    assert_eq!(json["format"], 2);
     assert_eq!(json["date"], "2026-10-02");
     assert_eq!(fs::read_dir(days_dir(&root)).expect("files").count(), 1);
     fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).expect("widen root");
@@ -123,14 +123,15 @@ fn corrupt_and_future_files_are_refused_and_never_overwritten() {
     for (bytes, error) in [
         (b"not json".as_slice(), DayStoreError::Unreadable),
         (
-            br#"{"format":2,"future":"different shape"}"#.as_slice(),
-            DayStoreError::NewerFormat { found: 2 },
+            br#"{"format":3,"future":"different shape"}"#.as_slice(),
+            DayStoreError::NewerFormat { found: 3 },
         ),
         (
             br#"{"format":0}"#.as_slice(),
             DayStoreError::UnsupportedFormat { found: 0 },
         ),
         (br#"{"format":1}"#.as_slice(), DayStoreError::Unreadable),
+        (br#"{"format":2}"#.as_slice(), DayStoreError::Unreadable),
     ] {
         fs::write(&path, bytes).expect("fixture");
         bunshin_test_support::day_store_refusal_contract(&store, day.date(), error);
@@ -145,6 +146,57 @@ fn corrupt_and_future_files_are_refused_and_never_overwritten() {
     assert_eq!(store.load(day.date()), Err(DayStoreError::Unreadable));
     assert_eq!(store.save(&day), Err(DayStoreError::Unreadable));
     assert_eq!(fs::read(&path).expect("unchanged"), wrong_bytes);
+}
+
+#[test]
+fn the_header_preflight_accepts_format_one_and_two_and_a_save_migrates_one_to_two() {
+    use bunshin_core::{
+        UnixMillis,
+        day::{TaskKind, TaskOrigin},
+    };
+    let scratch = tempfile::tempdir().expect("scratch");
+    let store = JsonFileDayStore::new(scratch.path().into(), Tuning::default());
+    fs::create_dir_all(days_dir(scratch.path())).expect("days");
+    let path = days_dir(scratch.path()).join("2026-10-02.json");
+    let (day, _) = Day::new(date(2026, 10, 2), Tuning::default())
+        .add(
+            "資料".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            UnixMillis(1),
+        )
+        .expect("task");
+    let current = serde_json::to_value(bunshin_core::day::file::DayFile::from(&day)).expect("json");
+    let mut legacy = current.clone();
+    legacy["format"] = serde_json::json!(1);
+    legacy
+        .as_object_mut()
+        .expect("object")
+        .remove("retryingTriggers");
+    for value in [&legacy, &current] {
+        fs::write(&path, serde_json::to_vec(value).expect("bytes")).expect("fixture");
+        assert_eq!(store.load(day.date()).expect("readable").data(), day.data());
+    }
+    fs::write(&path, serde_json::to_vec(&legacy).expect("bytes")).expect("fixture");
+    store.save(&day).expect("migrating save");
+    let saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(&path).expect("saved")).expect("json");
+    assert_eq!(saved["format"], 2);
+    assert_eq!(saved["retryingTriggers"], serde_json::json!([]));
+    let mut newer = current;
+    newer["format"] = serde_json::json!(3);
+    let bytes = serde_json::to_vec(&newer).expect("bytes");
+    fs::write(&path, &bytes).expect("fixture");
+    assert_eq!(
+        store.load(day.date()),
+        Err(DayStoreError::NewerFormat { found: 3 })
+    );
+    assert_eq!(
+        store.save(&day),
+        Err(DayStoreError::NewerFormat { found: 3 })
+    );
+    assert_eq!(fs::read(&path).expect("unchanged"), bytes);
 }
 
 #[test]

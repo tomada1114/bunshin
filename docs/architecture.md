@@ -314,11 +314,12 @@ remain unchanged. Failed stdout writes also return exit 1 without a panic.
 
 ### On-disk file formats
 
-**Day files** have a format-one DTO in `day::file`; its storage adapter is separate.
-The JSON object has `"format": 1` and camelCase fields for the logical date, task-number
+**Day files** have a format-two DTO in `day::file`; its storage adapter is separate.
+The JSON object has `"format": 2` and camelCase fields for the logical date, task-number
 high-water mark, tasks, messages, planned look, delivery and mute instants, fired and
-held triggers, and yesterday's record. Dates use `YYYY-MM-DD`, task times use `HH:MM`,
-the planned look uses a civil datetime, and elapsed-gap timestamps use Unix milliseconds.
+held triggers, the retrying triggers, and yesterday's record. Dates use `YYYY-MM-DD`,
+task times use `HH:MM`, the planned look uses a civil datetime, and elapsed-gap
+timestamps use Unix milliseconds.
 The next task number survives deletion and undo; one less than it is the day's consumed
 creation budget. The default limit of fifty creations therefore also survives deletion,
 undo, and reload. Visible change and undo rows persist; the session's undo stack does not.
@@ -327,6 +328,11 @@ uses this association to pair queued turns without moving append-only stored row
 The optional day field `lastInstructionsNotice` fingerprints the last fallback
 revision, preventing repeated notices after reloading the same day. It stores no
 instruction text and clears when owner instructions become usable.
+
+`retryingTriggers` lists the held non-deadline check-in triggers whose one retry is
+already granted, so a restart neither grants another retry nor spends one. It is always
+a subset of `heldTriggers`; a file that names a retrying trigger it does not hold is
+refused as unreadable.
 
 A message may carry `cancelled: true` for a stopped or failed owner call. Older format-one
 files omit this field and decode it as false; false values remain omitted on save.
@@ -341,9 +347,11 @@ number from one through the high-water mark, so an inflated cursor cannot skip n
 
 A reader first decodes `FormatHeader` and checks it before decoding the rest of the
 payload, so a newer format produces typed `NewerFormat` even when its shape has changed.
-Format one ignores unknown fields and validates task invariants when converted to a
-`Day`. No older day format has shipped: zero is explicitly unsupported, with no guessed
-migration. A future format must define how to read format one before it can replace it.
+Both formats ignore unknown fields and validate task invariants when converted to a
+`Day`. Format one is migrated on read: it has no retry record, so no held trigger counts
+as retrying, and the next save writes format two. Format zero never shipped and is
+explicitly unsupported, with no guessed migration. A future format must define how to
+read every earlier shipped format before it can replace them.
 
 Day files have no size cap. Whole-file reading and replacement can exhaust memory or
 other resources for very large files. Saves sync a private temporary file, rename it,

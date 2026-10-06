@@ -93,7 +93,7 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
 - **Permissions:** the directory and `days/` are created `0700`, every file `0600`
   (`DirBuilderExt::mode`, `OpenOptionsExt::mode`); a directory found wider is narrowed at
   start.
-- **The day file:** one JSON object with `"format": 1` and the Day of §5 — tasks,
+- **The day file:** one JSON object with `"format": 2` and the Day of §5 — tasks,
   messages, unprompted messages with their inbox states, fired and held triggers, the
   next planned look, the last unprompted time, the mute, yesterday's record. Its shape
   is a versioned type in core (`day::file`, deriving serde), so the format is tested
@@ -102,6 +102,15 @@ Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
   refused, never overwritten;
   an older one is migrated on read. The `--json` output of `bunshin today` is its own
   versioned view, not the file.
+- **The retry record:** `retryingTriggers` lists the held non-deadline triggers whose
+  one retry (§3.5) is already granted; it is always a subset of `heldTriggers`, and a
+  file that names a trigger it does not hold is unreadable. The check-in queue
+  (`checkin::calls`) keeps it in step with its in-memory retry sets: a trigger joins
+  when its first attempt fails and leaves when it is delivered, spent, pruned, or
+  dropped at the day start, and an unavailable model changes nothing. On restart the
+  queue restores a recorded trigger as a retry that waits for the next tick and the
+  delivery guards, and any other held trigger as a first attempt. Format 1, which had
+  no record, is migrated on read with no trigger retrying and saved as format 2.
 - **Writing:** the whole day on every change, to a temporary file in `days/`, flushed
   and `fsync`ed, then renamed over the old file; the containing directory is then synced.
   A reader such as `bunshin today` takes no lock and sees the old file or the new one,

@@ -111,7 +111,7 @@ fn cancelled_owner_rows_round_trip_and_stay_out_of_later_model_history() {
         .finish_chat(request.id, Err(ModelError::Cancelled), now)
         .0;
     let value = serde_json::to_value(DayFile::from(screen.day())).unwrap();
-    assert_eq!(value["format"], 1);
+    assert_eq!(value["format"], 2);
     assert_eq!(value["messages"][0]["cancelled"], true);
     let day = serde_json::from_value::<DayFile>(value)
         .unwrap()

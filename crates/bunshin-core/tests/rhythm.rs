@@ -74,12 +74,15 @@ fn october_first() -> Day {
 }
 fn with_held_trigger(day: &Day) -> Day {
     let mut data = day.data().clone();
-    data.held_triggers.push(Trigger {
+    let trigger = Trigger {
         kind: TriggerKind::PlannedLook,
         task: None,
         due_at: UnixMillis(1),
-    });
-    match (DayFile { format: 1, data }).into_day(Tuning::default()) {
+    };
+    data.held_triggers.push(trigger.clone());
+    data.retrying_triggers.push(trigger);
+    let format = bunshin_core::day::file::FORMAT;
+    match (DayFile { format, data }).into_day(Tuning::default()) {
         Ok(day) => day,
         Err(error) => panic!("fixture held trigger: {error:?}"),
     }
@@ -178,8 +181,25 @@ fn rhythm_first_open_offers_open_deadline_and_untimed_leftovers_and_writes_yeste
             .is_empty(),
         "the previous day's held triggers are dropped at the day start"
     );
+    assert!(
+        screen
+            .leftovers_day()
+            .unwrap()
+            .data()
+            .retrying_triggers
+            .is_empty(),
+        "their retry record goes with them"
+    );
     let screen = persist(screen, &effects, &store, now);
     assert!(store.load(oct(1)).unwrap().data().held_triggers.is_empty());
+    assert!(
+        store
+            .load(oct(1))
+            .unwrap()
+            .data()
+            .retrying_triggers
+            .is_empty()
+    );
     assert_eq!(
         store.load(oct(2)).unwrap().data().yesterday_record,
         Some(record)

@@ -255,6 +255,10 @@ pub struct Day {
     data: file::DayData,
     tuning: Tuning,
     undo: Vec<change::UndoEntry>,
+    // Retry records of held triggers the scheduler has handed to the call queue. The
+    // queue reads them on enqueue and re-holds them, so the saved record stays a subset
+    // of the saved held triggers.
+    released_retrying: Vec<Trigger>,
 }
 /// Rejected day operation; no user data is carried in the error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Serialize)]
@@ -308,6 +312,7 @@ impl Day {
             data: file::DayData::empty(date),
             tuning,
             undo: Vec::new(),
+            released_retrying: Vec::new(),
         }
     }
     /// Logical date identifying this day.
@@ -616,13 +621,15 @@ impl Day {
         });
     }
     pub(crate) fn take_held_triggers(&mut self) -> Vec<Trigger> {
-        std::mem::take(&mut self.data.held_triggers)
+        let taken = std::mem::take(&mut self.data.held_triggers);
+        self.release_retrying(&taken);
+        taken
     }
     pub(crate) fn take_held_triggers_matching(&mut self, eligible: &[Trigger]) -> Vec<Trigger> {
         let mut remaining = eligible.to_vec();
         let mut ready = Vec::new();
         let mut held = Vec::new();
-        for trigger in self.take_held_triggers() {
+        for trigger in std::mem::take(&mut self.data.held_triggers) {
             if let Some(index) = remaining.iter().position(|event| event == &trigger) {
                 remaining.remove(index);
                 ready.push(trigger);
@@ -631,7 +638,19 @@ impl Day {
             }
         }
         self.data.held_triggers = held;
+        self.release_retrying(&ready);
         ready
+    }
+    fn release_retrying(&mut self, taken: &[Trigger]) {
+        let (released, kept) = std::mem::take(&mut self.data.retrying_triggers)
+            .into_iter()
+            .partition::<Vec<_>, _>(|trigger| taken.contains(trigger));
+        self.data.retrying_triggers = kept;
+        for trigger in released {
+            if !self.released_retrying.contains(&trigger) {
+                self.released_retrying.push(trigger);
+            }
+        }
     }
     pub(crate) fn append_unprompted(&mut self, message: Message) {
         if message
@@ -649,6 +668,28 @@ impl Day {
                 self.data.held_triggers.push(trigger.clone());
             }
         }
+    }
+    // The retry record follows the call queue's `retrying` sets, for held triggers only.
+    pub(crate) fn is_retrying(&self, trigger: &Trigger) -> bool {
+        self.data.retrying_triggers.contains(trigger) || self.released_retrying.contains(trigger)
+    }
+    pub(crate) fn mark_retrying(&mut self, triggers: &[Trigger]) {
+        for trigger in triggers {
+            if self.data.held_triggers.contains(trigger)
+                && !self.data.retrying_triggers.contains(trigger)
+            {
+                self.data.retrying_triggers.push(trigger.clone());
+            }
+        }
+        self.released_retrying
+            .retain(|trigger| !self.data.retrying_triggers.contains(trigger));
+    }
+    pub(crate) fn forget_retrying(&mut self, triggers: &[Trigger]) {
+        self.data
+            .retrying_triggers
+            .retain(|trigger| !triggers.contains(trigger));
+        self.released_retrying
+            .retain(|trigger| !triggers.contains(trigger));
     }
     pub(crate) fn schedule_look(&mut self, at: DateTime) {
         self.data.next_planned_look = Some(at);

@@ -111,8 +111,8 @@ struct Completed {
     flight: Flight,
     result: Result<ModelAnswer, ModelError>,
 }
-/// Session-only queue; held events remain persisted, while a completed answer
-/// waiting for delivery guards stays in memory without another model call.
+/// Session-only queue; held events and their retry record remain persisted, while a
+/// completed answer waiting for delivery guards stays in memory without another model call.
 pub struct CheckinCalls {
     pending: VecDeque<Pending>,
     flight: Option<Flight>,
@@ -134,6 +134,8 @@ impl CheckinCalls {
     }
     /// Queue a consumed scheduler batch with its task facts, excluding duplicate
     /// events already queued. These facts invalidate deadlines edited while waiting.
+    /// A non-deadline event in the day's retry record (restored after a restart) keeps
+    /// its spent first attempt: it waits for the next tick and has no further retry.
     pub fn enqueue(&mut self, day: &Day, mut batch: ReadyBatch) {
         let date = day.date();
         batch.triggers.retain(|trigger| {
@@ -149,10 +151,35 @@ impl CheckinCalls {
                         && c.flight.pending.batch.triggers.contains(trigger)
                 })
         });
-        if !batch.triggers.is_empty() {
-            let tasks = day.task_view();
-            let facts = batch
-                .triggers
+        let tasks = day.task_view();
+        let (retrying, fresh): (Vec<_>, Vec<_>) = batch
+            .triggers
+            .into_iter()
+            .partition(|trigger| !deadline(trigger.kind) && day.is_retrying(trigger));
+        // One catch-up per batch: when the fresh part carries it, the retrying part
+        // waits as a routine tick rather than adding a second catch-up note.
+        let retrying_reason = match batch.reason {
+            BatchReason::Open | BatchReason::GuardedOpen | BatchReason::Sleep
+                if !fresh.is_empty() =>
+            {
+                BatchReason::Tick
+            }
+            BatchReason::Open
+            | BatchReason::GuardedOpen
+            | BatchReason::Sleep
+            | BatchReason::Tick
+            | BatchReason::DayStart
+            | BatchReason::GuardedDayStart
+            | BatchReason::EveningReview => batch.reason,
+        };
+        for (triggers, attempt, reason) in [
+            (fresh, Attempt::First, batch.reason),
+            (retrying, Attempt::NextTick, retrying_reason),
+        ] {
+            if triggers.is_empty() {
+                continue;
+            }
+            let facts = triggers
                 .iter()
                 .filter_map(|trigger| {
                     tasks
@@ -161,12 +188,16 @@ impl CheckinCalls {
                         .map(|task| (trigger.clone(), task.clone()))
                 })
                 .collect::<Vec<_>>();
+            let retrying = match attempt {
+                Attempt::NextTick => triggers.clone(),
+                Attempt::First | Attempt::Retry => Vec::new(),
+            };
             self.queue_pending(Pending {
                 date,
-                batch,
-                attempt: Attempt::First,
+                batch: ReadyBatch { triggers, reason },
+                attempt,
                 tasks_at_enqueue: facts,
-                retrying: Vec::new(),
+                retrying,
             });
         }
     }
@@ -319,7 +350,7 @@ impl CheckinCalls {
             )
             .filter(|pending| pending.date == date)
         {
-            day.hold_checkin_triggers(&pending.batch.triggers);
+            hold(day, pending);
         }
     }
     fn prune_queued_deadlines(&mut self, day: &mut Day, now: Now) -> bool {
@@ -345,6 +376,7 @@ impl CheckinCalls {
                 .collect::<Vec<_>>();
             removed |= !obsolete.is_empty();
             day.take_held_triggers_matching(&obsolete);
+            day.forget_retrying(&obsolete);
             pending
                 .batch
                 .triggers
@@ -387,7 +419,7 @@ impl CheckinCalls {
             || context.input_has_text
             || !delivery_allowed(&flight.pending, &day, context.now, self.tuning)
         {
-            day.hold_checkin_triggers(&flight.pending.batch.triggers);
+            hold(&mut day, &flight.pending);
             self.completed = Some(Completed { flight, result });
             return waiting(day, &before);
         }
@@ -403,6 +435,7 @@ impl CheckinCalls {
         render: impl Fn(&FixedDeadline) -> String,
         before: &crate::day::file::DayData,
     ) -> CallUpdate {
+        day.forget_retrying(&flight.pending.batch.triggers);
         let mut obsolete_deadline_tasks = Vec::new();
         flight.pending.batch.triggers.retain(|trigger| {
             let current = !deadline(trigger.kind)
@@ -447,7 +480,7 @@ impl CheckinCalls {
                 });
                 if stale_task {
                     flight.pending.attempt = Attempt::NextTick;
-                    day.hold_checkin_triggers(&flight.pending.batch.triggers);
+                    hold(&mut day, &flight.pending);
                     self.queue_pending(flight.pending);
                     return waiting(day, before);
                 }
@@ -492,6 +525,7 @@ impl CheckinCalls {
         before: &crate::day::file::DayData,
     ) -> CallUpdate {
         day.take_held_triggers_matching(&pending.batch.triggers);
+        day.forget_retrying(&pending.batch.triggers);
         let mut delivered = 0;
         // Overdue notices precede upcoming notices in a fallback batch.
         let mut triggers = pending.batch.triggers.iter().collect::<Vec<_>>();
@@ -536,7 +570,7 @@ impl CheckinCalls {
         if !pending.batch.triggers.is_empty() {
             match error {
                 ModelError::Unavailable(_) => {
-                    day.hold_checkin_triggers(&pending.batch.triggers);
+                    hold(&mut day, &pending);
                     self.queue_pending(pending);
                 }
                 ModelError::TimedOut
@@ -559,7 +593,7 @@ impl CheckinCalls {
                     if !pending.batch.triggers.is_empty() {
                         pending.attempt = Attempt::NextTick;
                         pending.retrying.clone_from(&pending.batch.triggers);
-                        day.hold_checkin_triggers(&pending.batch.triggers);
+                        hold(&mut day, &pending);
                         self.queue_pending(pending);
                     }
                 }
@@ -573,6 +607,17 @@ impl CheckinCalls {
             error: Some(CallError::Model(error)),
         }
     }
+}
+// Held work and its retry record are saved together, so a restart restores both.
+fn hold(day: &mut Day, pending: &Pending) {
+    day.hold_checkin_triggers(&pending.batch.triggers);
+    let retrying = pending
+        .retrying
+        .iter()
+        .filter(|trigger| pending.batch.triggers.contains(trigger))
+        .cloned()
+        .collect::<Vec<_>>();
+    day.mark_retrying(&retrying);
 }
 fn delivery_allowed(pending: &Pending, day: &Day, now: Now, tuning: Tuning) -> bool {
     opening_exempt(pending) || super::delivery_guards_allow(day, now, tuning)
