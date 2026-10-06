@@ -110,7 +110,7 @@ fn persist(screen: MainScreen, effects: &[Effect], store: &dyn DayStore, now: No
                 let (next, effects) = screen.start_day(store, now);
                 screen = persist(next, &effects, store, now);
             }
-            Effect::Quit | Effect::CancelModel | Effect::ChatNotice(_) => {}
+            Effect::Quit | Effect::CancelModel | Effect::ChatNotice(_) | Effect::Bell => {}
         }
     }
     screen

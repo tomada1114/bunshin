@@ -15,9 +15,9 @@ pub(super) struct RhythmState {
     /// The last day on record before the screen's day, source of the leftovers.
     previous: Option<Day>,
     /// The check-in scheduler; present once a day start has run in this session.
-    checkin: Option<Checkin>,
+    pub(super) checkin: Option<Checkin>,
     /// Day-start and review batches waiting for the check-in queue.
-    ready: Vec<ReadyBatch>,
+    pub(super) ready: Vec<ReadyBatch>,
     /// The selected leftover row while the cursor is inside the leftovers block.
     pub(super) cursor: Option<usize>,
     /// A day start whose days could not be loaded is not retried on every key.
@@ -185,7 +185,13 @@ impl MainScreen {
             | ScreenAction::ChatDown
             | ScreenAction::ChatLatest
             | ScreenAction::SendInput
-            | ScreenAction::CancelInput => return,
+            | ScreenAction::CancelInput
+            | ScreenAction::Inbox
+            | ScreenAction::InboxRespond
+            | ScreenAction::InboxClose
+            | ScreenAction::InboxAcknowledgeNotes
+            | ScreenAction::InboxTask
+            | ScreenAction::CloseInbox => return,
         };
         match result {
             Ok(decided) => {
@@ -258,7 +264,7 @@ impl MainScreen {
             self.rhythm.cursor.map(|row| row.min(count - 1))
         };
     }
-    fn queue_review(&mut self, now: Now, effects: &mut Vec<Effect>) {
+    pub(super) fn queue_review(&mut self, now: Now, effects: &mut Vec<Effect>) {
         let Some(checkin) = self.rhythm.checkin.take() else {
             return;
         };

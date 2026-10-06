@@ -69,10 +69,10 @@ pub(super) struct ChatState {
     queue: VecDeque<Pending>,
     flight: Option<Flight>,
     next_id: u64,
-    availability: Option<Availability>,
+    pub(super) availability: Option<Availability>,
     probe_at: Option<UnixMillis>,
     probe_observed_at: Option<UnixMillis>,
-    probing: bool,
+    pub(super) probing: bool,
     pub(super) instructions: Option<InstructionsState>,
 }
 impl Default for ChatState {

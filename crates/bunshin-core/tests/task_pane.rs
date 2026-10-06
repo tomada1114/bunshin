@@ -632,7 +632,8 @@ fn one_table_drives_help_rows_and_task_line_with_help_first() {
             ScreenAction::Add,
             ScreenAction::Edit,
             ScreenAction::Delete,
-            ScreenAction::Mute
+            ScreenAction::Mute,
+            ScreenAction::Inbox
         ]
     );
     let regions: Vec<_> = task_help().iter().map(|binding| binding.region).collect();
@@ -645,6 +646,7 @@ fn one_table_drives_help_rows_and_task_line_with_help_first() {
             KeyRegion::Tasks,
             KeyRegion::Main,
             KeyRegion::Main,
+            KeyRegion::Tasks,
             KeyRegion::Tasks,
             KeyRegion::Tasks,
             KeyRegion::Tasks,

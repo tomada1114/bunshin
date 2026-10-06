@@ -88,13 +88,13 @@ pub struct CallUpdate {
     /// Optional data-free failure.
     pub error: Option<CallError>,
 }
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Attempt {
     First,
     NextTick,
     Retry,
 }
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Pending {
     date: Date,
     batch: ReadyBatch,
@@ -102,17 +102,20 @@ struct Pending {
     tasks_at_enqueue: Vec<(Trigger, TaskView)>,
     retrying: Vec<Trigger>,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Flight {
     id: u64,
     pending: Pending,
     tasks_at_dispatch: Vec<TaskView>,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Completed {
     flight: Flight,
     result: Result<ModelAnswer, ModelError>,
 }
 /// Session-only queue; held events remain persisted, while a completed answer
 /// waiting for delivery guards stays in memory without another model call.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckinCalls {
     pending: VecDeque<Pending>,
     flight: Option<Flight>,
