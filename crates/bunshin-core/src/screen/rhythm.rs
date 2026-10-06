@@ -120,8 +120,11 @@ impl MainScreen {
     pub const fn checkin(&self) -> Option<&Checkin> {
         self.rhythm.checkin.as_ref()
     }
+    // An open form or an unsaved day would be lost when the store's new day replaces it.
     pub(super) fn turnover_waiting(&self, now: Now) -> bool {
         self.rhythm.checkin.is_some()
+            && self.form.is_none()
+            && !matches!(self.save_state, super::SaveState::NotSaved(_))
             && rhythm::turnover_due(&self.day, now, self.tuning)
             && !self.owner_waiting()
             && self.rhythm.failed != Some(logical_date(now.local, self.tuning.day_boundary))

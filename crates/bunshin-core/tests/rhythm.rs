@@ -284,6 +284,29 @@ fn rhythm_a_screen_left_open_across_four_starts_the_day_at_the_first_key_only() 
 }
 
 #[test]
+fn rhythm_an_open_task_form_holds_the_turnover_until_it_closes() {
+    let store = store_with(&[october_first()]);
+    let evening = at(oct(1), 23, 0);
+    let (screen, effects) = opened(&store, evening);
+    let screen = persist(screen, &effects, &store, evening);
+    let (screen, _) = screen.update(ScreenKey::Tab, evening);
+    let (screen, _) = screen.update(ScreenKey::Char('a'), evening);
+    assert!(screen.form().is_some());
+    let dawn = at(oct(2), 4, 1);
+    let (screen, effects) = screen.update(ScreenKey::Char('x'), dawn);
+    assert!(
+        !effects.contains(&Effect::StartDay),
+        "typing in the form is kept"
+    );
+    assert!(screen.form().is_some());
+    assert_eq!(screen.day().date(), oct(1));
+    let (screen, _) = screen.update(ScreenKey::Esc, dawn);
+    assert!(screen.form().is_none());
+    let (_, effects) = screen.update(ScreenKey::Char('j'), dawn);
+    assert_eq!(effects, vec![Effect::StartDay]);
+}
+
+#[test]
 fn rhythm_quit_still_works_after_the_boundary_without_starting_the_day() {
     let store = store_with(&[]);
     let evening = at(oct(1), 23, 0);

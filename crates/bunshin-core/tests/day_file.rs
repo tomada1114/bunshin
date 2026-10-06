@@ -549,3 +549,45 @@ fn loading_accounts_for_deleted_and_undone_numbers_from_append_only_history() {
         .unwrap();
     assert_eq!(day.tasks().last().unwrap().number, 4);
 }
+
+#[test]
+fn a_leftover_dated_on_or_after_its_own_day_is_refused() {
+    let tuning = Tuning::default();
+    let (earlier, _) = Day::new(date(2026, 10, 1), tuning)
+        .add(
+            "leftover".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            UnixMillis(0),
+        )
+        .unwrap();
+    let decided = bunshin_core::rhythm::decide(
+        Day::new(date(2026, 10, 2), tuning),
+        earlier,
+        &[1],
+        bunshin_core::day::LeftoverDecision::CarryOver,
+        UnixMillis(1),
+    )
+    .unwrap();
+    let valid = serde_json::to_value(DayFile::from(&decided.day)).unwrap();
+    assert!(
+        serde_json::from_value::<DayFile>(valid.clone())
+            .unwrap()
+            .into_day(tuning)
+            .is_ok()
+    );
+    for same_or_later in ["2026-10-02", "2026-10-03"] {
+        let mut json = valid.clone();
+        json["messages"][0]["changeSet"]["leftovers"][0]["date"] = same_or_later.into();
+        assert_eq!(
+            serde_json::from_value::<DayFile>(json)
+                .unwrap()
+                .into_day(tuning)
+                .err(),
+            Some(DayFileError::InvalidTask {
+                kind: DayError::InvalidStatus
+            })
+        );
+    }
+}
