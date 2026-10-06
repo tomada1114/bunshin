@@ -108,8 +108,8 @@ mod tests {
         for (bytes, error) in [
             (b"invalid JSON".as_slice(), DayStoreError::Unreadable),
             (
-                br#"{"format":2}"#.as_slice(),
-                DayStoreError::NewerFormat { found: 2 },
+                br#"{"format":3}"#.as_slice(),
+                DayStoreError::NewerFormat { found: 3 },
             ),
         ] {
             fs::write(&path, bytes).expect("fixture");

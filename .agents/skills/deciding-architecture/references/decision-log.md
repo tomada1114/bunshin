@@ -221,3 +221,21 @@ why), and **Sources** where an external fact carried weight.
   owner explicitly accepted this reuse on 2026-10-03. It does not ship.
 - **Rejected:** duplicating fakes inside the binary — separates them from the
   shared port contracts and creates a second implementation to keep consistent.
+
+### 2026-10-06 — Day file format 2 records each trigger's spent retry
+
+- **Decided:** bump the day file to `"format": 2` and add `retryingTriggers`, always a
+  subset of `heldTriggers`, persisting the check-in queue's in-memory retry sets. The
+  queue restores a recorded trigger as a next-tick retry, so restarting Bunshin
+  neither grants a failed non-deadline trigger another retry nor spends one (§3.5).
+  Format 1 is migrated on read with no trigger retrying, so no retry counts as spent;
+  a binary that knows only format 1 refuses a format-2 file as `NewerFormat` and never
+  overwrites it; a retrying trigger that is not held is invalid data. The
+  `bunshin today --json` output is versioned separately and unchanged. The owner
+  accepted this on 2026-10-06.
+- **Rejected:** an optional field in format 1 — serde ignores unknown fields, so an
+  older binary would read the file and silently drop the retry record on its next
+  save; treating every restored held non-deadline trigger as already retrying —
+  `heldTriggers` also holds triggers that only waited on the guards (active hours,
+  the mute, the delivery gap) and never reached the model, which would lose the
+  "retried once" allowance of §3.5.
