@@ -676,3 +676,17 @@ fn a_retrying_trigger_that_is_not_held_is_refused() {
         Err(DayFileError::RetryingNotHeld)
     );
 }
+
+#[test]
+fn a_format_two_file_without_its_retry_record_is_refused() {
+    let (file, _) = held_planned_look();
+    let mut json = serde_json::to_value(&file).unwrap();
+    let header: FormatHeader = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(header.check(), Ok(()));
+    json.as_object_mut().unwrap().remove("retryingTriggers");
+    let header: FormatHeader = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(header.check(), Err(DayFileError::MissingRetryRecord));
+    json["format"] = serde_json::json!(1);
+    let header: FormatHeader = serde_json::from_value(json).unwrap();
+    assert_eq!(header.check(), Ok(()));
+}

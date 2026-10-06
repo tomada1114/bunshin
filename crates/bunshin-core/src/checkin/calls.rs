@@ -156,7 +156,26 @@ impl CheckinCalls {
             .triggers
             .into_iter()
             .partition(|trigger| !deadline(trigger.kind) && day.is_retrying(trigger));
-        for (triggers, attempt) in [(fresh, Attempt::First), (retrying, Attempt::NextTick)] {
+        // One catch-up per batch: when the fresh part carries it, the retrying part
+        // waits as a routine tick rather than adding a second catch-up note.
+        let retrying_reason = match batch.reason {
+            BatchReason::Open | BatchReason::GuardedOpen | BatchReason::Sleep
+                if !fresh.is_empty() =>
+            {
+                BatchReason::Tick
+            }
+            BatchReason::Open
+            | BatchReason::GuardedOpen
+            | BatchReason::Sleep
+            | BatchReason::Tick
+            | BatchReason::DayStart
+            | BatchReason::GuardedDayStart
+            | BatchReason::EveningReview => batch.reason,
+        };
+        for (triggers, attempt, reason) in [
+            (fresh, Attempt::First, batch.reason),
+            (retrying, Attempt::NextTick, retrying_reason),
+        ] {
             if triggers.is_empty() {
                 continue;
             }
@@ -175,10 +194,7 @@ impl CheckinCalls {
             };
             self.queue_pending(Pending {
                 date,
-                batch: ReadyBatch {
-                    triggers,
-                    reason: batch.reason,
-                },
+                batch: ReadyBatch { triggers, reason },
                 attempt,
                 tasks_at_enqueue: facts,
                 retrying,

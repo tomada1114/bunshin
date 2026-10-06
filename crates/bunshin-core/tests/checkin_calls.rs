@@ -3410,3 +3410,64 @@ fn checkin_retry_follows_a_rebased_scheduler_tick_after_clock_rollback() {
             .is_some()
     );
 }
+
+#[test]
+fn a_restored_opening_with_fresh_and_retrying_triggers_yields_one_catch_up() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::{BatchReason, ReadyBatch, calls::CheckinCalls},
+    };
+    for reason in [BatchReason::Open, BatchReason::GuardedOpen] {
+        let (day, owner, _, now) = fixture(TriggerKind::PlannedLook).unwrap();
+        let look = planned_look(now.instant);
+        let restored = restart(&fail_once(day, &owner, now, &look));
+        assert_eq!(restored.data().retrying_triggers, vec![look.clone()]);
+        let mut calls = CheckinCalls::new(Tuning::default());
+        calls.enqueue(
+            &restored,
+            ReadyBatch {
+                reason,
+                triggers: vec![
+                    Trigger {
+                        kind: TriggerKind::BeforeDeadline,
+                        task: Some(1),
+                        due_at: now.instant,
+                    },
+                    look.clone(),
+                ],
+            },
+        );
+        let mut day = restored;
+        for step in 0..4 {
+            let at = after(now, step * 31 * 60);
+            let start = calls.prepare(day, &owner, ContextExtras::default(), context(at), fixed);
+            day = match start.request {
+                Some(request) => {
+                    calls
+                        .finish(
+                            start.day,
+                            request.id,
+                            Ok(ModelAnswer {
+                                json: r#"{"kind":"note","task":1,"message":"確認"}"#.into(),
+                            }),
+                            context(at),
+                            fixed,
+                        )
+                        .day
+                }
+                None => start.day,
+            };
+        }
+        let catch_ups = day
+            .messages()
+            .iter()
+            .filter(|row| {
+                row.unprompted
+                    .as_ref()
+                    .is_some_and(|u| u.trigger.kind == TriggerKind::CatchUp)
+            })
+            .count();
+        assert_eq!(catch_ups, 1, "{reason:?}");
+        assert!(day.data().held_triggers.is_empty(), "{reason:?}");
+    }
+}

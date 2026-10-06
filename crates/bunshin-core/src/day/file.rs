@@ -18,18 +18,34 @@ pub const OLDEST_FORMAT: u32 = 1;
 pub struct FormatHeader {
     /// Explicit file version, required on every day file.
     pub format: u32,
+    /// Whether the `retryingTriggers` key is present; format two requires it, so a
+    /// damaged file cannot silently regain spent retries. Never serialized.
+    #[serde(
+        rename = "retryingTriggers",
+        default,
+        deserialize_with = "key_present",
+        skip_serializing
+    )]
+    pub has_retry_record: bool,
+}
+fn key_present<'de, D: serde::Deserializer<'de>>(value: D) -> Result<bool, D::Error> {
+    serde::de::IgnoredAny::deserialize(value).map(|_| true)
 }
 impl FormatHeader {
     /// Accept only versions with a defined decoder: the current one, and format one,
     /// which `DayFile::into_day` migrates.
     /// # Errors
-    /// Newer versions return `NewerFormat`; zero has no shipped migration.
+    /// Newer versions return `NewerFormat`; zero has no shipped migration; a format-two
+    /// file without its retry record returns `MissingRetryRecord`.
     pub fn check(self) -> Result<(), DayFileError> {
         if self.format > FORMAT {
             return Err(DayFileError::NewerFormat { found: self.format });
         }
         if self.format < OLDEST_FORMAT {
             return Err(DayFileError::UnsupportedFormat { found: self.format });
+        }
+        if self.format == FORMAT && !self.has_retry_record {
+            return Err(DayFileError::MissingRetryRecord);
         }
         Ok(())
     }
@@ -60,7 +76,8 @@ pub struct DayData {
     pub held_triggers: Vec<Trigger>,
     /// Held non-deadline triggers whose one retry is already granted, so a restart
     /// neither grants another nor spends it. Saved as a subset of `held_triggers`;
-    /// absent before format two, which decodes as empty.
+    /// absent before format two, which decodes as empty; `FormatHeader::check`
+    /// refuses a format-two file without it.
     #[serde(default)]
     pub retrying_triggers: Vec<Trigger>,
     /// Summary retained from the previous logical day.
@@ -115,6 +132,7 @@ impl DayFile {
     pub fn into_day(mut self, tuning: Tuning) -> Result<Day, DayFileError> {
         FormatHeader {
             format: self.format,
+            has_retry_record: true,
         }
         .check()?;
         if self.format < FORMAT {
@@ -245,4 +263,7 @@ pub enum DayFileError {
     /// A retry record names a trigger that is not held, so it cannot be trusted.
     #[error("retrying trigger is not held")]
     RetryingNotHeld,
+    /// A current-format file lacks its retry record, so spent retries cannot be known.
+    #[error("retry record is missing")]
+    MissingRetryRecord,
 }
