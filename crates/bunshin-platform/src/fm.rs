@@ -425,6 +425,10 @@ printf '{"reply":"了解"}'"#,
         });
         assert_reaped(&dir);
     }
+    // Long enough for a loaded machine's shell to write its pid before the kill, which
+    // `assert_reaped` needs; still far below the 30 s default and the 5 s descendants'
+    // natural end, so the timeout under test is the one that returns.
+    const REAP_TIMEOUT: Duration = Duration::from_secs(2);
     fn assert_reaped(dir: &tempfile::TempDir) {
         let pid = fs::read_to_string(dir.path().join("pid"))
             .unwrap_or_else(|error| panic!("pid: {error}"));
@@ -442,7 +446,7 @@ printf '{"reply":"了解"}'"#,
             stub("printf '%s' \"$$\" >\"$(dirname \"$0\")/pid\"\nexec /bin/sleep 30");
         let mut req = request();
         req.prompt = "x".repeat(2_000_000);
-        req.timeout = Duration::from_millis(200);
+        req.timeout = REAP_TIMEOUT;
         assert_eq!(
             model.respond(&req, &CancelFlag::default()),
             Err(ModelError::TimedOut)
@@ -560,7 +564,7 @@ printf '{"reply":"了解"}'"#,
         let (dir, model) =
             stub("printf '%s' \"$$\" >\"$(dirname \"$0\")/pid\"\nexec /bin/sleep 30");
         let tuning = bunshin_core::Tuning {
-            model_timeout: Duration::from_millis(200),
+            model_timeout: REAP_TIMEOUT,
             ..bunshin_core::Tuning::default()
         };
         let model = FmLanguageModel::with_tuning(model.executable_for_test(), tuning);
@@ -573,11 +577,11 @@ printf '{"reply":"了解"}'"#,
             r#"cd "$(dirname "$0")"
 printf '%s' "$$" >pid
 /bin/cat >/dev/null
-/bin/sh -c '/bin/sleep 1; printf completed >natural-end' >/dev/null &
+/bin/sh -c '/bin/sleep 5; printf completed >natural-end' >/dev/null &
 printf '{}'"#,
         );
         let mut req = request();
-        req.timeout = Duration::from_millis(200);
+        req.timeout = REAP_TIMEOUT;
         assert_eq!(
             model.respond(&req, &CancelFlag::default()),
             Err(ModelError::TimedOut)
@@ -595,12 +599,12 @@ printf '{}'"#,
 printf '%s' "$$" >pid
 # Preserve stdin before an asynchronous shell list replaces fd 0 with /dev/null.
 exec 3<&0
-/bin/sh -c '/bin/sleep 1; printf completed >natural-end' <&3 >/dev/null 2>&1 &
+/bin/sh -c '/bin/sleep 5; printf completed >natural-end' <&3 >/dev/null 2>&1 &
 printf '{}'"#,
         );
         let mut req = request();
         req.prompt = "x".repeat(2_000_000);
-        req.timeout = Duration::from_millis(200);
+        req.timeout = REAP_TIMEOUT;
         assert_eq!(
             model.respond(&req, &CancelFlag::default()),
             Err(ModelError::TimedOut)
