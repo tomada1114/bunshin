@@ -270,28 +270,11 @@ pub(crate) fn assemble(
         .iter()
         .map(|task| task.title.clone())
         .collect::<Vec<_>>();
-    let stored = day
-        .data()
-        .yesterday_record
-        .as_ref()
-        .map(|record| record.text.as_str());
-    fill_yesterday(
-        budget,
-        &mut context,
-        &mut minimum,
-        extras.yesterday.or(stored),
-        limit,
-    )?;
-    // Open names precede recent states and triggers. Establish their available
-    // title lengths before admitting either lower-priority optional block.
+    fill_yesterday(budget, &mut context, &mut minimum, extras.yesterday, day)?;
+    // Open names precede leftovers, recent states and triggers. Establish their
+    // title lengths before admitting any lower-priority optional block.
     fit_tasks(budget, &mut context, &original, limit)?;
-    for leftover in extras.leftovers {
-        context.leftovers.push(PromptTask::from(leftover.clone()));
-        if total(budget, &encode(&context)?) > limit {
-            context.leftovers.pop();
-            break;
-        }
-    }
+    fill_leftovers(budget, &mut context, extras.leftovers, limit)?;
     fill_lower_extras(
         budget,
         &mut context,
@@ -395,14 +378,17 @@ fn fit_tasks(
     }
     Ok(())
 }
+// A caller's record wins; otherwise the day's stored record keeps every call carrying it.
 fn fill_yesterday(
     budget: RequestBudget<'_>,
     context: &mut Context,
     minimum: &mut Context,
     yesterday: Option<&str>,
-    limit: usize,
+    day: &Day,
 ) -> Result<(), PromptError> {
-    if let Some(yesterday) = yesterday {
+    let limit = budget.tuning.prompt.context_tokens.min(MODEL_WINDOW);
+    let stored = day.data().yesterday_record.as_ref();
+    if let Some(yesterday) = yesterday.or(stored.map(|record| record.text.as_str())) {
         let mut text = String::new();
         for character in yesterday.chars() {
             text.push(character);
@@ -418,6 +404,22 @@ fn fill_yesterday(
             context.yesterday = Some(text);
         } else {
             minimum.yesterday = None;
+        }
+    }
+    Ok(())
+}
+// Leftovers follow today's open tasks, each only while it still fits.
+fn fill_leftovers(
+    budget: RequestBudget<'_>,
+    context: &mut Context,
+    leftovers: &[TaskView],
+    limit: usize,
+) -> Result<(), PromptError> {
+    for leftover in leftovers {
+        context.leftovers.push(PromptTask::from(leftover.clone()));
+        if total(budget, &encode(context)?) > limit {
+            context.leftovers.pop();
+            break;
         }
     }
     Ok(())

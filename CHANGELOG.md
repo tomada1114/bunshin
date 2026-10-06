@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Core day rhythm: the day start at the first open of a logical day, or at the first
+  key after 04:00 with the screen open, writes yesterday's record (counts and up to three
+  titles each, within 120 tokens) that every model call carries, drops the previous
+  day's held triggers, and queues a day-start check-in exempt from the delivery guards.
+  The leftovers block offers the last day on record's open deadline and untimed tasks;
+  `c`/`d`/`C`/`D` or a chat proposal carries them over as new untimed tasks or drops
+  them, saving both days as one undoable change. The 18:00 evening review is queued
+  once after the day start is settled, under every delivery guard. The terminal
+  drawing and check-in dispatch are ready for the TUI integration.
+
 - TUI chat accepts bounded Unicode input, queues owner messages, shows replies and
   undoable changes, and supports cancellation without blocking task keys. Model
   availability, recovery notices and a read-only instructions view remain visible.

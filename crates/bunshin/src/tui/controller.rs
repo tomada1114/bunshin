@@ -125,6 +125,52 @@ mod tests {
     }
 
     #[test]
+    fn a_day_start_and_a_leftover_decision_save_both_days_before_the_next_key() {
+        let clock = FixedClock::default();
+        let now = clock.now();
+        let tuning = Tuning::default();
+        let today = logical_date(now.local, tuning.day_boundary);
+        let store = InMemoryDayStore::new(tuning);
+        let (earlier, _) = Day::new(today.yesterday().expect("date"), tuning)
+            .add(
+                "synthetic leftover".into(),
+                TaskKind::Untimed,
+                None,
+                TaskOrigin::Key,
+                now.instant,
+            )
+            .expect("task");
+        store.save(&earlier).expect("earlier day");
+        let screen = MainScreen::new(store.load(today).expect("today"), tuning);
+        let screen = process_effects(
+            screen,
+            vec![bunshin_core::screen::Effect::StartDay],
+            now,
+            &store,
+            || {},
+        );
+        assert!(
+            store
+                .load(today)
+                .expect("saved")
+                .data()
+                .yesterday_record
+                .is_some()
+        );
+        let screen = process_key(screen, ScreenKey::Tab, now, &store);
+        let screen = process_key(screen, ScreenKey::Char('c'), now, &store);
+        assert_eq!(screen.save_state(), SaveState::Saved);
+        assert_eq!(
+            store.load(today).expect("today").tasks()[0].title,
+            "synthetic leftover"
+        );
+        assert_eq!(
+            store.load(earlier.date()).expect("earlier").tasks()[0].status,
+            TaskStatus::CarriedOver
+        );
+    }
+
+    #[test]
     fn a_failed_save_keeps_the_task_and_requires_confirmation_to_quit() {
         let clock = FixedClock::default();
         let screen = process_key(

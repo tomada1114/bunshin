@@ -125,7 +125,7 @@ pub fn action_label(action: ScreenAction) -> &'static str {
         ScreenAction::PreviousField => "前へ",
         ScreenAction::Left => "左／種類",
         ScreenAction::Right => "右／種類",
-        ScreenAction::CancelForm => "やめる",
+        ScreenAction::CancelForm | ScreenAction::DropLeftover => "やめる",
         ScreenAction::Instructions => "指示文",
         ScreenAction::InstructionsUp => "上へ",
         ScreenAction::InstructionsDown => "下へ",
@@ -135,7 +135,6 @@ pub fn action_label(action: ScreenAction) -> &'static str {
         ScreenAction::SendInput => "送信",
         ScreenAction::CancelInput => "中止／クリア",
         ScreenAction::CarryLeftover => "持ち越し",
-        ScreenAction::DropLeftover => "やめる",
         ScreenAction::CarryAllLeftovers => "全部持ち越し",
         ScreenAction::DropAllLeftovers => "全部やめる",
     }
