@@ -4,3 +4,4 @@ pub mod budget;
 pub mod chat;
 pub mod checkin;
 pub mod rules;
+pub mod yesterday;

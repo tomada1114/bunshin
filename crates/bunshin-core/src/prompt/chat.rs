@@ -11,11 +11,13 @@ use crate::{
 use serde::Serialize;
 
 const MODEL_WINDOW: usize = 4096;
+// Only while leftovers are offered: their numbers belong to their own day.
+const LEFTOVER_RULES: &str = "leftovers は前日の残り（番号は前日のもの）。持ち越しは carryOver、やめるは dropLeftover で task に leftovers の番号を入れる。持ち越したものは今日の時刻なしタスクになる。";
 /// Generation schema; domain validation separately rejects invalid individual changes.
 /// `fm` object names and field order follow its generated schema format. Reply
 /// generation comes first; changes-first repeatedly stalled the empty-change
 /// synthetic request on the local model (observed 2026-10-03).
-pub const CHAT_SCHEMA: &str = r##"{"type":"object","properties":{"changes":{"type":"array","items":{"$ref":"#/$defs/Change"}},"reply":{"type":"string"}},"required":["changes","reply"],"additionalProperties":false,"title":"ChatAnswer","x-order":["reply","changes"],"$defs":{"Change":{"type":"object","properties":{"op":{"type":"string","enum":["add","done","drop","reopen","changeTime","rename","mute"]},"task":{"type":"integer"},"title":{"type":"string"},"kind":{"type":"string","enum":["untimed","deadline","appointment"]},"time":{"type":"string"},"minutes":{"type":"integer"}},"required":["op"],"additionalProperties":false,"title":"Change","x-order":["op","task","title","kind","time","minutes"]}}}"##;
+pub const CHAT_SCHEMA: &str = r##"{"type":"object","properties":{"changes":{"type":"array","items":{"$ref":"#/$defs/Change"}},"reply":{"type":"string"}},"required":["changes","reply"],"additionalProperties":false,"title":"ChatAnswer","x-order":["reply","changes"],"$defs":{"Change":{"type":"object","properties":{"op":{"type":"string","enum":["add","done","drop","reopen","changeTime","rename","mute","carryOver","dropLeftover"]},"task":{"type":"integer"},"title":{"type":"string"},"kind":{"type":"string","enum":["untimed","deadline","appointment"]},"time":{"type":"string"},"minutes":{"type":"integer"}},"required":["op"],"additionalProperties":false,"title":"Change","x-order":["op","task","title","kind","time","minutes"]}}}"##;
 
 /// Reaction facts passed to the model rather than private message text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -30,8 +32,12 @@ pub struct UnpromptedContext {
 /// Explicit slots for later day-start, inbox and check-in callers; empty in chat's first slice.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ContextExtras<'a> {
-    /// Deterministic previous-day record, capped by its estimated token bound.
+    /// Deterministic previous-day record, capped by its estimated token bound. When
+    /// absent, the day's own stored record is used, so every call of the day has it.
     pub yesterday: Option<&'a str>,
+    /// Undecided leftovers of the last day on record, numbered on their own day.
+    /// Included in order while they fit, after today's open tasks.
+    pub leftovers: &'a [TaskView],
     /// Fallback states in chronological order when the day has no delivered check-ins.
     /// Persisted inbox reactions take precedence; newest states are bounded by tuning.
     pub unprompted_states: &'a [UnpromptedContext],
@@ -154,6 +160,8 @@ struct Context {
     now: String,
     yesterday: Option<String>,
     open_tasks: Vec<PromptTask>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    leftovers: Vec<PromptTask>,
     unprompted_states: Vec<UnpromptedContext>,
     triggers: Vec<PromptTrigger>,
     closed_tasks: Vec<PromptTask>,
@@ -185,6 +193,10 @@ pub fn build_chat(
     extras: ContextExtras<'_>,
     tuning: Tuning,
 ) -> Result<BuiltChat, PromptError> {
+    let mut rules = operating_rules(tuning);
+    if !extras.leftovers.is_empty() {
+        rules.push_str(LEFTOVER_RULES);
+    }
     assemble(
         day,
         owner,
@@ -194,7 +206,7 @@ pub fn build_chat(
         tuning,
         &RequestSpec {
             schema: CHAT_SCHEMA,
-            rules: operating_rules(tuning),
+            rules,
             answer_tokens: tuning.prompt.chat_answer_tokens,
             ready_triggers: None,
         },
@@ -229,6 +241,7 @@ pub(crate) fn assemble(
         date: day.date().to_string(),
         now: now.local.to_string(),
         yesterday: None,
+        leftovers: Vec::new(),
         open_tasks: tasks
             .iter()
             .filter(|task| task.status == TaskStatus::Open)
@@ -257,10 +270,11 @@ pub(crate) fn assemble(
         .iter()
         .map(|task| task.title.clone())
         .collect::<Vec<_>>();
-    fill_yesterday(budget, &mut context, &mut minimum, extras.yesterday, limit)?;
-    // Open names precede recent states and triggers. Establish their available
-    // title lengths before admitting either lower-priority optional block.
+    fill_yesterday(budget, &mut context, &mut minimum, extras.yesterday, day)?;
+    // Open names precede leftovers, recent states and triggers. Establish their
+    // title lengths before admitting any lower-priority optional block.
     fit_tasks(budget, &mut context, &original, limit)?;
+    fill_leftovers(budget, &mut context, extras.leftovers, limit)?;
     fill_lower_extras(
         budget,
         &mut context,
@@ -364,14 +378,17 @@ fn fit_tasks(
     }
     Ok(())
 }
+// A caller's record wins; otherwise the day's stored record keeps every call carrying it.
 fn fill_yesterday(
     budget: RequestBudget<'_>,
     context: &mut Context,
     minimum: &mut Context,
     yesterday: Option<&str>,
-    limit: usize,
+    day: &Day,
 ) -> Result<(), PromptError> {
-    if let Some(yesterday) = yesterday {
+    let limit = budget.tuning.prompt.context_tokens.min(MODEL_WINDOW);
+    let stored = day.data().yesterday_record.as_ref();
+    if let Some(yesterday) = yesterday.or(stored.map(|record| record.text.as_str())) {
         let mut text = String::new();
         for character in yesterday.chars() {
             text.push(character);
@@ -387,6 +404,22 @@ fn fill_yesterday(
             context.yesterday = Some(text);
         } else {
             minimum.yesterday = None;
+        }
+    }
+    Ok(())
+}
+// Leftovers follow today's open tasks, each only while it still fits.
+fn fill_leftovers(
+    budget: RequestBudget<'_>,
+    context: &mut Context,
+    leftovers: &[TaskView],
+    limit: usize,
+) -> Result<(), PromptError> {
+    for leftover in leftovers {
+        context.leftovers.push(PromptTask::from(leftover.clone()));
+        if total(budget, &encode(context)?) > limit {
+            context.leftovers.pop();
+            break;
         }
     }
     Ok(())

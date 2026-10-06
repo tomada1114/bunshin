@@ -101,6 +101,7 @@ pub fn region_label(region: KeyRegion) -> &'static str {
         KeyRegion::Help => "ヘルプ",
         KeyRegion::Instructions => "指示文",
         KeyRegion::Input => "入力欄",
+        KeyRegion::Leftovers => "前日の残り",
     }
 }
 pub fn action_label(action: ScreenAction) -> &'static str {
@@ -124,7 +125,7 @@ pub fn action_label(action: ScreenAction) -> &'static str {
         ScreenAction::PreviousField => "前へ",
         ScreenAction::Left => "左／種類",
         ScreenAction::Right => "右／種類",
-        ScreenAction::CancelForm => "やめる",
+        ScreenAction::CancelForm | ScreenAction::DropLeftover => "やめる",
         ScreenAction::Instructions => "指示文",
         ScreenAction::InstructionsUp => "上へ",
         ScreenAction::InstructionsDown => "下へ",
@@ -133,6 +134,9 @@ pub fn action_label(action: ScreenAction) -> &'static str {
         ScreenAction::ChatLatest => "最新へ",
         ScreenAction::SendInput => "送信",
         ScreenAction::CancelInput => "中止／クリア",
+        ScreenAction::CarryLeftover => "持ち越し",
+        ScreenAction::CarryAllLeftovers => "全部持ち越し",
+        ScreenAction::DropAllLeftovers => "全部やめる",
     }
 }
 pub fn key_label(key: ScreenKey) -> String {

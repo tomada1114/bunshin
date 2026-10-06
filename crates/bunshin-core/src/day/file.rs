@@ -125,6 +125,18 @@ impl DayFile {
         // mark must not make one of those already-used numbers reusable after load.
         for message in &self.data.messages {
             if let Some(set) = &message.change_set {
+                // An earlier day's leftover keeps that day's numbering, so it is held to
+                // the task rules but not to this day's consumed numbers.
+                for leftover in &set.leftovers {
+                    if leftover.date >= self.data.date {
+                        return Err(DayFileError::InvalidTask {
+                            kind: DayError::InvalidStatus,
+                        });
+                    }
+                    for task in [&leftover.before, &leftover.after] {
+                        validate_stored_task(task, tuning, u64::MAX)?;
+                    }
+                }
                 for change in &set.changes {
                     match change {
                         super::Change::Task { before, after } => {

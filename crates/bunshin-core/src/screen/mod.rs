@@ -8,6 +8,7 @@ mod viewport;
 pub use chat::{ChatNotice, ChatRequest, ChatStatus};
 pub mod keys;
 mod persistence;
+mod rhythm;
 pub mod task_form;
 pub use persistence::SaveState;
 
@@ -42,6 +43,10 @@ pub enum Effect {
     CancelModel,
     /// Append a row with wording supplied by the binary before saving.
     ChatNotice(ChatNotice),
+    /// Persist the last day on record (`leftovers_day`) after this screen's Day.
+    SaveLeftovers,
+    /// Load the new logical day and run its day start (`start_day`) before the next key.
+    StartDay,
 }
 /// A task-pane refusal, with user-facing wording owned by the binary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -49,6 +54,9 @@ pub enum ScreenError {
     /// A rejected existing Day operation, without any task data.
     #[error("day operation rejected")]
     Day(DayError),
+    /// The day start could not load the new day or the last day on record.
+    #[error("day start could not load a day")]
+    Store(crate::day::store::DayStoreError),
 }
 /// State shared by TUI drawing and deterministic key tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +78,7 @@ pub struct MainScreen {
     instructions_scroll_limit: usize,
     last_key_messages: usize,
     chat_has_key: bool,
+    rhythm: rhythm::RhythmState,
 }
 impl MainScreen {
     /// Start in the input with the first display row selected, without reading I/O.
@@ -99,6 +108,7 @@ impl MainScreen {
             instructions_scroll_limit: 0,
             last_key_messages,
             chat_has_key: false,
+            rhythm: rhythm::RhythmState::default(),
         }
     }
     /// Day to render or persist after a Save effect.
@@ -111,10 +121,15 @@ impl MainScreen {
     pub const fn focus(&self) -> Focus {
         self.focus
     }
-    /// Selected zero-based row in Day's display order, absent for an empty list.
+    /// Selected zero-based row in Day's display order, absent for an empty list or
+    /// while the cursor is in the leftovers block (`leftover_selection`).
     #[must_use]
     pub const fn selection(&self) -> Option<usize> {
-        self.selected
+        if self.rhythm.cursor.is_some() {
+            None
+        } else {
+            self.selected
+        }
     }
     /// Captured task form, including preserved text and validation code.
     #[must_use]
@@ -171,6 +186,10 @@ impl MainScreen {
             }
             return (self, Vec::new());
         }
+        if command_key != ScreenKey::Interrupt && self.turnover_waiting(now) {
+            // The key that wakes a screen left open across the boundary starts the day.
+            return (self, vec![Effect::StartDay]);
+        }
         if let Some(effects) = self.handle_inbox_key(command_key, now) {
             return (self, effects);
         }
@@ -190,14 +209,26 @@ impl MainScreen {
         }
         let action = action_for(command_key, KeyRegion::Anywhere).or_else(|| match self.focus {
             Focus::Input => action_for(command_key, KeyRegion::Main),
-            Focus::Tasks => action_for(command_key, KeyRegion::Tasks)
+            Focus::Tasks => self
+                .rhythm
+                .cursor
+                .and_then(|_| action_for(command_key, KeyRegion::Leftovers))
+                .or_else(|| action_for(command_key, KeyRegion::Tasks))
                 .or_else(|| action_for(command_key, KeyRegion::Main)),
             Focus::Form => action_for(command_key, KeyRegion::Form),
             Focus::Help => action_for(command_key, KeyRegion::Help),
             Focus::Instructions => action_for(command_key, KeyRegion::Instructions),
         });
         let mut effects = Vec::new();
-        if let Some(action) = action {
+        if let Some(
+            action @ (ScreenAction::CarryLeftover
+            | ScreenAction::DropLeftover
+            | ScreenAction::CarryAllLeftovers
+            | ScreenAction::DropAllLeftovers),
+        ) = action
+        {
+            self.decide_leftovers(action, now, &mut effects);
+        } else if let Some(action) = action {
             self.apply(action, key, now.instant, &mut effects);
         } else if let Some(form) = &mut self.form {
             form.edit(key, self.tuning);
@@ -241,7 +272,7 @@ impl MainScreen {
                     self.confirming_quit = true;
                 }
             }
-            ScreenAction::Undo => self.accept(self.day.clone().undo(at), effects),
+            ScreenAction::Undo => self.undo_with_leftovers(at, effects),
             ScreenAction::MoveFocus => {
                 self.focus = if self.focus == Focus::Input {
                     Focus::Tasks
@@ -251,9 +282,15 @@ impl MainScreen {
             }
             ScreenAction::Input => self.focus = Focus::Input,
             ScreenAction::Previous => {
-                self.selected = self.selected.map(|row| row.saturating_sub(1));
+                if !self.move_with_leftovers(true) {
+                    self.selected = self.selected.map(|row| row.saturating_sub(1));
+                }
             }
-            ScreenAction::Next => self.selected = self.selected.map(|row| row.saturating_add(1)),
+            ScreenAction::Next => {
+                if !self.move_with_leftovers(false) {
+                    self.selected = self.selected.map(|row| row.saturating_add(1));
+                }
+            }
             ScreenAction::Done | ScreenAction::Drop | ScreenAction::Delete => {
                 self.change_task(action, at, effects);
             }
@@ -300,6 +337,11 @@ impl MainScreen {
                 self.form = None;
                 self.focus = Focus::Tasks;
             }
+            // Decided before `apply`, where the instant's civil time is still at hand.
+            ScreenAction::CarryLeftover
+            | ScreenAction::DropLeftover
+            | ScreenAction::CarryAllLeftovers
+            | ScreenAction::DropAllLeftovers => {}
         }
     }
     /// Clamp instruction scrolling to the rows measured by the drawing adapter.
@@ -315,7 +357,7 @@ impl MainScreen {
         self.instructions_scroll
     }
     fn selected_task(&self) -> Option<TaskView> {
-        self.selected
+        self.selection()
             .and_then(|row| self.day.task_view().get(row).cloned())
     }
     fn change_task(&mut self, action: ScreenAction, at: UnixMillis, effects: &mut Vec<Effect>) {
@@ -358,7 +400,11 @@ impl MainScreen {
             | ScreenAction::Left
             | ScreenAction::Right
             | ScreenAction::CancelForm
-            | ScreenAction::EditText => return,
+            | ScreenAction::EditText
+            | ScreenAction::CarryLeftover
+            | ScreenAction::DropLeftover
+            | ScreenAction::CarryAllLeftovers
+            | ScreenAction::DropAllLeftovers => return,
         };
         self.accept(result, effects);
     }

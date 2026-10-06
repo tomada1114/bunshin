@@ -330,6 +330,12 @@ instruction text and clears when owner instructions become usable.
 
 A message may carry `cancelled: true` for a stopped or failed owner call. Older format-one
 files omit this field and decode it as false; false values remain omitted on save.
+A change set may carry `leftovers`: each leftover of an earlier day that the set carried
+over or dropped, as that day's `date` and the task `before` and `after`. Older format-one
+files omit it and decode it as empty; an empty list remains omitted on save. Those tasks
+keep their own day's numbers, so they are checked against the task rules but not counted
+toward this day's consumed numbers. `yesterdayRecord.text` is written by core at the day
+start: counts and a few titles of the last day on record, model input rather than wording.
 Loading requires current or historical task snapshots to account for every consumed
 number from one through the high-water mark, so an inflated cursor cannot skip numbers.
 

@@ -121,6 +121,14 @@ pub enum ScreenAction {
     SendInput,
     /// Cancel the owner call or clear unsent input.
     CancelInput,
+    /// Carry the selected leftover over to today as a new untimed task.
+    CarryLeftover,
+    /// Drop the selected leftover on its own day.
+    DropLeftover,
+    /// Carry every leftover over at once.
+    CarryAllLeftovers,
+    /// Drop every leftover at once.
+    DropAllLeftovers,
 }
 /// The region in which a binding is interpreted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,6 +147,8 @@ pub enum KeyRegion {
     Instructions,
     /// Chat input only.
     Input,
+    /// The leftovers block at the top of the task pane, while its row is selected.
+    Leftovers,
 }
 /// One source of truth for dispatch and the binary's translated help labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -274,6 +284,26 @@ pub const KEY_TABLE: &[KeyBinding] = &[
         action: A::Help,
         keys: &[K::Char('?')],
         region: Tasks,
+    },
+    KeyBinding {
+        action: A::CarryLeftover,
+        keys: &[K::Char('c')],
+        region: KeyRegion::Leftovers,
+    },
+    KeyBinding {
+        action: A::DropLeftover,
+        keys: &[K::Char('d')],
+        region: KeyRegion::Leftovers,
+    },
+    KeyBinding {
+        action: A::CarryAllLeftovers,
+        keys: &[K::Char('C')],
+        region: KeyRegion::Leftovers,
+    },
+    KeyBinding {
+        action: A::DropAllLeftovers,
+        keys: &[K::Char('D')],
+        region: KeyRegion::Leftovers,
     },
     KeyBinding {
         action: A::CloseHelp,

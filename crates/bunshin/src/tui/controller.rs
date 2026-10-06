@@ -37,7 +37,8 @@ pub(super) fn process_effects(
     store: &dyn DayStore,
     mut cancel: impl FnMut(),
 ) -> MainScreen {
-    for effect in effects {
+    let mut queue = std::collections::VecDeque::from(effects);
+    while let Some(effect) = queue.pop_front() {
         match effect {
             Effect::Save => {
                 let result = store.save(screen.day());
@@ -51,6 +52,22 @@ pub(super) fn process_effects(
             Effect::ChatNotice(notice) => {
                 let text = crate::wording::chat_notice(notice);
                 screen = screen.record_chat_notice(notice, &text, now.instant);
+            }
+            Effect::SaveLeftovers => {
+                // Only a failure is recorded: a success here must not mask today's failed Save.
+                if let Some(Err(error)) =
+                    screen.leftovers_day().map(|previous| store.save(previous))
+                {
+                    let notice = crate::wording::save_failure(error);
+                    screen = screen.record_save_result(Err(error), now.instant, &notice);
+                }
+            }
+            Effect::StartDay => {
+                let (next, effects) = screen.start_day(store, now);
+                screen = next;
+                for effect in effects.into_iter().rev() {
+                    queue.push_front(effect);
+                }
             }
         }
     }
@@ -105,6 +122,94 @@ mod tests {
         assert_eq!(screen.save_state(), SaveState::Saved);
         let screen = process_key(screen, ScreenKey::Char('q'), clock.now(), &store);
         assert!(screen.finished());
+    }
+
+    #[test]
+    fn a_day_start_and_a_leftover_decision_save_both_days_before_the_next_key() {
+        let clock = FixedClock::default();
+        let now = clock.now();
+        let tuning = Tuning::default();
+        let today = logical_date(now.local, tuning.day_boundary);
+        let store = InMemoryDayStore::new(tuning);
+        let (earlier, _) = Day::new(today.yesterday().expect("date"), tuning)
+            .add(
+                "synthetic leftover".into(),
+                TaskKind::Untimed,
+                None,
+                TaskOrigin::Key,
+                now.instant,
+            )
+            .expect("task");
+        store.save(&earlier).expect("earlier day");
+        let screen = MainScreen::new(store.load(today).expect("today"), tuning);
+        let screen = process_effects(
+            screen,
+            vec![bunshin_core::screen::Effect::StartDay],
+            now,
+            &store,
+            || {},
+        );
+        assert!(
+            store
+                .load(today)
+                .expect("saved")
+                .data()
+                .yesterday_record
+                .is_some()
+        );
+        let screen = process_key(screen, ScreenKey::Tab, now, &store);
+        let screen = process_key(screen, ScreenKey::Char('c'), now, &store);
+        assert_eq!(screen.save_state(), SaveState::Saved);
+        assert_eq!(
+            store.load(today).expect("today").tasks()[0].title,
+            "synthetic leftover"
+        );
+        assert_eq!(
+            store.load(earlier.date()).expect("earlier").tasks()[0].status,
+            TaskStatus::CarriedOver
+        );
+    }
+
+    #[test]
+    fn a_saved_earlier_day_does_not_hide_that_today_failed_to_save() {
+        let clock = FixedClock::default();
+        let now = clock.now();
+        let tuning = Tuning::default();
+        let today = logical_date(now.local, tuning.day_boundary);
+        let store = InMemoryDayStore::new(tuning);
+        let (earlier, _) = Day::new(today.yesterday().expect("date"), tuning)
+            .add(
+                "synthetic leftover".into(),
+                TaskKind::Untimed,
+                None,
+                TaskOrigin::Key,
+                now.instant,
+            )
+            .expect("task");
+        store.save(&earlier).expect("earlier day");
+        let screen = MainScreen::new(store.load(today).expect("today"), tuning);
+        let screen = process_effects(
+            screen,
+            vec![bunshin_core::screen::Effect::StartDay],
+            now,
+            &store,
+            || {},
+        );
+        let screen = process_key(screen, ScreenKey::Tab, now, &store);
+        // Today's file becomes unwritable while the earlier day's stays writable.
+        store.seed_error(today, bunshin_core::day::store::DayStoreError::Unavailable);
+        let screen = process_key(screen, ScreenKey::Char('c'), now, &store);
+        assert_eq!(
+            store.load(earlier.date()).expect("earlier").tasks()[0].status,
+            TaskStatus::CarriedOver
+        );
+        assert_eq!(
+            screen.save_state(),
+            SaveState::NotSaved(bunshin_core::day::store::DayStoreError::Unavailable)
+        );
+        let screen = process_key(screen, ScreenKey::Char('q'), now, &store);
+        assert!(!screen.finished());
+        assert!(screen.is_confirming_quit());
     }
 
     #[test]
