@@ -486,6 +486,12 @@ fn the_leftovers_block_sits_above_today_with_its_own_key_line() {
     assert!(lines[23].starts_with("? 全キー  c 持ち越し  d やめる  C 全部持ち越し  D 全部やめる"));
     assert!(buffer[(3, 2)].modifier.contains(Modifier::BOLD));
     assert!(buffer[(1, 3)].modifier.contains(Modifier::REVERSED));
+    let wide = text(&render(&screen, now, 120, 30));
+    // The wide pane is 36 columns: the heading is cut with an ellipsis.
+    assert!(wide[2].starts_with("┃  前日の残り 10/1(木) ─"));
+    assert!(wide[2].contains("…"), "{}", wide[2]);
+    assert!(wide[3].starts_with("┃> [ ] 〜17:00 経費精算"));
+    assert!(wide[6].starts_with("┃  （今日のタスクはまだありません）"));
     let mut bells = 0;
     let screen = crate::tui::controller::process_key(
         screen,
