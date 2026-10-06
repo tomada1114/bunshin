@@ -1,4 +1,4 @@
-//! The main screen's terminal lifecycle and key translation.
+//! The main screen's terminal lifecycle, its tick, and key translation.
 //! No automated check runs this loop: only the owner enters a real terminal.
 
 mod controller;
@@ -8,6 +8,7 @@ mod worker;
 use std::io;
 use std::panic;
 
+use crate::wording;
 use bunshin_core::{
     Clock, LanguageModel, Tuning,
     day::store::DayStore,
@@ -24,7 +25,11 @@ use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use std::sync::Arc;
+use std::time::Duration;
 use worker::{Completion, ModelWorker};
+
+/// The loop wakes at least this often, so core sees the clock every second.
+const MAX_POLL: Duration = Duration::from_secs(1);
 
 /// Run the screen until the user quits. The terminal is restored on every way out: here
 /// after a normal exit or an error, and by the panic hook on a panic (which, with the
@@ -115,8 +120,12 @@ fn event_loop(
         };
     }
     tracing::info!("tui opened");
-    screen =
-        read_instructions(screen, instructions, clock.now(), store, worker).record_chat_bootstrap();
+    let mut bells = 0;
+    let now = clock.now();
+    screen = read_instructions(screen, instructions, now, store, worker).record_chat_bootstrap();
+    // The open's catch-up and the day start, before the first frame.
+    let (next, effects) = screen.open_checkins(now);
+    screen = controller::process_effects(next, effects, now, store, || worker.cancel(), &mut bells);
     let mut initial_probe = true;
     while !screen.finished() {
         let now = clock.now();
@@ -125,30 +134,36 @@ fn event_loop(
             let (next, effects) = match completion {
                 Completion::Availability(result) => screen.record_availability(result, now.instant),
                 Completion::Answer(id, result) => screen.finish_chat(id, result, now),
+                Completion::Checkin(id, result) => {
+                    screen.finish_checkin(id, result, now, wording::fixed_deadline)
+                }
             };
-            screen = controller::process_effects(next, effects, now, store, || worker.cancel());
+            screen = controller::process_effects(
+                next,
+                effects,
+                now,
+                store,
+                || worker.cancel(),
+                &mut bells,
+            );
             if bootstrap {
                 screen = screen.record_chat_bootstrap();
                 initial_probe = false;
             }
         }
+        // Every wake hands core the clock; core decides whether the check-in rules run.
+        let (next, effects) = screen.tick(now);
+        screen =
+            controller::process_effects(next, effects, now, store, || worker.cancel(), &mut bells);
         if !worker.busy() {
-            let (next, probe) = screen.prepare_availability(now.instant);
+            let (next, sent) = dispatch(screen, now, store, worker, instructions, &mut bells);
             screen = next;
-            if probe {
-                event_try!(worker.probe());
-            } else if screen.chat_dispatch_ready() {
-                screen = read_instructions(screen, instructions, now, store, worker);
-                if let Some(owner) = screen.instructions().cloned() {
-                    let (next, request, effects) = screen.prepare_chat(&owner, now);
-                    screen =
-                        controller::process_effects(next, effects, now, store, || worker.cancel());
-                    if let Some(request) = request {
-                        event_try!(worker.respond(request));
-                    }
-                }
-            }
+            event_try!(sent);
         }
+        event_try!(controller::ring(
+            &mut io::stdout(),
+            std::mem::take(&mut bells)
+        ));
         let mut metrics = (0, 0, None);
         event_try!(terminal.draw(|frame| {
             metrics = view::draw_with_metrics(frame, &screen, now, &|at| clock.local_at(at));
@@ -157,12 +172,19 @@ fn event_loop(
         if let Some((rows, height)) = metrics.2 {
             screen = screen.record_instructions_layout(rows, height);
         }
-        // A timeout updates the header clock. Saving always completes before another read.
-        if event_try!(event::poll(tuning.chat.poll_interval))
+        // A timeout (at most a second) is the tick. Saving always completes before another read.
+        if event_try!(event::poll(tuning.chat.poll_interval.min(MAX_POLL)))
             && let Event::Key(key) = event_try!(event::read())
             && let Some(key) = screen_key(key)
         {
-            screen = controller::process_key(screen, key, clock.now(), store, || worker.cancel());
+            screen = controller::process_key(
+                screen,
+                key,
+                clock.now(),
+                store,
+                || worker.cancel(),
+                &mut bells,
+            );
             if screen.focus() == bunshin_core::screen::Focus::Instructions {
                 screen = read_instructions(screen, instructions, clock.now(), store, worker);
             }
@@ -170,6 +192,46 @@ fn event_loop(
     }
     tracing::info!("tui closed");
     Ok(())
+}
+
+/// Give the idle worker its next job: a due availability probe, then the owner's
+/// message, then a check-in — the order core's queues expect.
+fn dispatch(
+    mut screen: MainScreen,
+    now: bunshin_core::Now,
+    store: &dyn DayStore,
+    worker: &mut ModelWorker,
+    instructions: &dyn InstructionsSource,
+    bells: &mut usize,
+) -> (MainScreen, io::Result<()>) {
+    let (next, probe) = screen.prepare_availability(now.instant);
+    screen = next;
+    if probe {
+        return (screen, worker.probe());
+    }
+    if screen.chat_dispatch_ready() {
+        screen = read_instructions(screen, instructions, now, store, worker);
+        if let Some(owner) = screen.instructions().cloned() {
+            let (next, request, effects) = screen.prepare_chat(&owner, now);
+            screen =
+                controller::process_effects(next, effects, now, store, || worker.cancel(), bells);
+            if let Some(request) = request {
+                return (screen, worker.respond(request));
+            }
+        }
+        return (screen, Ok(()));
+    }
+    if screen.checkin_needs_instructions() {
+        screen = read_instructions(screen, instructions, now, store, worker);
+    }
+    if let Some(owner) = screen.instructions().cloned() {
+        let (next, request, effects) = screen.prepare_checkin(&owner, now, wording::fixed_deadline);
+        screen = controller::process_effects(next, effects, now, store, || worker.cancel(), bells);
+        if let Some(request) = request {
+            return (screen, worker.checkin(request));
+        }
+    }
+    (screen, Ok(()))
 }
 
 fn read_instructions(
@@ -180,7 +242,9 @@ fn read_instructions(
     worker: &ModelWorker,
 ) -> MainScreen {
     let (screen, effects) = screen.reload_instructions(source);
-    controller::process_effects(screen, effects, now, store, || worker.cancel())
+    // Instruction notices never ring the bell.
+    let mut bells = 0;
+    controller::process_effects(screen, effects, now, store, || worker.cancel(), &mut bells)
 }
 
 /// Only committed presses without Alt or unsupported control chords reach core.

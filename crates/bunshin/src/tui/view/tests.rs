@@ -522,9 +522,12 @@ fn role_styles_use_named_colors_and_default_backgrounds() {
     );
     let buffer = render(&screen, now, 80, 24);
     assert_eq!(buffer[(1, 0)].modifier, Modifier::BOLD);
-    // FixedClock gives a 25-column prefix; the save label starts after two spaces.
-    assert_eq!(buffer[(27, 0)].fg, Color::Red);
-    assert!(buffer[(27, 0)].modifier.contains(Modifier::BOLD));
+    // The save label is a status item on the right of the header.
+    let save = (0..80)
+        .find(|x| buffer[(*x, 0)].symbol() == "保")
+        .expect("save label in the header");
+    assert_eq!(buffer[(save, 0)].fg, Color::Red);
+    assert!(buffer[(save, 0)].modifier.contains(Modifier::BOLD));
     let error_row = (0..24)
         .find(|y| line(&buffer, *y).contains("エラー"))
         .expect("error chat row");
