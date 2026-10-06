@@ -539,8 +539,19 @@ fn role_styles_use_named_colors_and_default_backgrounds() {
     assert!(buffer[(0, 20)].modifier.contains(Modifier::BOLD));
     assert!(buffer[(0, 23)].modifier.contains(Modifier::BOLD));
     assert_eq!(buffer[(7, 23)].fg, Color::Reset);
-    for cell in &buffer.content {
-        assert!(matches!(cell.fg, Color::Reset | Color::Green | Color::Red));
+    // The error row arrived after the last key press, so the magenta divider precedes it.
+    let divider = (0..24)
+        .find(|y| line(&buffer, *y).contains("ここから新着"))
+        .expect("new-message divider");
+    for (index, cell) in buffer.content.iter().enumerate() {
+        let y = u16::try_from(index).unwrap() / 80;
+        if y == divider && !matches!(cell.symbol(), " " | "│") {
+            assert_eq!(cell.fg, Color::Magenta);
+        } else if y == divider {
+            assert!(matches!(cell.fg, Color::Reset | Color::Magenta));
+        } else {
+            assert!(matches!(cell.fg, Color::Reset | Color::Green | Color::Red));
+        }
         assert_eq!(cell.bg, Color::Reset);
         assert!(
             !cell

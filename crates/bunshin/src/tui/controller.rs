@@ -428,4 +428,52 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn ring_writes_one_bel_per_bell_and_nothing_without_one() {
+        let mut out = Vec::new();
+        ring(&mut out, 2).expect("written");
+        assert_eq!(out, b"\x07\x07");
+        let mut out = Vec::new();
+        ring(&mut out, 0).expect("nothing to write");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn only_bell_effects_count_toward_the_bell() {
+        use bunshin_core::screen::{ChatNotice, Effect};
+        let clock = FixedClock::default();
+        let now = clock.now();
+        let store = InMemoryDayStore::new(Tuning::default());
+        let mut bells = 0;
+        let screen = process_effects(
+            pane(&clock),
+            vec![
+                Effect::Bell,
+                Effect::Save,
+                Effect::ChatNotice(ChatNotice::ModelBack),
+                Effect::Bell,
+            ],
+            now,
+            &store,
+            || {},
+            &mut bells,
+        );
+        assert_eq!(bells, 2);
+        let mut bells = 0;
+        let _ = process_effects(
+            screen,
+            vec![
+                Effect::Save,
+                Effect::ChatNotice(ChatNotice::Failed),
+                Effect::CancelModel,
+                Effect::SaveLeftovers,
+            ],
+            now,
+            &store,
+            || {},
+            &mut bells,
+        );
+        assert_eq!(bells, 0);
+    }
 }

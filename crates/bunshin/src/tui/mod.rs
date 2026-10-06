@@ -411,4 +411,34 @@ mod tests {
             assert_eq!(screen_key(event), None, "{kind:?}");
         }
     }
+
+    #[test]
+    fn check_in_mute_inbox_and_leftover_keys_reach_core_as_their_characters() {
+        for character in ['m', 'b', 'c', 'd', 'C', 'D', 'x', 'X', 'g'] {
+            let modifiers = if character.is_ascii_uppercase() {
+                KeyModifiers::SHIFT
+            } else {
+                KeyModifiers::NONE
+            };
+            assert_eq!(
+                screen_key(press(KeyCode::Char(character), modifiers)),
+                Some(ScreenKey::Char(character)),
+                "{character}"
+            );
+        }
+        assert_eq!(
+            screen_key(press(KeyCode::Enter, KeyModifiers::NONE)),
+            Some(ScreenKey::Enter)
+        );
+        assert_eq!(
+            screen_key(press(KeyCode::Esc, KeyModifiers::NONE)),
+            Some(ScreenKey::Esc)
+        );
+    }
+
+    #[test]
+    fn the_loop_wakes_at_least_once_a_second() {
+        assert!(Tuning::default().chat.poll_interval.min(MAX_POLL) <= Duration::from_secs(1));
+        assert_eq!(MAX_POLL, Duration::from_secs(1));
+    }
 }

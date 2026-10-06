@@ -1,4 +1,7 @@
 //! Draw one pure screen value without reading the terminal or changing state.
+#[cfg(test)]
+#[path = "view/checkins.rs"]
+mod checkins;
 mod overlays;
 #[cfg(test)]
 #[path = "view/snapshots.rs"]
@@ -632,8 +635,11 @@ fn wrap_chat_rows(rows: Vec<(Line<'static>, usize)>, width: usize) -> Vec<Line<'
         let indent = indent.min(width.saturating_sub(1));
         let mut spans: Vec<Span<'static>> = Vec::new();
         let mut used = 0;
+        // A line-level style (a divider, a thinking row, a selected item) reaches every
+        // grapheme, since the rewrapped rows keep only span styles.
+        let base = BASE_STYLE.patch(line.style);
         for span in &line.spans {
-            for grapheme in span.styled_graphemes(BASE_STYLE) {
+            for grapheme in span.styled_graphemes(base) {
                 let size = Span::raw(grapheme.symbol).width();
                 if used + size > width && !spans.is_empty() {
                     wrapped.push(Line::from(std::mem::take(&mut spans)));
