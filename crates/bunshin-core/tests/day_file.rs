@@ -15,7 +15,8 @@ fn day_file_round_trips_and_does_not_persist_undo() {
         )
         .unwrap();
     let json = serde_json::to_value(DayFile::from(&day)).unwrap();
-    assert_eq!(json["format"], 1);
+    assert_eq!(json["format"], 2);
+    assert_eq!(json["retryingTriggers"], serde_json::json!([]));
     assert_eq!(json["date"], "2026-10-02");
     assert_eq!(json["tasks"][0]["time"], "15:00");
     assert_eq!(json["nextTaskNumber"], 2);
@@ -32,8 +33,8 @@ fn day_file_round_trips_and_does_not_persist_undo() {
 #[test]
 fn newer_format_is_typed_before_payload_parsing() {
     let header: FormatHeader =
-        serde_json::from_str(r#"{"format":2,"unknown_future_shape":true}"#).unwrap();
-    assert_eq!(header.check(), Err(DayFileError::NewerFormat { found: 2 }));
+        serde_json::from_str(r#"{"format":3,"unknown_future_shape":true}"#).unwrap();
+    assert_eq!(header.check(), Err(DayFileError::NewerFormat { found: 3 }));
 }
 
 #[test]
@@ -172,10 +173,10 @@ fn invalid_numbering_status_and_task_fields_are_refused() {
         })
     );
     let mut file = original.clone();
-    file.format = 2;
+    file.format = 3;
     assert_eq!(
         file.into_day(Tuning::default()),
-        Err(DayFileError::NewerFormat { found: 2 })
+        Err(DayFileError::NewerFormat { found: 3 })
     );
     let mut file = original;
     file.format = 0;
@@ -590,4 +591,88 @@ fn a_leftover_dated_on_or_after_its_own_day_is_refused() {
             })
         );
     }
+}
+
+fn held_planned_look() -> (DayFile, bunshin_core::day::Trigger) {
+    use bunshin_core::day::{Trigger, TriggerKind};
+    let trigger = Trigger {
+        kind: TriggerKind::PlannedLook,
+        task: None,
+        due_at: UnixMillis(5),
+    };
+    let mut file = DayFile::from(&Day::new(date(2026, 10, 2), Tuning::default()));
+    file.data.held_triggers = vec![trigger.clone()];
+    (file, trigger)
+}
+
+#[test]
+fn a_format_one_file_is_migrated_with_no_trigger_retrying() {
+    let (mut file, trigger) = held_planned_look();
+    file.data.retrying_triggers = vec![trigger.clone()];
+    let mut legacy = serde_json::to_value(&file).unwrap();
+    legacy["format"] = serde_json::json!(1);
+    let with_record = legacy.clone();
+    legacy.as_object_mut().unwrap().remove("retryingTriggers");
+    for value in [legacy, with_record] {
+        let day = serde_json::from_value::<DayFile>(value)
+            .unwrap()
+            .into_day(Tuning::default())
+            .unwrap();
+        assert_eq!(day.data().held_triggers, vec![trigger.clone()]);
+        assert!(day.data().retrying_triggers.is_empty());
+        assert_eq!(DayFile::from(&day).format, 2);
+    }
+}
+
+#[test]
+fn a_format_two_retry_record_round_trips() {
+    let (mut file, trigger) = held_planned_look();
+    file.data.retrying_triggers = vec![trigger.clone()];
+    let json = serde_json::to_value(&file).unwrap();
+    assert_eq!(json["format"], 2);
+    assert_eq!(
+        json["retryingTriggers"],
+        serde_json::json!([{"kind":"plannedLook","task":null,"dueAt":5}])
+    );
+    let day = serde_json::from_value::<DayFile>(json)
+        .unwrap()
+        .into_day(Tuning::default())
+        .unwrap();
+    assert_eq!(day.data().retrying_triggers, vec![trigger]);
+    assert_eq!(DayFile::from(&day), file);
+}
+
+#[test]
+fn a_format_three_file_is_refused_as_newer() {
+    let (file, _) = held_planned_look();
+    let mut json = serde_json::to_value(&file).unwrap();
+    json["format"] = serde_json::json!(3);
+    let header: FormatHeader = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(header.check(), Err(DayFileError::NewerFormat { found: 3 }));
+    assert_eq!(
+        serde_json::from_value::<DayFile>(json)
+            .unwrap()
+            .into_day(Tuning::default()),
+        Err(DayFileError::NewerFormat { found: 3 })
+    );
+}
+
+#[test]
+fn a_retrying_trigger_that_is_not_held_is_refused() {
+    use bunshin_core::day::{Trigger, TriggerKind};
+    let (mut file, trigger) = held_planned_look();
+    file.data.retrying_triggers = vec![Trigger {
+        kind: TriggerKind::EveningReview,
+        ..trigger.clone()
+    }];
+    assert_eq!(
+        file.clone().into_day(Tuning::default()),
+        Err(DayFileError::RetryingNotHeld)
+    );
+    file.data.held_triggers.clear();
+    file.data.retrying_triggers = vec![trigger];
+    assert_eq!(
+        file.into_day(Tuning::default()),
+        Err(DayFileError::RetryingNotHeld)
+    );
 }

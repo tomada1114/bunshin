@@ -1,5 +1,6 @@
-//! Format-one serde data. The platform preflights the header, then parses the DTO.
-//! No legacy payload has shipped: format zero is refused rather than guessed.
+//! Format-two serde data. The platform preflights the header, then parses the DTO.
+//! Format one is migrated on read; format zero never shipped and is refused rather
+//! than guessed.
 use super::{
     Day, DayError, Message, Task, TaskStatus, Trigger, YesterdayRecord, serde_civil, validate_task,
 };
@@ -8,7 +9,9 @@ use jiff::civil::{Date, DateTime};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 /// The current on-disk contract version.
-pub const FORMAT: u32 = 1;
+pub const FORMAT: u32 = 2;
+/// The oldest version with a defined migration: format one, which has no retry record.
+pub const OLDEST_FORMAT: u32 = 1;
 /// Read this first so a future payload can be refused without parsing its shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,14 +20,15 @@ pub struct FormatHeader {
     pub format: u32,
 }
 impl FormatHeader {
-    /// Accept only versions with a defined decoder.
+    /// Accept only versions with a defined decoder: the current one, and format one,
+    /// which `DayFile::into_day` migrates.
     /// # Errors
     /// Newer versions return `NewerFormat`; zero has no shipped migration.
     pub fn check(self) -> Result<(), DayFileError> {
         if self.format > FORMAT {
             return Err(DayFileError::NewerFormat { found: self.format });
         }
-        if self.format < FORMAT {
+        if self.format < OLDEST_FORMAT {
             return Err(DayFileError::UnsupportedFormat { found: self.format });
         }
         Ok(())
@@ -54,6 +58,11 @@ pub struct DayData {
     pub triggers_fired: Vec<Trigger>,
     /// Pending triggers held for later consideration.
     pub held_triggers: Vec<Trigger>,
+    /// Held non-deadline triggers whose one retry is already granted, so a restart
+    /// neither grants another nor spends it. Saved as a subset of `held_triggers`;
+    /// absent before format two, which decodes as empty.
+    #[serde(default)]
+    pub retrying_triggers: Vec<Trigger>,
     /// Summary retained from the previous logical day.
     pub yesterday_record: Option<YesterdayRecord>,
     /// Fingerprint of the last fallback notice, so restart does not repeat it.
@@ -72,12 +81,13 @@ impl DayData {
             muted_until: None,
             triggers_fired: Vec::new(),
             held_triggers: Vec::new(),
+            retrying_triggers: Vec::new(),
             yesterday_record: None,
             last_instructions_notice: None,
         }
     }
 }
-/// Versioned on-disk DTO; unknown format-one fields are ignored by serde.
+/// Versioned on-disk DTO; unknown fields are ignored by serde.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DayFile {
@@ -96,15 +106,28 @@ impl From<&Day> for DayFile {
     }
 }
 impl DayFile {
-    /// Validate stored task invariants and start a fresh session undo stack.
+    /// Validate stored task invariants, migrate format one, and start a fresh session
+    /// undo stack. Format one has no retry record, so no held trigger counts as retrying.
     /// # Errors
     /// Unsupported version, invalid task fields, duplicate identifiers or an invalid
-    /// high-water mark, missing consumed numbers, task limit, or inconsistent closing status.
-    pub fn into_day(self, tuning: Tuning) -> Result<Day, DayFileError> {
+    /// high-water mark, missing consumed numbers, task limit, inconsistent closing status,
+    /// or a retrying trigger that is not held.
+    pub fn into_day(mut self, tuning: Tuning) -> Result<Day, DayFileError> {
         FormatHeader {
             format: self.format,
         }
         .check()?;
+        if self.format < FORMAT {
+            self.data.retrying_triggers.clear();
+        }
+        if self
+            .data
+            .retrying_triggers
+            .iter()
+            .any(|trigger| !self.data.held_triggers.contains(trigger))
+        {
+            return Err(DayFileError::RetryingNotHeld);
+        }
         let mut numbers = BTreeSet::new();
         if self.data.next_task_number == 0 {
             return Err(DayFileError::InvalidNumbering);
@@ -166,6 +189,7 @@ impl DayFile {
             data,
             tuning,
             undo: Vec::new(),
+            released_retrying: Vec::new(),
         })
     }
 }
@@ -218,4 +242,7 @@ pub enum DayFileError {
         /// Domain failure without task text.
         kind: DayError,
     },
+    /// A retry record names a trigger that is not held, so it cannot be trusted.
+    #[error("retrying trigger is not held")]
+    RetryingNotHeld,
 }

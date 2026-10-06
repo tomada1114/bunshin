@@ -20,7 +20,8 @@ fn apply_delivery_guard(
     if guard == "gap" {
         let mut data = day.data().clone();
         data.last_unprompted_at = Some(now.instant);
-        day = bunshin_core::day::file::DayFile { format: 1, data }.into_day(Tuning::default())?;
+        let format = bunshin_core::day::file::FORMAT;
+        day = bunshin_core::day::file::DayFile { format, data }.into_day(Tuning::default())?;
     }
     Ok(day)
 }
@@ -1765,7 +1766,15 @@ fn checkin_failed_non_deadline_is_saved_as_held_until_the_retry_is_spent() {
         fixed,
     );
     assert_eq!(failed.day.data().held_triggers.len(), 1);
-    assert_eq!(failed.effects, vec![]);
+    // The held event was saved at dispatch; the failure saves its retry record.
+    assert_eq!(
+        failed.effects,
+        vec![bunshin_core::checkin::calls::CheckinEffect::Save]
+    );
+    assert_eq!(
+        failed.day.data().retrying_triggers,
+        failed.day.data().held_triggers
+    );
     let later = Now {
         instant: UnixMillis(now.instant.0 + 60_000),
         ..now
@@ -1793,6 +1802,7 @@ fn checkin_failed_non_deadline_is_saved_as_held_until_the_retry_is_spent() {
         fixed,
     );
     assert!(spent.day.data().held_triggers.is_empty());
+    assert!(spent.day.data().retrying_triggers.is_empty());
     assert!(spent.day.data().next_planned_look.is_some());
     assert!(
         calls
@@ -1806,6 +1816,381 @@ fn checkin_failed_non_deadline_is_saved_as_held_until_the_retry_is_spent() {
             .request
             .is_none()
     );
+}
+
+#[test]
+fn restarting_does_not_grant_a_failed_trigger_another_retry() {
+    use bunshin_core::{
+        ModelError,
+        checkin::{BatchReason, ReadyBatch, calls::CheckinCalls, plan_look},
+    };
+    for during_retry in [false, true] {
+        for preserve in [false, true] {
+            let (day, owner, mut calls, now) = fixture(TriggerKind::PlannedLook).unwrap();
+            let start = calls.prepare(day, &owner, ContextExtras::default(), context(now), fixed);
+            let failed = calls.finish(
+                start.day,
+                start.request.unwrap().id,
+                Err(ModelError::TimedOut),
+                context(now),
+                fixed,
+            );
+            let later = after(now, 60);
+            let saved = if during_retry {
+                calls
+                    .prepare(
+                        failed.day,
+                        &owner,
+                        ContextExtras::default(),
+                        context(later),
+                        fixed,
+                    )
+                    .day
+            } else {
+                failed.day
+            };
+            let restored = restart(&saved);
+            assert_eq!(
+                restored.data().retrying_triggers,
+                restored.data().held_triggers
+            );
+            let restored = if preserve {
+                plan_look(restored, later, Some(7), Tuning::default())
+            } else {
+                restored
+            };
+            let expected = restored.data().next_planned_look.unwrap_or_else(|| {
+                later
+                    .local
+                    .checked_add(jiff::SignedDuration::from_mins(120))
+                    .unwrap()
+            });
+            let tasks = restored.tasks().to_vec();
+            let held = restored.data().held_triggers.clone();
+            let mut recovered = CheckinCalls::new(Tuning::default());
+            recovered.enqueue(
+                &restored,
+                ReadyBatch {
+                    triggers: held,
+                    reason: BatchReason::Tick,
+                },
+            );
+            let retry = recovered.prepare(
+                restored,
+                &owner,
+                ContextExtras::default(),
+                context(later),
+                fixed,
+            );
+            let spent = recovered.finish(
+                retry.day,
+                retry.request.unwrap().id,
+                Err(ModelError::TimedOut),
+                context(later),
+                fixed,
+            );
+            assert!(spent.day.data().held_triggers.is_empty());
+            assert!(spent.day.data().retrying_triggers.is_empty());
+            assert_eq!(spent.day.data().next_planned_look, Some(expected));
+            assert_eq!(spent.day.tasks(), tasks);
+            assert!(
+                spent
+                    .day
+                    .messages()
+                    .iter()
+                    .all(|row| row.unprompted.is_none())
+            );
+            assert!(
+                recovered
+                    .prepare(
+                        spent.day,
+                        &owner,
+                        ContextExtras::default(),
+                        context(later),
+                        fixed,
+                    )
+                    .request
+                    .is_none()
+            );
+        }
+    }
+}
+
+#[test]
+fn a_restored_retry_waits_for_an_actual_tick_and_every_delivery_guard() {
+    use bunshin_core::{
+        ModelError,
+        checkin::{Checkin, calls::CheckinCalls},
+    };
+    let (day, owner, now) = untimed().unwrap();
+    let look = planned_look(now.instant);
+    let failed = fail_once(day, &owner, now, &look);
+    assert_eq!(failed.data().retrying_triggers, vec![look.clone()]);
+    let at = after(now, 60);
+    let recovered = || {
+        let reopened = Checkin::new(at, Tuning::default()).open(restart(&failed), at, false);
+        let mut calls = CheckinCalls::new(Tuning::default());
+        calls.enqueue(&reopened.day, reopened.ready.clone().unwrap());
+        (calls, reopened.day)
+    };
+    // The scheduler released the look to the queue; a save in that gap stays loadable
+    // and the queue still restores the record.
+    let (_, released) = recovered();
+    assert!(released.data().held_triggers.is_empty());
+    assert!(restart(&released).data().retrying_triggers.is_empty());
+    for blocked in ["no tick", "owner", "typing", "hours", "mute", "gap"] {
+        let (mut calls, day) = recovered();
+        let mut now = at;
+        let day = apply_delivery_guard(day, &mut now, blocked).unwrap();
+        let update = calls.prepare(
+            day,
+            &owner,
+            ContextExtras::default(),
+            bunshin_core::checkin::calls::CallContext {
+                is_tick: blocked != "no tick",
+                owner_waiting: blocked == "owner",
+                input_has_text: blocked == "typing",
+                ..context(now)
+            },
+            fixed,
+        );
+        assert!(update.request.is_none(), "{blocked}");
+        assert_eq!(update.day.data().held_triggers, vec![look.clone()]);
+        assert_eq!(update.day.data().retrying_triggers, vec![look.clone()]);
+    }
+    let (mut calls, day) = recovered();
+    let tasks = day.tasks().to_vec();
+    let retry = calls.prepare(day, &owner, ContextExtras::default(), context(at), fixed);
+    let spent = calls.finish(
+        retry.day,
+        retry.request.unwrap().id,
+        Err(ModelError::Malformed),
+        context(at),
+        fixed,
+    );
+    assert!(spent.day.data().held_triggers.is_empty());
+    assert!(spent.day.data().retrying_triggers.is_empty());
+    assert_eq!(
+        spent.day.data().next_planned_look,
+        at.local
+            .checked_add(jiff::SignedDuration::from_mins(120))
+            .ok()
+    );
+    assert_eq!(spent.day.tasks(), tasks);
+}
+
+#[test]
+fn a_restored_held_trigger_that_never_failed_keeps_its_first_attempt() {
+    use bunshin_core::{
+        ModelError,
+        checkin::calls::{CallContext, CheckinCalls},
+    };
+    let (day, owner, now) = untimed().unwrap();
+    let look = planned_look(now.instant);
+    let mut calls = CheckinCalls::new(Tuning::default());
+    calls.enqueue(&day, tick_batch(vec![look.clone()]));
+    let held = calls.prepare(
+        day,
+        &owner,
+        ContextExtras::default(),
+        CallContext {
+            owner_waiting: true,
+            ..context(now)
+        },
+        fixed,
+    );
+    assert!(held.request.is_none());
+    let restored = restart(&held.day);
+    assert_eq!(restored.data().held_triggers, vec![look.clone()]);
+    assert!(restored.data().retrying_triggers.is_empty());
+    let mut fresh = CheckinCalls::new(Tuning::default());
+    fresh.enqueue(&restored, tick_batch(vec![look.clone()]));
+    let first = fresh.prepare(
+        restored,
+        &owner,
+        ContextExtras::default(),
+        CallContext {
+            is_tick: false,
+            ..context(now)
+        },
+        fixed,
+    );
+    let failed = fresh.finish(
+        first.day,
+        first.request.expect("a first attempt needs no tick").id,
+        Err(ModelError::TimedOut),
+        context(now),
+        fixed,
+    );
+    assert_eq!(failed.day.data().held_triggers, vec![look.clone()]);
+    assert_eq!(failed.day.data().retrying_triggers, vec![look]);
+}
+
+#[test]
+fn a_restored_retry_record_survives_dispatch_and_a_guarded_completion_until_delivery() {
+    use bunshin_core::{
+        ModelAnswer,
+        checkin::calls::{CallContext, CheckinCalls, CheckinEffect},
+    };
+    let (day, owner, now) = untimed().unwrap();
+    let look = planned_look(now.instant);
+    let restored = restart(&fail_once(day, &owner, now, &look));
+    let at = after(now, 60);
+    let mut calls = CheckinCalls::new(Tuning::default());
+    calls.enqueue(&restored, tick_batch(vec![look.clone()]));
+    let dispatched = calls.prepare(
+        restored,
+        &owner,
+        ContextExtras::default(),
+        context(at),
+        fixed,
+    );
+    let id = dispatched.request.unwrap().id;
+    assert_eq!(
+        restart(&dispatched.day).data().retrying_triggers,
+        vec![look.clone()]
+    );
+    let waiting = calls.finish(
+        dispatched.day,
+        id,
+        Ok(ModelAnswer {
+            json: r#"{"kind":"silent","message":""}"#.into(),
+        }),
+        CallContext {
+            input_has_text: true,
+            ..context(at)
+        },
+        fixed,
+    );
+    assert!(waiting.request.is_none());
+    assert_eq!(waiting.day.data().held_triggers, vec![look.clone()]);
+    assert_eq!(
+        restart(&waiting.day).data().retrying_triggers,
+        vec![look.clone()]
+    );
+    let delivered = calls.prepare(
+        waiting.day,
+        &owner,
+        ContextExtras::default(),
+        context(at),
+        fixed,
+    );
+    assert!(delivered.request.is_none());
+    assert!(delivered.day.data().held_triggers.is_empty());
+    assert!(delivered.day.data().retrying_triggers.is_empty());
+    assert!(delivered.effects.contains(&CheckinEffect::Save));
+}
+
+#[test]
+fn a_fresh_event_merged_into_a_restored_retry_keeps_its_own_retry() {
+    use bunshin_core::{
+        ModelError,
+        checkin::calls::{CallContext, CheckinCalls},
+    };
+    let (day, owner, now) = untimed().unwrap();
+    let look = planned_look(now.instant);
+    let restored = restart(&fail_once(day, &owner, now, &look));
+    let at = after(now, 60);
+    let fresh_look = planned_look(at.instant);
+    let mut calls = CheckinCalls::new(Tuning::default());
+    calls.enqueue(
+        &restored,
+        tick_batch(vec![look.clone(), fresh_look.clone()]),
+    );
+    let waiting = calls.prepare(
+        restored,
+        &owner,
+        ContextExtras::default(),
+        CallContext {
+            is_tick: false,
+            ..context(at)
+        },
+        fixed,
+    );
+    assert!(
+        waiting.request.is_none(),
+        "the merged batch waits for a tick"
+    );
+    let retry = calls.prepare(
+        waiting.day,
+        &owner,
+        ContextExtras::default(),
+        context(at),
+        fixed,
+    );
+    let failed = calls.finish(
+        retry.day,
+        retry.request.unwrap().id,
+        Err(ModelError::TimedOut),
+        context(at),
+        fixed,
+    );
+    assert_eq!(failed.day.data().held_triggers, vec![fresh_look.clone()]);
+    assert_eq!(failed.day.data().retrying_triggers, vec![fresh_look]);
+    let later = after(at, 60);
+    let retry = calls.prepare(
+        restart(&failed.day),
+        &owner,
+        ContextExtras::default(),
+        context(later),
+        fixed,
+    );
+    let spent = calls.finish(
+        retry.day,
+        retry.request.unwrap().id,
+        Err(ModelError::TimedOut),
+        context(later),
+        fixed,
+    );
+    assert!(spent.day.data().held_triggers.is_empty());
+    assert!(spent.day.data().retrying_triggers.is_empty());
+}
+
+#[test]
+fn unavailability_does_not_spend_a_restored_retry() {
+    use bunshin_core::{
+        Availability, ModelError, UnavailableReason,
+        checkin::calls::{CallContext, CallError, CheckinCalls},
+    };
+    let (day, owner, now) = untimed().unwrap();
+    let look = planned_look(now.instant);
+    let restored = restart(&fail_once(day, &owner, now, &look));
+    let at = after(now, 60);
+    let mut calls = CheckinCalls::new(Tuning::default());
+    calls.enqueue(&restored, tick_batch(vec![look.clone()]));
+    let unavailable = calls.prepare(
+        restored,
+        &owner,
+        ContextExtras::default(),
+        CallContext {
+            availability: Availability::Unavailable(UnavailableReason::NotInstalled),
+            ..context(at)
+        },
+        fixed,
+    );
+    assert!(unavailable.request.is_none());
+    assert!(matches!(
+        unavailable.error,
+        Some(CallError::Model(ModelError::Unavailable(_)))
+    ));
+    assert_eq!(unavailable.day.data().held_triggers, vec![look.clone()]);
+    assert_eq!(unavailable.day.data().retrying_triggers, vec![look]);
+    let retry = calls.prepare(
+        unavailable.day,
+        &owner,
+        ContextExtras::default(),
+        context(at),
+        fixed,
+    );
+    let spent = calls.finish(
+        retry.day,
+        retry.request.unwrap().id,
+        Err(ModelError::TimedOut),
+        context(at),
+        fixed,
+    );
+    assert!(spent.day.data().held_triggers.is_empty());
+    assert!(spent.day.data().retrying_triggers.is_empty());
 }
 
 #[test]
@@ -2317,6 +2702,74 @@ fn queue(
         },
     );
 }
+fn untimed() -> Result<(Day, InstructionsState, Now), bunshin_core::day::DayError> {
+    let tuning = Tuning::default();
+    let now = Now {
+        instant: UnixMillis(0),
+        local: jiff::civil::date(2026, 10, 3).at(14, 30, 0, 0),
+    };
+    let day = Day::new(now.local.date(), tuning)
+        .add(
+            "資料作成".into(),
+            TaskKind::Untimed,
+            None,
+            TaskOrigin::Key,
+            now.instant,
+        )?
+        .0;
+    let owner = InstructionsState::resolve(None, "instructions.md".into(), tuning);
+    Ok((day, owner, now))
+}
+const fn planned_look(at: UnixMillis) -> Trigger {
+    Trigger {
+        kind: TriggerKind::PlannedLook,
+        task: None,
+        due_at: at,
+    }
+}
+const fn tick_batch(triggers: Vec<Trigger>) -> bunshin_core::checkin::ReadyBatch {
+    bunshin_core::checkin::ReadyBatch {
+        triggers,
+        reason: bunshin_core::checkin::BatchReason::Tick,
+    }
+}
+fn after(now: Now, seconds: i64) -> Now {
+    Now {
+        instant: UnixMillis(now.instant.0 + seconds * 1_000),
+        local: now
+            .local
+            .saturating_add(jiff::SignedDuration::from_secs(seconds)),
+    }
+}
+/// A save and a reload through JSON, as a restart does.
+fn restart(day: &Day) -> Day {
+    use bunshin_core::day::file::DayFile;
+    let reloaded = serde_json::to_string(&DayFile::from(day))
+        .and_then(|json| serde_json::from_str::<DayFile>(&json));
+    match reloaded.map(|file| file.into_day(Tuning::default())) {
+        Ok(Ok(day)) => day,
+        Ok(Err(error)) => panic!("reload refused: {error:?}"),
+        Err(error) => panic!("JSON round trip failed: {error}"),
+    }
+}
+/// Dispatch `look` once and fail it, leaving it held for its one retry.
+fn fail_once(day: Day, owner: &InstructionsState, now: Now, look: &Trigger) -> Day {
+    let mut calls = bunshin_core::checkin::calls::CheckinCalls::new(Tuning::default());
+    calls.enqueue(&day, tick_batch(vec![look.clone()]));
+    let start = calls.prepare(day, owner, ContextExtras::default(), context(now), fixed);
+    let Some(request) = start.request else {
+        panic!("the first attempt dispatches");
+    };
+    calls
+        .finish(
+            start.day,
+            request.id,
+            Err(bunshin_core::ModelError::TimedOut),
+            context(now),
+            fixed,
+        )
+        .day
+}
 fn context(now: Now) -> bunshin_core::checkin::calls::CallContext {
     bunshin_core::checkin::calls::CallContext {
         now,
@@ -2507,8 +2960,12 @@ fn checkin_other_failures_retry_once_at_next_tick_and_then_schedule_default_look
         context(now),
         fixed,
     );
-    assert_eq!(failed.effects, vec![]);
+    assert_eq!(failed.effects, vec![CheckinEffect::Save]);
     assert_eq!(failed.day.data().held_triggers.len(), 1);
+    assert_eq!(
+        failed.day.data().retrying_triggers,
+        failed.day.data().held_triggers
+    );
     let early = Now {
         instant: UnixMillis(59_999),
         ..now

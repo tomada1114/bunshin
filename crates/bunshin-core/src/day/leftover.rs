@@ -109,7 +109,10 @@ impl Day {
     /// Held triggers of a previous day are dropped at the day start (§3.5); returns
     /// whether any were held.
     pub(crate) fn drop_held_triggers(&mut self) -> bool {
-        !self.take_held_triggers().is_empty()
+        let held = !self.take_held_triggers().is_empty();
+        self.data.retrying_triggers.clear();
+        self.released_retrying.clear();
+        held
     }
     pub(crate) fn set_yesterday_record(&mut self, record: YesterdayRecord) {
         self.data.yesterday_record = Some(record);
