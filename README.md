@@ -4,21 +4,19 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/tomada1114/bunshin/badge)](https://scorecard.dev/viewer/?uri=github.com/tomada1114/bunshin)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A personal Rust command-line tool: one binary, `bunshin`, whose clap
-subcommands do the work and whose `tui` subcommand opens a full-screen ratatui view over
-the same core, built and run on macOS and Linux. It shows today's tasks in a responsive
-terminal pane, supports direct task keys, and saves every change through a deterministic
-day model and injected clock. It has
-coverage floors, architecture boundaries that fail a build, and supply-chain-hardened
-CI, all from the first commit.
+A personal Rust command-line tool: one binary, `bunshin`, with a full-screen terminal
+board where three fixed characters and the owner share one post list. Character turns
+come from Apple's on-device foundation model through the `fm` command on macOS; the board
+is held in memory and disappears on quit. The app builds on macOS and Linux, with the
+model unavailable on Linux.
 
-It runs on macOS (Apple Silicon) and Linux. Windows, any graphical interface, a release
-pipeline or release artifacts, crates.io publishing, localization, and network access
-are non-goals.
+It has coverage floors, architecture boundaries that fail a build, and supply-chain-
+hardened CI from the first commit. Windows, graphical interfaces, release artifacts,
+crates.io publishing, localization, and network access are non-goals.
 
 ## Quickstart
 
-Prerequisites: macOS on Apple Silicon with the Xcode Command Line Tools
+Prerequisites: macOS on Apple silicon with the Xcode Command Line Tools
 (`xcode-select --install`), or Linux with a C toolchain for the linker (`build-essential`
 on Debian and Ubuntu); [rustup](https://rustup.rs/), [mise](https://mise.jdx.dev/), and
 [Just](https://just.systems/) (`brew install mise just` on a Mac).
@@ -29,52 +27,23 @@ cd bunshin
 mise trust     # approve mise.toml once (mise asks before using an untrusted config)
 just install   # pinned tools via mise and lefthook's git hook
 just check     # everything the machine can run without a human; takes over no terminal
-cargo run --locked -p bunshin -- --help   # the available command line
+cargo run --locked -p bunshin -- tui
 ```
 
-rustup installs the Rust toolchain `rust-toolchain.toml` names the first time `cargo`
+rustup installs the Rust toolchain named in `rust-toolchain.toml` the first time `cargo`
 runs (`RUSTUP_AUTO_INSTALL`, on by default:
 <https://rust-lang.github.io/rustup/environment-variables.html>, checked 2026-09-30).
 `just install` needs no `sudo` and opens no installer; a missing Command Line Tools
-install is reported with the command to run. `cargo run --locked -p bunshin -- tui` opens
-the full-screen view in the terminal you run it from. Tab moves to the task pane;
-`a` adds, Space finishes or reopens, `e` edits, and `?` shows all supported keys.
-`q` quits from the task pane; Ctrl+C quits from anywhere. Chat and model-driven
-interaction are forthcoming.
+install is reported with the command to run. The `tui` command takes over the terminal
+until you quit. Type a message and press Enter to post; PgUp and PgDn scroll, End returns
+to the latest posts, and Ctrl+C quits anywhere.
 
-Read the saved logical day's tasks without opening a screen:
+## Board data
 
-```bash
-cargo run -p bunshin -- today
-cargo run -p bunshin -- today --json
-```
-
-These commands take no writer lock. Before 04:00 they read the previous day's file.
-A missing day prints nothing in plain output and an empty task list in JSON.
-
-## Day data
-
-The TUI stores its day outside the checkout: on macOS in
-`~/Library/Application Support/io.github.tomada1114.bunshin/`, and on Linux in
-`$XDG_DATA_HOME/bunshin/` (default `~/.local/share/bunshin/`). Each logical date has
-one `days/YYYY-MM-DD.json` file. The data directory and `days/` are private (`0700`);
-day files and `tui.lock` are owner-only (`0600`). The adapter supplies an OS lock
-lease for the writing screen; readers need no lock. The TUI takes the lease and
-loads the logical day before entering the terminal. Whole-day writes use
-a temporary file, flush, fsync, and rename, so readers see a complete old or new day.
-Unreadable and newer-format
-files are refused without overwriting them. No day is deleted automatically; removing
-old files is the owner's decision. Session undo is not persisted.
-
-Day files have no size limit; whole-file reads and replacements can exhaust memory
-or other resources for very large files. The lock PID is advisory and can be absent
-or stale while a new holder publishes it; the OS lock guarantees exclusion. Saving
-syncs the containing directory after rename. If that sync fails,
-`PublishedButNotDurable` means the complete new file is visible but crash durability
-is unconfirmed; a pre-publication `Unavailable` leaves the old file intact. The
-screen distinguishes these states, retains its day, and retries on the next change.
-Quitting while either state remains asks once; only `y` exits, and any other key
-returns to the screen.
+The board is kept in memory and discarded on quit. Bunshin does not read or delete data
+from earlier versions. It writes only its existing log files: on macOS under
+`~/Library/Logs/io.github.tomada1114.bunshin/`, and on Linux under
+`$XDG_STATE_HOME/bunshin/logs/` (default `~/.local/state/bunshin/logs/`).
 
 ## Design Philosophy
 
@@ -93,13 +62,13 @@ repository per layer was rejected: it costs a release process per layer for a pe
 tool.
 ### Why ports and adapters, with synchronous ports?
 
-Core declares each thing it needs from outside the process — storage, time — as a
-`Send + Sync` trait. `bunshin-platform` implements it for real, `bunshin-test-support` as a
-fake, and the binary picks the real one. Ports are plain synchronous methods, so a
-reader new to Rust meets no async in core. Errors are typed variants the binary turns
-into words and an exit code, never sentences from core. One contract function per port
-runs against both the fake and the real adapter, so the fake cannot drift from the real
-thing without a test failing.
+Core declares each thing it needs from outside the process — time and the on-device
+model — as a `Send + Sync` trait. `bunshin-platform` implements it for real,
+`bunshin-test-support` as a fake, and the binary picks the real one. Ports are plain
+synchronous methods, so a reader new to Rust meets no async in core. Errors are typed
+variants the binary turns into words and an exit code, never sentences from core. One
+contract function per port runs against both the fake and the real adapter, so the fake
+cannot drift from the real thing without a test failing.
 ### Why are the architecture boundaries enforced three times?
 
 A rule that lives only in prose drifts. Core's `Cargo.toml` names no OS crate, so core
@@ -115,10 +84,10 @@ and `thread::sleep` in core, so I/O, time, and environment arrive only through p
 ### Why is the tool one binary, in its own crate?
 
 One `cargo install --locked --path crates/bunshin` (`just install-cli`) yields the whole
-tool, and its subcommands are the only entry points, so there is one composition root to
+tool, and its single `tui` subcommand is the entry point, so there is one composition root to
 wire adapters in. Keeping the binary out of core and platform leaves those two as
 libraries a test links without a `main`. The binary only translates: arguments to calls,
-a view to stdout, a typed error to wording on stderr and an exit code, with every
+a view to the terminal, a typed error to wording on stderr and an exit code, with every
 sentence in `crates/bunshin/src/wording.rs`.
 
 ### Why tracing to daily files?
@@ -284,27 +253,3 @@ just install-cli  # install the bunshin binary into ~/.cargo/bin (a human's step
 ## License
 
 [MIT](LICENSE)
-
-
-### Owner instructions
-
-Run `bunshin instructions` to print the instructions in use; stderr shows the file
-location and the reason if the shipped default is used. Reading creates nothing.
-Stdout preserves the selected UTF-8 text exactly, without adding a trailing newline.
-Run `bunshin instructions edit` to edit `instructions.md` in the app's data directory
-with `VISUAL`, or `EDITOR` when `VISUAL` is unset/empty. The first edit initializes
-core's short default, then waits for the editor. The file is private (0600), and new
-application directories are 0700. Missing, whitespace-only or over-600-character text
-uses the default; over-limit text stays in the file until the owner shortens it.
-Characters count Unicode scalars, including whitespace and newlines. Flags such as
-`VISUAL="code --wait"` work; paths containing spaces or shell punctuation are passed
-as an argument. Set the editor deliberately: its value is owner-provided shell code.
-
-Reading refuses linked or non-regular instructions and checks data-directory/file
-modes without changing them. For a manually created file, set the app data directory
-to 0700 and instructions.md to 0600 before reading. An explicit edit also narrows
-these modes while preserving existing text.
-
-The no-editor hint names the instructions location symbolically with `~/` or
-`$XDG_DATA_HOME`, so its failure wording includes no private home/configured path.
-Normal `bunshin instructions` output still shows the resolved file path.

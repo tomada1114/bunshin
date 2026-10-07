@@ -1,17 +1,16 @@
 ---
 name: deciding-architecture
 description: >
-  Holds Bunshin's architecture and design policy as they stand (the principles, how the
-  domains map onto crates and ports, the day files and the instructions file, how the fm
-  model is called and budgeted, the worker thread and the tick, the TUI colors, the
-  quality targets) and the dated log of every architecture decision with the options it
-  rejected. Use when a change adds a crate or a port in bunshin-core, changes persistence
-  or configuration, adds a crate dependency, adds or drops a target platform, adds
+  Holds Bunshin's architecture and design policy as they stand: its principles, crates
+  and ports, the in-memory board and its post interval, the fm model call, the worker
+  thread, TUI colors, quality targets, and the dated log of decisions with rejected
+  options. Use when a change adds a crate or port in bunshin-core, changes persistence or
+  configuration, adds a crate dependency, adds or drops a target platform, adds
   distribution, raises rust-version, needs a TCC permission, lifts unsafe_code =
-  "forbid", changes the bundle identifier or XDG directory name, adds a language or a TUI
-  color, or replaces clap or ratatui; when deciding how a feature calls the model, stores
-  data, or reads the clock; when proposing or revising a decision; or when asked why the
-  app is built this way.
+  forbid, changes the bundle identifier or XDG directory name, adds a language or TUI
+  color, or replaces clap or ratatui; when deciding how a feature calls the model,
+  stores data, or reads the clock; when proposing or revising a decision; or when asked
+  why the app is built this way.
 ---
 
 # Deciding Architecture
@@ -37,7 +36,7 @@ a crate is reviewed and declared (`managing-dependencies`); a gate's configurati
 There are no numbers, statuses, or index. A decision is either in the log, accepted by
 the owner, or it is a proposal in a conversation or a pull request and nowhere else.
 
-Read `design.md` before shaping any feature that touches the model, the day files, the
+Read `design.md` before shaping any feature that touches the model, board state, the
 clock, the TUI loop, or a dependency. **REQUIRED:** read the decision-log entry behind a
 rule before arguing against it; the rejected option you are about to propose may
 already be there with its reason.
@@ -51,10 +50,9 @@ expensive, and what Bunshin adds:
 - **A new crate in the workspace, or a new port in core.** A crate fixes a dependency
   direction the boundary checks must learn; a port fixes the contract its adapter, its
   fake, its contract function, and every caller are written against.
-- **Persistence or configuration** — the data directory, the day file's format or its
-  `format` version, the instructions file, a lock, a settings file, or an environment
-  variable the tool reads. Stored data outlives the code that wrote it; a setting is an
-  interface the owner's habits come to depend on.
+- **Persistence or configuration** — any user-data format or location, settings file,
+  lock, or environment variable the tool reads. Stored data outlives the code that wrote
+  it; a setting is an interface the owner's habits come to depend on.
 - **A new crate dependency**, runtime or dev. The review `managing-dependencies` asks
   for is the evidence the entry cites; the owner's sign-off is separate and still owed.
 - **A target platform** added or dropped; **distribution** of any kind;
@@ -64,7 +62,7 @@ expensive, and what Bunshin adds:
   subcommand is written against.
 - **How the model is reached** — the `fm` mode (`respond` per call), the number of calls
   per event, the answer schemas' shape, the token budget's rule, the timeout and cancel
-  path. Every chat and check-in feature is written against these.
+  path. Every character-turn feature is written against these.
 - **The thread model** — anything beyond the TUI loop plus one model worker, or any
   `async` runtime.
 - **A language** — the user-facing wording is Japanese only; a second language, or

@@ -1,300 +1,109 @@
 # Bunshin's design as it stands
 
-What the app is built as today, on top of the template's layers (`docs/architecture.md`).
-The reasons and the rejected options are in [decision-log.md](decision-log.md); the
-behavior each part serves is in `docs/product/requirements.md` (cited as §n). Values
-marked † are starting values that live in core's `Tuning` and are tuned by use.
+Bunshin is a small, single-user bulletin board in a terminal pane. Three fixed characters
+post to one shared board, and the owner can join them. The product values are in
+[requirements.md](../../../../docs/product/requirements.md); decisions and rejected
+options are in [decision-log.md](decision-log.md).
 
 ## Principles
 
 Each one rules something out.
 
-1. **The model proposes; core decides.** Every model answer is a typed proposal that core
-   validates before anything changes (§3.3). No model output is applied as text, and a
-   check-in never changes a task (§3.5).
-2. **Core stays synchronous and deterministic.** No `async` runtime anywhere; time, files,
-   the instructions, and the model reach core only through ports. A whole day, ticks and
-   model answers included, replays in a test with a fixed clock and a scripted model.
-3. **One writer.** Only `bunshin tui` writes the day files, and only one of it runs.
-   The subcommands read. No merge logic exists, because no second writer does.
-4. **Plain local files, owner only.** The day is a JSON file the owner can read; nothing
-   is sent anywhere but to `fm` on the same Mac (§4, Non-goals). No database, no network
-   client, no backup or export.
-5. **Everything but the words works without the model.** Every key, the list, the
-   inbox, saving, and the deadline notes' fixed sentences work when `fm` is missing,
-   refuses, or is slow (§3.4, §3.5, §4).
-6. **Budget before the call.** Core sizes every prompt to the 4,096-token window before
-   it calls, with a conservative estimate, and never asks the model to count.
+1. **Core chooses; the model writes.** Core selects the speaker, post kind, and topic.
+   The model returns only one character's post body.
+2. **Core stays synchronous and deterministic.** Time and the model arrive through ports.
+   A fixed clock, seed, and scripted model reproduce a conversation in a test.
+3. **One model worker.** Calls never overlap. A slow call does not stack another attempt.
+4. **The board is temporary.** Posts live only in memory, up to 200†, and disappear on
+   quit. The app does not read or remove earlier user data.
+5. **The board stays usable without the model.** A failed character call adds no post;
+   the owner can still post and quit.
 
 ## Crates and ports
 
-The template's four crates stay; no crate is added to the workspace.
+The four workspace crates stay; no crate is added.
 
 | Crate | Holds |
 |---|---|
-| `bunshin-core` | the day (tasks, messages, inbox states, change sets and undo), the check-in rules (triggers, active hours, the gaps, holding and catch-up, mute), the day's rhythm (logical date, day start, leftovers, yesterday's record, evening review), the instructions' limit and default text, prompt assembly, the token estimate, the answer schemas and their parsing, the TUI screen's state and key table, `Tuning`, and the day file's versioned shape |
-| `bunshin-platform` | the adapters below, the data and log directories, launching the owner's editor |
-| `bunshin-test-support` | one fake and one `<port>_contract` function per port |
-| `bunshin` | clap subcommands, the TUI loop, the model worker thread, the view, `wording.rs` |
+| `bunshin-core` | board state, speaker and turn selection, topic values, post construction, tuning, and screen actions |
+| `bunshin-platform` | clock and model adapters, terminal-independent OS integration, and log paths |
+| `bunshin-test-support` | clock and model fakes and their contract functions |
+| `bunshin` | the command line, TUI loop, one model worker, view, and user-facing wording |
 
-Ports core declares (all synchronous `Send + Sync` traits):
+Core declares two synchronous `Send + Sync` ports:
 
-| Port | Real adapter | Fake | What it fixes |
+| Port | Real adapter | Fake | What it provides |
 |---|---|---|---|
-| `Clock` | `SystemClock` (jiff, system time zone) | `FixedClock`, settable | `now()` returns both the instant (`UnixMillis`) and the local civil date-time (`jiff::civil::DateTime`). Gaps and the 30-s timeout are measured on the instant, so a zone change cannot fake a sleep; triggers, the 04:00 boundary, and active hours use the civil time (§3.6 "Clock or time zone change") |
-| `DayStore` | `JsonFileDayStore` | `InMemoryDayStore`, `FailingDayStore` | load a logical date's day, save a day whole, find the last day on record before a date, and take the single-writer lock |
-| `InstructionsSource` | `FileInstructions` | `InMemoryInstructions` | read the owner's text (absent, empty, or text), write the default the first time, report the file's path for display |
-| `LanguageModel` | `FmLanguageModel` (macOS), `UnavailableLanguageModel` (Linux) | `ScriptedLanguageModel` (queued answers and errors) | report availability; answer one `ModelRequest` (instructions text, prompt text, schema JSON, timeout) with the answer's JSON or a typed `ModelError`, stopping early when a shared cancel flag is set |
+| `Clock` | `SystemClock` | `FixedClock` | an instant for spacing and random seeding, plus local time for post labels |
+| `LanguageModel` | `FmLanguageModel` on macOS; `UnavailableLanguageModel` on Linux | `ScriptedLanguageModel` | availability and one structured response or a typed `ModelError` |
 
-The template sample has been removed; the day model and clock remain as the domain foundation.
+No port performs asynchronous work. The binary supplies adapters to core and owns the
+single worker thread.
 
 ## Dependencies
 
-Runtime: the template's `clap`, `ratatui` (crossterm backend), `serde`, `serde_json`,
-`thiserror`, `tracing`, `tracing-appender`, `tracing-subscriber`, plus **`jiff`**:
-
-- in `bunshin-core` with `default-features = false, features = ["std"]` — civil
-  date-times and arithmetic only;
-- in `bunshin-platform` adding `tz-system` and `tzdb-zoneinfo`, so `SystemClock` resolves
-  the system zone from `/etc/localtime` and `/usr/share/zoneinfo`.
-
-jiff 0.2.37, `Unlicense OR MIT`, `rust-version` 1.70, published 2026-09-12
-(https://crates.io/api/v1/crates/jiff, checked 2026-10-02); `TimeZone::system()` honors
-`TZ` first and then reads `/etc/localtime`, and returns an unknown zone without
-`tz-system` (https://docs.rs/jiff/latest/jiff/tz/struct.TimeZone.html, checked
-2026-10-02). `TZ` is the OS's convention, not a Bunshin setting.
-
-Core may not read the clock through jiff: `jiff::Timestamp::now` and `jiff::Zoned::now`
-join the bans in `crates/bunshin-core/clippy.toml` in the same change that adds jiff to
-core (a ban on an item clippy cannot resolve fails the clippy guard, so not before).
-
-Core's prompt module reuses the workspace's existing `serde_json` runtime dependency
-for structured context and strict answer parsing. Its version and features stay
-unchanged; the platform already ships it for persisted JSON. No crate is added.
-
-The binary directly uses the existing workspace `serde_json` to write the public
-`TodayView`. This adds no package, version or feature to the shipped dependency graph;
-the platform already uses the same crate for day JSON.
-
-The binary's tests reuse the workspace's existing `bunshin-test-support` port
-fakes through a dev dependency. This shared test-only crate does not ship.
-
-Nothing else: no async runtime, no HTTP client, no SQLite, no FFI binding.
+The board needs no new crate. Its seeded xorshift generator is a few lines in core; the
+random choice is reproducible without a random-number dependency. Existing JSON support
+parses the schema-constrained model response.
 
 ## Data
 
-- **Place:** the template's data directory — on macOS
-  `~/Library/Application Support/io.github.tomada1114.bunshin/`, on Linux
-  `$XDG_DATA_HOME/bunshin/` — outside any checkout, so no data file can reach git.
-- **Layout:**
-  - `days/YYYY-MM-DD.json` — one file per logical date (the day that starts at 04:00†).
-  - `instructions.md` — the owner's instructions, UTF-8, ≤ 600 characters† (§3.8).
-  - `tui.lock` — the single-writer lock.
-- **Permissions:** the directory and `days/` are created `0700`, every file `0600`
-  (`DirBuilderExt::mode`, `OpenOptionsExt::mode`); a directory found wider is narrowed at
-  start.
-- **The day file:** one JSON object with `"format": 2` and the Day of §5 — tasks,
-  messages, unprompted messages with their inbox states, fired and held triggers, the
-  next planned look, the last unprompted time, the mute, yesterday's record. Its shape
-  is a versioned type in core (`day::file`, deriving serde), so the format is tested
-  inside the floor; the adapter turns it into JSON with `serde_json`, which core also
-  uses for prompt context and answer validation. A file with a higher `format` is
-  refused, never overwritten;
-  an older one is migrated on read. The `--json` output of `bunshin today` is its own
-  versioned view, not the file.
-- **The retry record:** `retryingTriggers` lists the held non-deadline triggers whose
-  one retry (§3.5) is already granted; it is always a subset of `heldTriggers`, and a
-  file that names a trigger it does not hold is unreadable. The check-in queue
-  (`checkin::calls`) keeps it in step with its in-memory retry sets: a trigger joins
-  when its first attempt fails and leaves when it is delivered, spent, pruned, or
-  dropped at the day start, and an unavailable model changes nothing. On restart the
-  queue restores a recorded trigger as a retry that waits for the next tick and the
-  delivery guards, and any other held trigger as a first attempt. Format 1, which had
-  no record, is migrated on read with no trigger retrying and saved as format 2.
-- **Writing:** the whole day on every change, to a temporary file in `days/`, flushed
-  and `fsync`ed, then renamed over the old file; the containing directory is then synced.
-  A reader such as `bunshin today` takes no lock and sees the old file or the new one,
-  never half (§3.7). There is no file-size cap. Reading and replacing a whole file can
-  exhaust memory or other resources for a very large day file; the owner chose to
-  retain this limitation instead of introducing a size rejection (2026-10-03).
-- **Failure:** a failed save keeps the day in memory, shows 「保存できません」, and
-  retries on the next change; an unreadable day file stops the TUI with a message and is
-  never overwritten (`docs/design/ux-guidelines.md`).
-  A failure before rename preserves the old file. A directory sync failure after
-  rename instead returns `PublishedButNotDurable`: the complete new data is already
-  visible, but crash durability is unconfirmed. Callers must distinguish this from
-  "not saved" and keep the in-memory day available for another save. The screen
-  shows 「保存済み・耐久性未確認」 for the latter, retries on the next change, and
-  uses a distinct quit confirmation on the help line. Repeated failures of the
-  same kind add no duplicate error row; a new cause adds one.
-- **The lock:** `bunshin tui` opens `tui.lock` and takes `File::try_lock` for its whole
-  life and writes its PID into the file; `WouldBlock` means another screen runs, and the
-  refusal reads that PID for its message (§3.7, `docs/product/ux-flows.md` C4). The PID
-  is advisory: it can be absent or contain the previous holder's PID between lock
-  acquisition and PID publication. Only the OS lock guarantees single-writer exclusion.
-  Writers cooperate by holding the lease; concurrent external file edits are unsupported.
-  The OS releases the lock when the
-  file closes, crash included, so no stale lock is ever cleaned up
-  (https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock, stable since 1.89,
-  checked 2026-10-02).
-- **Undo** (20† change sets) lives in memory for the session only.
-- **No backup, export, or retention job:** every day is kept, and removing files is the
-  owner's step (§3.7, Non-goals).
+The board is a bounded, in-memory list of posts. There is no user-data format or
+persistence behavior. Earlier application data is neither read nor deleted. Existing
+daily log files remain the only files the app writes.
 
-## Configuration
+## Model call
 
-- No settings file. Every † value is a `Tuning` field.
-- Environment: `VISUAL`, then `EDITOR`, read in `bunshin-platform` for
-  `bunshin instructions edit` only. The editor runs through `/bin/sh -c '<value> "$1"'`
-  so a value with flags (`code --wait`) works, and the path is passed as an argument,
-  never spliced into the command. `HOME` and the `XDG_*` variables are read as the
-  template already does. No other variable is read.
-
-## The model call
-
-- **How:** one child process per call: `fm respond --no-stream --schema '<schema JSON>'
-  --instructions '<instructions>'`. The schema is inline JSON in the format emitted
-  by `fm schema`; `--schema` accepts either this JSON or a schema-file path (`man fm`,
-  observed 2026-10-02). The prompt stays on stdin (`fm respond` reads its
-  prompt from stdin, `fm respond --help`, observed 2026-10-02) so the day's tasks and chat
-  never appear in another process's argument list. The instructions are on the command
-  line for the call's duration; on a single-user Mac that is accepted. `fm` lives at
-  `/usr/bin/fm`, and its only reference is `man fm` (observed 2026-10-02, macOS 27.0
-  build 26A428).
-- **Threads:** the TUI loop owns the terminal and core's screen. One model worker
-  thread, started with the loop, runs one `LanguageModel` call at a time from a channel
-  and sends the result back. Core keeps the queue and its order — an owner's message
-  before a trigger (§3.5) — so the worker never decides.
-- **Wait and cancel:** the adapter monitors the child and its input/output workers
-  until the call completes. Each child has a private process group; when the request's
-  timeout (30 s†) passes or the cancel flag is set (Esc, quit), the adapter terminates
-  that group and reaps the direct child. It retains the child's process ID while any
-  pipe worker is unfinished, so cleanup cannot target a reused process ID. A stopped
-  call is `ModelError::Cancelled` or `ModelError::TimedOut`; failed cleanup is `Failed`.
-- **One call per event.** An owner's message gets one call whose schema answers
-  `{changes: [...], reply}`; a check-in (a trigger batch, the day start, the evening
-  review, a catch-up) gets one call whose schema answers
-  `{kind: silent | note | question, task, message, next_look_minutes}` (§3.5). Core
-  parses the JSON into typed proposals and validates them; an invalid change is dropped
-  and said so (§3.3).
-- **Budget.** The window is 4,096 tokens per session, and instructions, prompt, the
-  schema, and the answer all count (https://developer.apple.com/documentation/technotes/tn3193-managing-the-on-device-foundation-model-s-context-window,
-  checked 2026-10-02). Each `fm respond` is a fresh session, so every call carries its
-  whole context. Core estimates tokens without the model — 1 per non-ASCII character,
-  1 per 2 ASCII characters† — about twice the 0.5 token per Japanese character observed
-  (2026-10-02). From the window it reserves the answer (450† chat, 300† check-in) and
-  the schema's estimate, then fills in this order, each part only if it fits:
-  instructions (owner's text, then the operating rules), the current time, yesterday's
-  record (≤ 120†), today's open tasks, the last 5† unprompted messages' states, the
-  triggers, closed tasks, and chat history newest first. Chat history and closed tasks
-  are dropped before any open task (§3.1); if open tasks alone overflow, their titles
-  are shortened, never dropped. `fm count-tokens` is not used: it took 1.97 s per call
-  (observed 2026-10-02).
-- **Availability:** checked at start and after a call fails as unavailable, then every
-  10 min† until it returns (`docs/product/ux-flows.md` F10). `/usr/bin/fm` missing → not installed; `fm available` exit
-  0 → available (observed 2026-10-02); exit 69 means the terms are not accepted
-  (`man fm`), and the screen names `sudo fm license` for the owner to run, never the app
-  (§4). On Linux the adapter is always "unavailable on this OS".
-- **Errors** map to `ModelError` variants the screen can act on: `Unavailable(reason)`,
-  `TimedOut`, `Cancelled`, `Refused`, `Malformed` (the answer failed the schema or the
-  parse), `Failed` (any other exit). Exit 64 was observed for a usage error, and exit 1
-  for both an invalid schema and a runtime model-service error (2026-10-02); they stay
-  `Failed`, because the exit code alone does not identify the cause. Diagnostics never
-  include the prompt. What a user message and a trigger do on each error is §3.5 and §4.
-- **Tests:** no routine check needs the real `fm`, which is absent on a CI runner.
-  The core and the binary are tested against `ScriptedLanguageModel`;
-  `FmLanguageModel`'s contract run is `#[ignore = "local machine: fm with Apple
-  Intelligence enabled"]` and runs only in `just test-local`, a human's recipe.
+One character post uses one `fm respond` call through `LanguageModel`. Core chooses the
+speaker and task first; the model receives that speaker's persona, the board rules, the
+latest 12† posts, and the task. Its schema has one string field, `body`. The response is
+trimmed; an empty body fails, and displayed text is cut to 120† characters. The
+instruction asks for at most 80 characters. Calls use the existing 30-second timeout.
+The owner observed a real schema-constrained reply with `bunshin tui`, 2026-10-07.
 
 ## Main flows
 
-- **Open.** Take the lock (or exit with C4's 「すでに起動しています（PID …）」), read the instructions,
-  load today's file and the last day on record, check availability, draw. A first open
-  of the day runs the day start (§3.6); triggers that came due while closed go to the
-  model as one catch-up (§3.7).
-- **An owner's message.** Core appends it, queues a chat call with the assembled prompt,
-  and the header shows thinking. The answer's changes are validated, applied as one
-  change set, saved, and shown as a change line with the reply; an error is one line and
-  nothing changes.
-- **A key.** Core applies the change set and emits `Save`. The binary completes the
-  synchronous store call, records its typed result in core and redraws before reading
-  another input; no model is involved (§3.4).
-- **The tick.** The loop polls the terminal with a short timeout and hands core the
-  clock's `now` at least once a second; core runs the check-in rules when 60 s† have
-  passed. A gap over 5 min† since the last tick is a sleep and becomes one catch-up. No
-  trigger → no call and no write.
-- **Quit or Esc.** Esc cancels a running owner's call; quit cancels any call, waits for
-  the worker to stop, restores the terminal, and releases the lock by exiting. A quit
-  while saves are failing asks once.
+- **Open.** Create an empty board and seed the generator once from the clock's instant.
+  Start the first character attempt immediately.
+- **Character post.** Core selects a speaker and kind, then requests one body. On
+  success, append the post. Start the next attempt 30 seconds after the previous attempt
+  finishes, whether it succeeded or failed.
+- **Owner post.** Add the owner's post immediately. A random character writes a reply as soon as the worker is free; a different
+  character writes a second response post at the next interval. If the owner posts again
+  first, both pending response posts target the newest owner post.
+- **Failure.** Add nothing and show a short failure in the header until a successful
+  post. The next attempt waits for its regular interval.
+- **Quit.** Exit immediately. There is no save confirmation because the board is
+  temporary.
 
 ## Language
 
-- Every sentence a user reads — the screen, `--help`, errors, notices — is Japanese and
-  lives in `crates/bunshin/src/wording.rs`. clap's help text is set from those constants
-  (`#[command(about = ...)]`, `#[arg(help = ...)]`), not from doc comments, so `///`
-  stays English.
-- Code, comments, docs, commits, and pull requests stay English (`AGENTS.md` ›
-  "Important Reminders" states the exception).
-- The default instructions and the operating rules are model input: they live in
-  core's prompt module, not in `wording.rs`.
+The screen and the owner's posts use Japanese. Each character has a fixed name, role,
+voice, and persona text. The user-facing sentences remain in `wording.rs`.
 
 ## Color lock
 
-The role table in `docs/design/design-direction.md` is the lock: the terminal's 16 named
-colors only; text in red, blue, or magenta; green only on the focused border; reversed
-for the selected row; no faint text, no background color, no RGB or 256-color value.
-In code it is a set of `const` `Style`s beside the labels in the view, asserted by the
-`TestBackend` view tests (`building-tuis`). Changing a row is a recorded decision.
+The role table in `docs/design/design-direction.md` remains the color lock: the terminal's
+16 named colors, text only in red, blue, and magenta, green only on the focused border,
+reversed selection, and no faint text.
 
 ## Platforms and distribution
 
-- macOS 27 or later on Apple silicon is where the app is used. Linux builds and runs
-  every test, with the model reported unavailable; everything else works there.
-- No TCC permission, no `unsafe`, no distribution: installed from the checkout with
-  `just install-cli` (a human's recipe). The bundle identifier and the XDG name stay
-  `io.github.tomada1114.bunshin` and `bunshin`.
+The target remains macOS 27 or later on Apple silicon. Linux builds and reports the model
+unavailable. No TCC permission or distribution mechanism is added; the binary is installed
+from its checkout.
 
 ## Quality targets
 
 | Target | Value | How it is checked |
 |---|---|---|
-| A key to its redrawn frame, save included | ≤ 100 ms | the human's run; core holds no I/O but the save |
-| A tick with no trigger | no model call, no file write | core tests with `FixedClock` and the scripted model |
-| Every change saved before the next event is handled | always | core screen tests assert the `Save` effect |
-| A prompt over the budget | never sent | core tests over a 50-task day and a long chat |
-| No user text in a log line | always | review; `designing-errors` |
-| Data files | `0600`, directory `0700` | `just test-platform` against a scratch `HOME` |
+| Post interval | 30 seconds after attempt completion | core tests with a fixed clock |
+| Concurrent model calls | at most one | worker and screen tests |
+| Failed model call | no post; failure remains in the header | core and view tests |
+| Owner post | visible immediately; two response posts target the newest owner post | screen tests |
+| Board size | at most 200† posts | core tests |
 | Core coverage | lines 80, functions 80 | `just test-core` |
 
 ## Open
 
-- Observed with `fm schema object --name Empty`, 2026-10-02: the empty-object schema
-  includes `title`, `properties`, `additionalProperties`, `x-order`, and `required`
-  alongside `type`. A response using a schema fixture without `title`, `x-order`, and
-  `required` exited 1 with an invalid-schema, missing-data diagnostic; that is a schema
-  fixture failure, not an observed runtime refusal.
-- Observed with `fm respond --no-stream --schema` using that generated empty-object
-  schema inline under agent execution, 2026-10-02: exit 1 with
-  `ModelManagerServices.ModelManagerError` error 1008, also on an elevated retry.
-  A direct `fm respond --no-stream` without a schema or the app also returned the
-  same error, while `fm available` returned 0. This remains `Failed`; neither its
-  meaning nor whether it also occurs outside the agent's execution environment is
-  verified. On 2026-10-03, the owner authorized all `fm` execution: the real contract
-  passed with `mise exec -- just test-local` under approved execution permissions
-  (exit 0, one test), while the same command failed before and after in the restricted
-  environment (exit 100, typed `Failed`). A direct ordinary
-  `fm respond --no-stream` with a synthetic prompt succeeded (exit 0). These observations
-  satisfy the real adapter contract; they do not establish the cause of the earlier
-  error or the difference between execution environments.
-- Unverified: the exit codes and stderr of `fm respond` for a runtime model error
-  (window exceeded, guardrail, rate limit). Until `just test-local` observes them, they
-  map to `Failed`, and the budget is the only guard against an overflow. Apple's error
-  cases name `exceededContextWindowSize`, `guardrailViolation`, `refusal`,
-  `rateLimited`, and `concurrentRequests`
-  (https://developer.apple.com/documentation/foundationmodels/languagemodelsession/generationerror,
-  checked 2026-10-02). A successful local contract does not exercise these failures;
-  their mappings need separate observed failure cases.
-- The language of the operating rules (Japanese or English prompt text). Settled by
-  comparing both on real days; either way it is model input in core.
-- Whether `--greedy` sampling suits the check-in call. Settled the same way; a `Tuning`
-  switch until then.
+None for this prototype's accepted architecture.

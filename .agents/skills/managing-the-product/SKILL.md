@@ -30,7 +30,7 @@ documents ahead of the issues: the document changes first, and the issue cites i
 | Document | Holds | Its decision log |
 |---|---|---|
 | `docs/product/requirements.md` | scope (§2: MVP, Later, Non-goals), each feature's values (§3), cross-cutting rules (§4), data (§5) | §7 |
-| `docs/product/ux-flows.md` | screens T1–T5 and C1–C4, the key table (§4), flows F1–F10 | the requirements' §7 |
+| `docs/product/ux-flows.md` | the board screen, key table (§3), and flows F1–F3 | the requirements' §7 |
 | `docs/design/ux-guidelines.md` | app-wide behavior: states, feedback, copy, accessibility | its "Decision log" table |
 | `docs/design/design-direction.md` | the color roles (the lock is `deciding-architecture`'s) | — |
 | `AGENTS.md` › Product | what the app is, its core interaction, its non-goals, in short | — |
@@ -40,35 +40,23 @@ is tuning, not a product decision, unless it changes what the owner sees happen.
 
 ## Feature map
 
-**MVP** — what the first version is (requirements §2), with the screens and flows that
-show it:
+**MVP** — the board prototype in requirements §2, with the screen and flows that show
+the owner and characters sharing one post list:
 
 | Feature | Requirements | Screens and flows |
 |---|---|---|
-| Chat | §3.1 | T1 |
-| Today's tasks | §3.2 | T1, T2, C1 |
-| Task changes from plain words | §3.3 | T1, F2 |
-| Direct task editing by key | §3.4 | T1, T2, key table, F3 |
-| Proactive check-ins | §3.5 | T1, F4, F6 |
-| The day's rhythm | §3.6 | T1, F1, F7 |
-| Persistence and catch-up | §3.7 | C4, F8 |
-| Instructions you write | §3.8 | T5, C2, C3, F9 |
-| Read-only subcommands | §3.9 | C1–C3 |
-| The inbox and reactions | §3.10 | T4, F5 |
-| Model unavailable, failures, language | §4 | F10 |
+| Character turns and topics | §3 R1–R4 | F1 |
+| Owner posts and responses | §3 R5–R8 | F2 |
+| Model call and failures | §3 R9–R11; §4 | F1, F3 |
+| Board screen, scrolling, and input | §3 R12 | Screen, key table, F1–F3 |
+| In-memory limit and command line | §3 R13–R14; §5 | Screen |
 
-**Later** — intended, not ordered (§2 "Later"; ordered ones are on the roadmap): macOS
-notifications; a background process; multi-day tasks; looking back over past days;
-writing from the shell; settings for the starting values; RSS digests; Obsidian vault
-tasks; a hosted model behind the same interface; Calendar as a source.
+**Later** — none selected for this prototype.
 
-**Non-goals** — §2 "Non-goals" and `AGENTS.md` › Product, which must agree: network
-access in this version; acting outside the app; a general chatbot; built-in voice;
-editing past messages, export, import; planning the day for the owner; priorities, tags,
-projects, sub-tasks; mail; more than one persona, user, or Mac.
-
-When the map changes, this table, §2, and `AGENTS.md` › Product change in the same
-commit.
+**Non-goals** — §2 and `AGENTS.md` › Product must agree: network access; acting outside
+the app; built-in voice; accounts, multiple users, or Mac-to-Mac sync; persistence,
+history, export, or import; editable characters or topics; threads, mentions, emoji
+reactions or likes as separate post controls; editing or deleting posts; notifications, bell, or sound.
 
 ## Intake
 
@@ -81,11 +69,9 @@ Run every step, in order, before an issue is filed for new or changed behavior.
    the owner moves it. Moving a non-goal is the owner's call: it changes §2, `AGENTS.md`
    › Product, and this map together, with a §7 entry saying what moved and why. A Later
    item pulled forward is the same kind of decision.
-3. **Scrutinize.** Look for what the request does not say: the empty, error, and
-   model-unavailable states; what happens at the 04:00 boundary and on reopen; the key
-   that does the same thing (§3.4: everything the model can do is one key away); the
-   one-writer rule (§3.9); the token budget (§3.1); a contradiction with an existing
-   value. Each finding becomes a question.
+3. **Scrutinize.** Look for what the request does not say: empty, failure, and
+   model-unavailable states; how the posting interval, owner response turns, and scroll behavior interact; post and context limits; a contradiction with an existing value.
+   Each finding becomes a question.
 4. **Settle the values with the owner** in rounds of at most four questions, each with
    2–4 options, what each costs, and a recommendation when there is a real one. Name the
    requirement line each option serves or bends. Never fill a value the owner has not
@@ -95,7 +81,7 @@ Run every step, in order, before an issue is filed for new or changed behavior.
    screen, a key, or a flow, `ux-guidelines.md` for an app-wide rule. Append the
    decision to the log that document uses, dated, with the rejected options and why.
    **REQUIRED:** if the change touches anything `deciding-architecture` lists — a port, a
-   dependency, the day file's format, the model call, the color lock — that decision is
+   dependency, persistence, the model call, the color lock — that decision is
    proposed there too, and the owner accepts it before issues are filed.
 6. **Hand off.** **REQUIRED:** `triaging-issues` for each issue's type, tier, and body;
    every body cites the requirement section it implements rather than restating it. A
