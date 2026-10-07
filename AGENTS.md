@@ -292,6 +292,7 @@ byte-for-byte into `.claude/skills/` (the only path Claude Code reads) by
 | `triaging-issues` | Filing or labelling an issue: type, priority, blocked, tracking |
 | `managing-the-product` | A feature request or a scope question, before any issue is filed: the feature map, the non-goals, amending the requirements |
 | `shipping-issues` | Taking ranked open issues to merged pull requests, with worktrees |
+| `codex-shipping-issues` | Shipping one issue from Codex: a regular PR, one opening-triggered Codex review, current-head CI, and an authorized merge, all through GitHub MCP |
 | `steering-the-roadmap` | Changing `docs/architecture/roadmap.md` (Now / Next / Later) |
 | `merging-dependency-prs` | Landing open Dependabot and Renovate pull requests; a pre-1.0 ratatui minor lands alone |
 | `managing-dependencies` | Adding or changing a crate: the review record, features, licences |
