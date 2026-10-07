@@ -30,8 +30,8 @@ checked 2026-10-02).
 | | |
 |---|---|
 | **Preserved** | color by ANSI name, never RGB; the focused region's border green and bold; unfocused borders in the default color |
-| **Changed** | the selected row is reversed (default foreground and background swapped) instead of a blue background, so its contrast is the base text's on every theme; the help line's keys are bold rather than blue, because blue means a change here |
-| **Rejected** | monochrome with modifiers only (the template's default) — the secretary's messages and the errors would not stand out; a fixed RGB palette — it would ignore the owner's theme and need a light and a dark set |
+| **Changed** | the screen has one board and one input; character posts and the new-post divider use magenta, while focus stays green |
+| **Rejected** | monochrome with modifiers only (the template's default) — character posts and errors would not stand out; a fixed RGB palette — it would ignore the owner's theme and need a light and a dark set |
 
 ## Role table
 
@@ -39,29 +39,15 @@ Default means the terminal's own foreground on its own background (ratatui `Colo
 
 | Role | Style |
 |---|---|
-| Base text — task titles, chat text, timestamps, help descriptions | default |
-| Focused region: border and title (T1 pane, T2–T5 overlays) | green, bold; heavy border (`BorderType::Thick`) |
+| Base text — board posts, timestamps, input | default |
+| Focused board or input: border and title | green, bold; heavy border (`BorderType::Thick`) |
 | Unfocused region: border and title | default; plain border |
-| Selected row in the focused region | reversed |
-| Selected row in an unfocused region | bold (the `>` stays) |
-| Speaker 「Bunshin」 | magenta, bold |
-| Unprompted tag line 「[お知らせ / …]」 | magenta |
-| Unprompted tag line 「[質問 / …]」 | magenta, bold |
-| Header 「考え中…」「見回り中…」 | magenta |
-| Header 「受信箱 N」 (N > 0) | magenta, bold |
-| 「── ここから新着 ──」 divider | magenta |
-| Speaker 「あなた」 | bold |
-| Speaker 「変更」, and the change marks after it | blue |
-| Speaker 「システム」 | blue |
-| Speaker 「エラー」 | red, bold |
-| Error text in a chat row; T2's error line | red |
-| Header 「保存できません」「モデル: 使えません」 | red, bold |
-| Header 「ミュート中 〜HH:MM」「時間外（…）」「保留 N」 | bold |
+| Character post body | magenta; character name bold |
+| Speaker 「あなた」 | bold; owner post body is default |
+| Header 「書き込み中…」 | magenta |
+| 「── 新着 N件 ──」 divider | magenta, bold |
+| Header failure status | red |
 | Header app name | bold |
-| Leftovers heading in the task pane | bold |
-| Help line and T3: the key | bold |
-| Dropped task 「[-]」 | crossed out (Terminal.app does not draw it; the mark carries the state) |
-| Input length indicator at 400/400 | red |
 
 **Never used:** green, yellow, or cyan for text (they fail on a light palette); bright
 black or the faint (DIM) modifier on any text (bright black fails on the owner's theme,

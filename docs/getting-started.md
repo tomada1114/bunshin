@@ -48,12 +48,14 @@ just fmt         # format everything
 just logs        # the newest log file's last lines
 ```
 
-The main screen loads the logical day and saves after every task change. Tab moves to
-its task pane: `a` adds, Space finishes or reopens, `e` edits, and `?` shows all keys.
-`q` quits from the pane; Ctrl+C quits anywhere. Failed saves keep changes in memory
-and ask once before quitting. Chat and model-driven interaction are forthcoming.
-Old sample data is left untouched. Logs go to `~/Library/Logs/io.github.tomada1114.bunshin/` on macOS
-and `$XDG_STATE_HOME/bunshin/logs/` on Linux (default `~/.local/state/bunshin/logs/`).
+The screen is a shared board. Opening `bunshin tui` starts a character turn. Posts stay
+in memory and disappear when the process exits. Type a non-blank post and press Enter;
+it appears immediately, one character replies as soon as the model worker is free, and a
+different character posts a second response after the next 30-second interval. Tab moves
+between the input and board; PgUp and PgDn scroll, End returns to the newest posts, and
+`q` quits with the board focused. Ctrl+C quits anywhere. Logs go to
+`~/Library/Logs/io.github.tomada1114.bunshin/` on macOS and
+`$XDG_STATE_HOME/bunshin/logs/` on Linux (default `~/.local/state/bunshin/logs/`).
 
 ```bash
 cargo run --locked -p bunshin -- --help
@@ -68,10 +70,6 @@ To run `bunshin` from any directory, `just install-cli` installs it into `~/.car
 a human's recipe that no check and no agent runs unasked. There is no other
 distribution: no release artifacts, no installer.
 
-Read today's saved task list with `cargo run -p bunshin -- today`, or add `--json`
-for its stable versioned task view. The command works while a screen holds the writer
-lock. It does not create a missing day, change files, or invoke the model.
-
 ## Permissions (TCC)
 
 The sample asks for no privacy permission. When an app cut from the template does on
@@ -83,9 +81,10 @@ decision for that app to record.
 
 ## The domain foundation
 
-Core's `day` module holds task transitions, undo, and versioned file DTOs. The shared
-`Tuning` holds `DayTuning` and the logical-day boundary. `Clock`, `SystemClock`,
-`FixedClock`, and `clock_contract` illustrate the same port, adapter, fake, and
-contract split used for I/O features. Core's `screen` module owns focus, task forms,
-the key table, save-result state and quit confirmation; the binary draws it with
-ratatui's `TestBackend` covering the view. Real terminal lifecycle evidence comes from the owner's run.
+Core's `board` module owns post state and turn selection. Its `screen` module owns the
+board's key state and text input; the binary drives the model worker and draws the view,
+which is covered with ratatui's `TestBackend`. The unused `day` module still contains
+the former task transitions and versioned file DTOs. `Clock`, `SystemClock`,
+`FixedClock`, and `clock_contract` illustrate the same port, adapter, fake, and contract
+split used for I/O features. Real terminal lifecycle evidence comes from the owner's
+run.

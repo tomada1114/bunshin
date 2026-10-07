@@ -63,7 +63,6 @@ impl InputBuffer {
             | ScreenKey::Tab
             | ScreenKey::BackTab
             | ScreenKey::Interrupt
-            | ScreenKey::Undo
             | ScreenKey::PageUp
             | ScreenKey::PageDown => {}
         }

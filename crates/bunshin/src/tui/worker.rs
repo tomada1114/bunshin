@@ -1,7 +1,5 @@
 //! One model thread. Ordering and all result decisions stay in core.
-use bunshin_core::{
-    Availability, CancelFlag, LanguageModel, ModelAnswer, ModelError, screen::ChatRequest,
-};
+use bunshin_core::{CancelFlag, LanguageModel, ModelAnswer, ModelError, screen::BoardRequest};
 use std::{
     io,
     sync::{
@@ -12,13 +10,13 @@ use std::{
 };
 
 enum Job {
-    Probe(CancelFlag),
-    Respond(ChatRequest, CancelFlag),
+    Respond(BoardRequest, CancelFlag),
 }
+
 pub(super) enum Completion {
-    Availability(Result<Availability, ModelError>),
     Answer(u64, Result<ModelAnswer, ModelError>),
 }
+
 pub(super) struct ModelWorker {
     jobs: Option<Sender<Job>>,
     results: Receiver<Completion>,
@@ -26,6 +24,7 @@ pub(super) struct ModelWorker {
     cancel: Option<CancelFlag>,
     busy: bool,
 }
+
 impl ModelWorker {
     pub(super) fn start(model: Arc<dyn LanguageModel>) -> io::Result<Self> {
         let (jobs, input) = mpsc::channel();
@@ -33,15 +32,9 @@ impl ModelWorker {
         let thread = thread::Builder::new()
             .name("bunshin-model".into())
             .spawn(move || {
-                while let Ok(job) = input.recv() {
-                    let completion = match job {
-                        Job::Probe(cancel) => {
-                            Completion::Availability(model.availability_with_cancel(&cancel))
-                        }
-                        Job::Respond(request, cancel) => {
-                            Completion::Answer(request.id, model.respond(&request.request, &cancel))
-                        }
-                    };
+                while let Ok(Job::Respond(request, cancel)) = input.recv() {
+                    let completion =
+                        Completion::Answer(request.id, model.respond(&request.request, &cancel));
                     if output.send(completion).is_err() {
                         break;
                     }
@@ -55,21 +48,18 @@ impl ModelWorker {
             busy: false,
         })
     }
+
     pub(super) const fn busy(&self) -> bool {
         self.busy
     }
-    pub(super) fn probe(&mut self) -> io::Result<()> {
-        let cancel = CancelFlag::default();
-        self.send(Job::Probe(cancel.clone()))?;
-        self.cancel = Some(cancel);
-        Ok(())
-    }
-    pub(super) fn respond(&mut self, request: ChatRequest) -> io::Result<()> {
+
+    pub(super) fn respond(&mut self, request: BoardRequest) -> io::Result<()> {
         let cancel = CancelFlag::default();
         self.send(Job::Respond(request, cancel.clone()))?;
         self.cancel = Some(cancel);
         Ok(())
     }
+
     fn send(&mut self, job: Job) -> io::Result<()> {
         if self.busy {
             return Err(io::ErrorKind::WouldBlock.into());
@@ -83,6 +73,7 @@ impl ModelWorker {
         self.busy = true;
         Ok(())
     }
+
     pub(super) fn poll(&mut self) -> io::Result<Option<Completion>> {
         match self.results.try_recv() {
             Ok(result) => {
@@ -94,11 +85,13 @@ impl ModelWorker {
             Err(TryRecvError::Disconnected) => Err(io::ErrorKind::BrokenPipe.into()),
         }
     }
+
     pub(super) fn cancel(&self) {
         if let Some(cancel) = &self.cancel {
             cancel.cancel();
         }
     }
+
     pub(super) fn shutdown(&mut self) -> io::Result<()> {
         self.cancel();
         self.jobs.take();
@@ -128,38 +121,23 @@ mod tests {
     use bunshin_test_support::ScriptedLanguageModel;
     use std::time::Duration;
 
-    #[test]
-    fn quitting_cancels_and_joins_a_running_availability_probe() {
-        let (model, started) = ScriptedLanguageModel::new([]).with_probe_cancel_gate();
-        let mut worker = ModelWorker::start(Arc::new(model)).expect("worker");
-        worker.probe().expect("probe");
-        started
-            .recv_timeout(Duration::from_secs(5))
-            .expect("probe entered");
-        worker.shutdown().expect("cancel and join probe");
-        match worker.results.recv().expect("probe completed") {
-            Completion::Availability(result) => assert_eq!(result, Err(ModelError::Cancelled)),
-            Completion::Answer(_, _) => panic!("expected probe"),
+    fn request(id: u64) -> BoardRequest {
+        BoardRequest {
+            id,
+            request: ModelRequest::new(
+                "private instructions",
+                "private prompt",
+                "{}",
+                Tuning::default(),
+            ),
         }
-        worker.shutdown().expect("idempotent shutdown");
     }
 
     #[test]
-    fn cancelling_and_quitting_join_a_running_model_call_without_a_real_terminal() {
+    fn quitting_cancels_and_joins_a_running_model_call_without_a_real_terminal() {
         let (model, started) = ScriptedLanguageModel::new([]).with_cancel_gate();
-        let model = Arc::new(model);
-        let mut worker = ModelWorker::start(model.clone()).expect("worker");
-        worker
-            .respond(ChatRequest {
-                id: 42,
-                request: ModelRequest::new(
-                    "private instructions",
-                    "private message",
-                    "{}",
-                    Tuning::default(),
-                ),
-            })
-            .expect("start");
+        let mut worker = ModelWorker::start(Arc::new(model)).expect("worker");
+        worker.respond(request(42)).expect("start model call");
         started
             .recv_timeout(Duration::from_secs(5))
             .expect("call entered");
@@ -171,11 +149,7 @@ mod tests {
                 assert_eq!(id, 42);
                 assert_eq!(result, Err(ModelError::Cancelled));
             }
-            Completion::Availability(_) => {
-                panic!("expected response")
-            }
         }
-        assert_eq!(model.requests().len(), 1);
         worker.shutdown().expect("idempotent shutdown");
     }
 
@@ -188,43 +162,30 @@ mod tests {
             Err(ModelError::Refused),
         ]));
         let mut worker = ModelWorker::start(model.clone()).expect("worker");
-        worker.probe().expect("probe");
+        worker.respond(request(1)).expect("start first");
         assert!(worker.busy());
         assert_eq!(
-            worker.probe().expect_err("one job").kind(),
+            worker.respond(request(2)).expect_err("only one job").kind(),
             io::ErrorKind::WouldBlock
         );
-        match worker.results.recv().expect("probe result") {
-            Completion::Availability(result) => assert_eq!(result, Ok(Availability::Available)),
-            Completion::Answer(_, _) => panic!("expected probe"),
+        match worker.results.recv().expect("first response") {
+            Completion::Answer(id, result) => {
+                assert_eq!(id, 1);
+                assert_eq!(
+                    result,
+                    Ok(ModelAnswer {
+                        json: "first".into()
+                    })
+                );
+            }
         }
         worker.busy = false;
-        for id in [1, 2] {
-            worker
-                .respond(ChatRequest {
-                    id,
-                    request: ModelRequest::new("rules", "input", "{}", Tuning::default()),
-                })
-                .expect("request");
-            match worker.results.recv().expect("response") {
-                Completion::Answer(token, result) => {
-                    assert_eq!(token, id);
-                    if id == 1 {
-                        assert_eq!(
-                            result,
-                            Ok(ModelAnswer {
-                                json: "first".into()
-                            })
-                        );
-                    } else {
-                        assert_eq!(result, Err(ModelError::Refused));
-                    }
-                }
-                Completion::Availability(_) => {
-                    panic!("expected answer")
-                }
+        worker.respond(request(2)).expect("start second");
+        match worker.results.recv().expect("second response") {
+            Completion::Answer(id, result) => {
+                assert_eq!(id, 2);
+                assert_eq!(result, Err(ModelError::Refused));
             }
-            worker.busy = false;
         }
         assert_eq!(model.requests().len(), 2);
         worker.shutdown().expect("joined");

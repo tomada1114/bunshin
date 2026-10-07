@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `bunshin tui` is now a three-character board, kept in memory only.
+
 - Core's `Clock::now` returns `Now`; counter timestamps keep their existing Unix
   millisecond format. Core rejects direct clock reads through jiff as well as `std`.
 

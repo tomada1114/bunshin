@@ -226,65 +226,6 @@ impl Day {
     pub fn messages(&self) -> &[Message] {
         &self.data.messages
     }
-    pub(crate) fn append_message(&mut self, message: Message) {
-        self.data.messages.push(message);
-    }
-    pub(crate) fn cancel_owner_message(&mut self, index: usize) {
-        if let Some(message) = self.data.messages.get_mut(index) {
-            message.cancelled = true;
-        }
-    }
-    pub(crate) fn record_owner_message(&self, text: &str, at: UnixMillis) -> Self {
-        let mut day = self.clone();
-        day.data.messages.push(Message {
-            author: Author::You,
-            text: text.to_owned(),
-            time: at,
-            kind: MessageKind::Reply,
-            change_set: None,
-            cancelled: false,
-            in_reply_to: None,
-        });
-        day
-    }
-    pub(crate) fn link_chat_reply(&mut self, owner: usize) {
-        if let Some(reply) = self.data.messages.last_mut() {
-            reply.in_reply_to = u64::try_from(owner).ok();
-        }
-    }
-    pub(crate) fn chat_context_without_owner_rows(&self, indices: &[usize]) -> Self {
-        let mut context = self.clone();
-        let mut replies = std::collections::BTreeMap::<usize, Vec<Message>>::new();
-        let mut rows = Vec::new();
-        for (index, message) in self.data.messages.iter().enumerate() {
-            let target = message
-                .in_reply_to
-                .and_then(|id| usize::try_from(id).ok())
-                .filter(|owner| {
-                    *owner < index
-                        && message.author == Author::Bunshin
-                        && message.kind == MessageKind::Reply
-                        && self.data.messages[*owner].author == Author::You
-                        && self.data.messages[*owner].kind == MessageKind::Reply
-                });
-            if let Some(owner) = target {
-                replies.entry(owner).or_default().push(message.clone());
-            } else {
-                rows.push((index, message.clone()));
-            }
-        }
-        context.data.messages.clear();
-        for (index, message) in rows {
-            if !indices.contains(&index) {
-                context.data.messages.push(message);
-                context
-                    .data
-                    .messages
-                    .extend(replies.remove(&index).unwrap_or_default());
-            }
-        }
-        context
-    }
     /// Every persisted field, read-only; session undo is excluded.
     #[must_use]
     pub const fn data(&self) -> &file::DayData {
