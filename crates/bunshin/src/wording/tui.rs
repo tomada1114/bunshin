@@ -2,7 +2,9 @@
 use bunshin_core::{
     ModelError, Now, UnavailableReason,
     board::FailureKind,
-    screen::{BoardFailure, BoardStatus},
+    screen::{
+        BoardFailure, BoardFocus, BoardStatus, KEY_TABLE, KeyRegion, ScreenAction, ScreenKey,
+    },
 };
 
 pub const APP_NAME: &str = "Bunshin";
@@ -13,7 +15,76 @@ pub const TOO_SMALL: &str = "端末が小さすぎます";
 pub const EXPAND_TERMINAL: &str = "60×18 以上に広げてください";
 pub const IDLE: &str = "待機中";
 pub const WRITING: &str = "書き込み中…";
-pub const INPUT_HINT: &str = "Tab  掲示板へ    q  終了";
+
+pub fn input_hint(focus: BoardFocus) -> String {
+    let region = match focus {
+        BoardFocus::Input => KeyRegion::Input,
+        BoardFocus::Board => KeyRegion::Board,
+    };
+    let mut grouped = Vec::<(ScreenAction, Vec<ScreenKey>)>::new();
+    for binding in KEY_TABLE
+        .iter()
+        .filter(|binding| binding.region == region || binding.region == KeyRegion::Anywhere)
+    {
+        if let Some((_, keys)) = grouped
+            .iter_mut()
+            .find(|(action, _)| *action == binding.action)
+        {
+            keys.extend(binding.keys.iter().copied());
+        } else {
+            grouped.push((binding.action, binding.keys.to_vec()));
+        }
+    }
+    grouped
+        .into_iter()
+        .map(|(action, keys)| {
+            let keys = keys
+                .iter()
+                .map(|key| key_label(*key))
+                .collect::<Vec<_>>()
+                .join("/");
+            format!("{keys} {}", action_label(action, focus))
+        })
+        .collect::<Vec<_>>()
+        .join("  ")
+}
+
+fn key_label(key: ScreenKey) -> String {
+    match key {
+        ScreenKey::Char(character) => character.to_string(),
+        ScreenKey::Up => "↑".to_owned(),
+        ScreenKey::Down => "↓".to_owned(),
+        ScreenKey::Left => "←".to_owned(),
+        ScreenKey::Right => "→".to_owned(),
+        ScreenKey::Enter => "Enter".to_owned(),
+        ScreenKey::Tab => "Tab".to_owned(),
+        ScreenKey::BackTab => "⇧Tab".to_owned(),
+        ScreenKey::Esc => "Esc".to_owned(),
+        ScreenKey::Interrupt => "Ctrl+C".to_owned(),
+        ScreenKey::Backspace => "BS".to_owned(),
+        ScreenKey::Delete => "Del".to_owned(),
+        ScreenKey::Home => "Home".to_owned(),
+        ScreenKey::End => "End".to_owned(),
+        ScreenKey::PageUp => "PgUp".to_owned(),
+        ScreenKey::PageDown => "PgDn".to_owned(),
+    }
+}
+
+fn action_label(action: ScreenAction, focus: BoardFocus) -> &'static str {
+    match action {
+        ScreenAction::Quit => "終了",
+        ScreenAction::ToggleFocus => match focus {
+            BoardFocus::Input => "掲示板へ",
+            BoardFocus::Board => "入力へ",
+        },
+        ScreenAction::ScrollOlder => "前へ",
+        ScreenAction::ScrollNewer => "次へ",
+        ScreenAction::Latest => "最新へ",
+        ScreenAction::FocusInput => "入力へ",
+        ScreenAction::SubmitInput => "投稿",
+        ScreenAction::ClearInput => "消去",
+    }
+}
 
 pub fn input_count(chars: usize, limit: usize) -> String {
     format!(" {chars}/{limit} ")

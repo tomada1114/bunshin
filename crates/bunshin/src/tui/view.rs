@@ -178,7 +178,7 @@ fn draw_board(
 
 fn draw_input(frame: &mut Frame, screen: &BoardScreen, area: Rect) {
     let bottom = Line::from(vec![
-        Span::raw(wording::INPUT_HINT),
+        Span::raw(wording::input_hint(screen.focus())),
         Span::raw(wording::input_count(
             screen.input().chars(),
             screen.input_limit(),

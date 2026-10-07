@@ -1,6 +1,6 @@
 //! Pure key and request state for the in-memory board screen.
 
-use super::{InputBuffer, ScreenKey, viewport::BoardViewport};
+use super::{InputBuffer, KeyRegion, ScreenAction, ScreenKey, action_for, viewport::BoardViewport};
 use crate::{
     ModelAnswer, ModelError, ModelRequest, Now, Tuning, UnixMillis,
     board::{Board, FailureKind, Outcome, Rng, Turn},
@@ -212,44 +212,62 @@ impl BoardScreen {
 
     /// Apply a key without touching the terminal or model.
     pub fn update(&mut self, key: ScreenKey, now: Now) {
-        let key = key.normalized();
-        match key {
-            ScreenKey::Interrupt => self.finished = true,
-            ScreenKey::Tab | ScreenKey::BackTab => {
+        let region = match self.focus {
+            BoardFocus::Input => KeyRegion::Input,
+            BoardFocus::Board => KeyRegion::Board,
+        };
+        let action = action_for(key, region);
+        match action {
+            Some(ScreenAction::Quit) => self.finished = true,
+            Some(ScreenAction::ToggleFocus) => {
                 self.focus = match self.focus {
                     BoardFocus::Input => BoardFocus::Board,
                     BoardFocus::Board => BoardFocus::Input,
                 };
             }
-            ScreenKey::PageUp => self.viewport.scroll_page_up(self.board.posts()),
-            ScreenKey::PageDown => self.viewport.scroll_page_down(self.board.posts()),
-            ScreenKey::Up if self.focus == BoardFocus::Board => {
-                self.viewport.scroll_up(self.board.posts());
+            Some(ScreenAction::ScrollOlder) => match key.normalized() {
+                ScreenKey::Up => self.viewport.scroll_up(self.board.posts()),
+                ScreenKey::PageUp => self.viewport.scroll_page_up(self.board.posts()),
+                ScreenKey::Char(_)
+                | ScreenKey::Down
+                | ScreenKey::Left
+                | ScreenKey::Right
+                | ScreenKey::Enter
+                | ScreenKey::Tab
+                | ScreenKey::BackTab
+                | ScreenKey::Esc
+                | ScreenKey::Interrupt
+                | ScreenKey::Backspace
+                | ScreenKey::Delete
+                | ScreenKey::Home
+                | ScreenKey::End
+                | ScreenKey::PageDown => {}
+            },
+            Some(ScreenAction::ScrollNewer) => match key.normalized() {
+                ScreenKey::Down => self.viewport.scroll_down(self.board.posts()),
+                ScreenKey::PageDown => self.viewport.scroll_page_down(self.board.posts()),
+                ScreenKey::Char(_)
+                | ScreenKey::Up
+                | ScreenKey::Left
+                | ScreenKey::Right
+                | ScreenKey::Enter
+                | ScreenKey::Tab
+                | ScreenKey::BackTab
+                | ScreenKey::Esc
+                | ScreenKey::Interrupt
+                | ScreenKey::Backspace
+                | ScreenKey::Delete
+                | ScreenKey::Home
+                | ScreenKey::End
+                | ScreenKey::PageUp => {}
+            },
+            Some(ScreenAction::Latest) => self.viewport.follow_latest(),
+            Some(ScreenAction::FocusInput) => self.focus = BoardFocus::Input,
+            Some(ScreenAction::SubmitInput) => self.submit_input(now.instant),
+            Some(ScreenAction::ClearInput) | None if self.focus == BoardFocus::Input => {
+                self.input.edit(key, self.input_limit());
             }
-            ScreenKey::Down if self.focus == BoardFocus::Board => {
-                self.viewport.scroll_down(self.board.posts());
-            }
-            ScreenKey::End if self.focus == BoardFocus::Board => {
-                self.viewport.follow_latest();
-            }
-            ScreenKey::Enter => self.submit_input(now.instant),
-            ScreenKey::Char('q') if self.focus == BoardFocus::Board => self.finished = true,
-            ScreenKey::Char('i') | ScreenKey::Esc if self.focus == BoardFocus::Board => {
-                self.focus = BoardFocus::Input;
-            }
-            ScreenKey::Char(_)
-            | ScreenKey::Left
-            | ScreenKey::Right
-            | ScreenKey::Backspace
-            | ScreenKey::Delete
-            | ScreenKey::Home
-            | ScreenKey::End
-            | ScreenKey::Esc => {
-                if self.focus == BoardFocus::Input {
-                    self.input.edit(key, self.input_limit());
-                }
-            }
-            ScreenKey::Up | ScreenKey::Down => {}
+            Some(ScreenAction::ClearInput) | None => {}
         }
     }
 

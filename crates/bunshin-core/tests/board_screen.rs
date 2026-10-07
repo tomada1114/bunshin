@@ -3,7 +3,10 @@
 use bunshin_core::{
     CancelFlag, Clock, LanguageModel, ModelAnswer, ModelError, Tuning,
     board::{Author, Outcome},
-    screen::{BoardFailure, BoardScreen, BoardStatus, ScreenKey},
+    screen::{
+        BoardFailure, BoardScreen, BoardStatus, KEY_TABLE, KeyRegion, ScreenAction, ScreenKey,
+        action_for,
+    },
 };
 use bunshin_test_support::{FixedClock, ScriptedLanguageModel};
 
@@ -153,6 +156,63 @@ fn the_existing_line_editor_keeps_its_four_hundred_character_limit_and_edit_keys
         bounded.update(ScreenKey::Char(character), clock.now());
     }
     assert_eq!(bounded.input().chars(), 400);
+}
+
+#[test]
+fn the_line_editor_preserves_full_width_ascii_and_ideographic_space() {
+    let clock = clock();
+    let mut screen = new_screen(Tuning::default());
+
+    for character in "Ａ！　".chars() {
+        screen.update(ScreenKey::Char(character), clock.now());
+    }
+
+    assert_eq!(screen.input().text(), "Ａ！　");
+}
+
+#[test]
+fn enter_while_the_board_has_focus_keeps_the_input_draft() {
+    let clock = clock();
+    let mut screen = new_screen(Tuning::default());
+    for character in "draft".chars() {
+        screen.update(ScreenKey::Char(character), clock.now());
+    }
+
+    screen.update(ScreenKey::Tab, clock.now());
+    screen.update(ScreenKey::Enter, clock.now());
+
+    assert!(screen.board().posts().is_empty());
+    assert_eq!(screen.input().text(), "draft");
+}
+
+#[test]
+fn every_visible_binding_dispatches_only_in_its_declared_region() {
+    for binding in KEY_TABLE {
+        for key in binding.keys {
+            assert_eq!(
+                action_for(*key, binding.region),
+                Some(binding.action),
+                "{key:?} in {:?}",
+                binding.region
+            );
+        }
+    }
+
+    assert_eq!(
+        action_for(ScreenKey::Enter, KeyRegion::Board),
+        None,
+        "Enter cannot submit while the board has focus"
+    );
+    assert_eq!(
+        action_for(ScreenKey::Char('q'), KeyRegion::Input),
+        None,
+        "q stays available as literal input"
+    );
+    assert_eq!(
+        action_for(ScreenKey::Char('ｉ'), KeyRegion::Board),
+        Some(ScreenAction::FocusInput),
+        "full-width command keys still invoke their binding"
+    );
 }
 
 #[test]

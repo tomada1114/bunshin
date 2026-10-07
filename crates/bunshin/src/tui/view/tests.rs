@@ -1,7 +1,7 @@
 use super::*;
 use bunshin_core::{
     CancelFlag, Clock, LanguageModel, ModelAnswer, ModelError, Tuning, UnavailableReason,
-    screen::{BoardFailure, BoardScreen, ScreenKey},
+    screen::{BoardFailure, BoardFocus, BoardScreen, ScreenKey},
 };
 use bunshin_test_support::{FixedClock, ScriptedLanguageModel};
 use ratatui::{Terminal, backend::TestBackend};
@@ -31,6 +31,7 @@ fn board_screen_shows_header_posts_and_input_without_task_or_help_panes() {
     let mut screen = BoardScreen::new(Tuning::default(), 3);
     type_text(&mut screen, "今日はカレー気分", now);
     screen.update(ScreenKey::Enter, now);
+    screen.update(ScreenKey::Tab, now);
 
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).expect("test terminal");
     terminal
@@ -45,6 +46,9 @@ fn board_screen_shows_header_posts_and_input_without_task_or_help_panes() {
     assert!(rendered.contains("あなた"), "{rendered:?}");
     assert!(rendered.contains("今日はカレー気分"), "{rendered:?}");
     assert!(rendered.contains("入力"), "{rendered:?}");
+    for hint in ["↑", "↓", "PgUp", "PgDn", "End", "i", "Esc", "Ctrl+C"] {
+        assert!(rendered.contains(hint), "missing {hint:?} in {rendered:?}");
+    }
     assert!(!rendered.contains("今日のタスク"), "{rendered:?}");
     assert!(!rendered.contains("キー操作"), "{rendered:?}");
     let owner_name = terminal
@@ -56,6 +60,38 @@ fn board_screen_shows_header_posts_and_input_without_task_or_help_panes() {
         .expect("owner name cell");
     assert_eq!(owner_name.fg, Color::Reset);
     assert!(owner_name.modifier.contains(Modifier::BOLD));
+}
+
+#[test]
+fn input_hints_are_derived_from_the_active_bindings() {
+    let board_hint = wording::input_hint(BoardFocus::Board);
+    for hint in ["↑", "↓", "PgUp", "PgDn", "End", "i", "Esc", "q", "Ctrl+C"] {
+        assert!(
+            board_hint.contains(hint),
+            "missing {hint:?} in {board_hint:?}"
+        );
+    }
+
+    let input_hint = wording::input_hint(BoardFocus::Input);
+    for hint in ["Enter", "Esc", "PgUp", "PgDn", "Ctrl+C"] {
+        assert!(
+            input_hint.contains(hint),
+            "missing {hint:?} in {input_hint:?}"
+        );
+    }
+
+    let clock = FixedClock::default();
+    let screen = BoardScreen::new(Tuning::default(), 3);
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            draw_with_metrics(frame, &screen, clock.now(), &|at| clock.local_at(at));
+        })
+        .expect("draw input focus");
+    let rendered = rendered(&terminal);
+    for hint in ["Ctrl+C", "Tab", "PgUp", "PgDn", "Enter", "Esc"] {
+        assert!(rendered.contains(hint), "missing {hint:?} in {rendered:?}");
+    }
 }
 
 #[test]
