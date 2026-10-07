@@ -1,14 +1,9 @@
 //! The command-line entry point and composition root.
 #![deny(clippy::wildcard_enum_match_arm)]
 
-mod instructions;
 mod startup;
-mod today;
 mod tui;
 mod wording;
-
-// Formatting entry points are kept available independently of the terminal worker.
-pub use wording::{fixed_deadline, unprompted_label};
 
 use bunshin_core::{Clock, Tuning, logical_date};
 use bunshin_platform::{
@@ -18,9 +13,9 @@ use clap::{Parser, Subcommand};
 use std::io::{self, IsTerminal};
 use std::process::ExitCode;
 
-/// Open the secretary's terminal shell.
+/// Open today's task list and chat.
 #[derive(Debug, Parser)]
-#[command(version, about = wording::ABOUT)]
+#[command(version, about = wording::ABOUT, disable_help_subcommand = true)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -28,39 +23,14 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Open the full-screen shell (needs an interactive terminal).
+    /// Open the task list and chat (needs an interactive terminal).
     #[command(about = wording::TUI_ABOUT)]
     Tui,
-    /// Read the logical day's task list without taking a writer lease.
-    #[command(about = wording::TODAY_ABOUT)]
-    Today {
-        /// Print the stable versioned task view as one JSON object.
-        #[arg(long,help=wording::TODAY_JSON_HELP)]
-        json: bool,
-    },
-    /// Print the instructions in use, or edit the owner's file.
-    #[command(about = wording::INSTRUCTIONS_ABOUT)]
-    Instructions {
-        #[command(subcommand)]
-        command: Option<InstructionsCommand>,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum InstructionsCommand {
-    /// Open the owner's explicitly selected editor and check the saved text.
-    #[command(about = wording::INSTRUCTIONS_EDIT_ABOUT)]
-    Edit,
 }
 
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Tui => tui(),
-        Command::Today { json } => today::run(json),
-        Command::Instructions { command } => instructions::run(match command {
-            None => false,
-            Some(InstructionsCommand::Edit) => true,
-        }),
     }
 }
 
@@ -95,8 +65,7 @@ fn tui() -> ExitCode {
     #[cfg(not(target_os = "macos"))]
     let model: std::sync::Arc<dyn bunshin_core::LanguageModel> =
         std::sync::Arc::new(bunshin_platform::UnavailableLanguageModel);
-    let instructions = bunshin_platform::FileInstructions::new(app_data_dir(&home));
-    match tui::run(screen, &store, &clock, model, &instructions, tuning) {
+    match tui::run(screen, &store, &clock, model, tuning) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(kind = ?error.kind(), "the terminal failed");

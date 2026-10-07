@@ -83,6 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** removed the counter sample, its public APIs, and the `counter`
   subcommand. Stored `counter.json` files are ignored and left untouched.
+- **Breaking:** Removed check-ins, day rhythm, the inbox, task form, key-driven task
+  editing, and the instructions feature. The `today` and `instructions` subcommands
+  are gone; the data directory's `instructions.md` file is no longer read or modified.
 
 ### Changed
 

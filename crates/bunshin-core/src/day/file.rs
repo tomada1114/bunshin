@@ -1,42 +1,26 @@
-//! Format-two serde data. The platform preflights the header, then parses the DTO.
-//! Format one is migrated on read; format zero never shipped and is refused rather
-//! than guessed.
-use super::{
-    Day, DayError, Message, Task, TaskStatus, Trigger, YesterdayRecord, serde_civil, validate_task,
-};
-use crate::{Tuning, UnixMillis};
-use jiff::civil::{Date, DateTime};
+//! Versioned serde data. Unknown fields from earlier builds are ignored on read.
+use super::{Day, DayError, Message, Task, TaskStatus, serde_civil, validate_task};
+use crate::Tuning;
+use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+
 /// The current on-disk contract version.
-pub const FORMAT: u32 = 2;
-/// The oldest version with a defined migration: format one, which has no retry record.
+pub const FORMAT: u32 = 3;
+/// The oldest version with a defined migration.
 pub const OLDEST_FORMAT: u32 = 1;
-/// Read this first so a future payload can be refused without parsing its shape.
+
+/// Read the version before parsing the rest of a day file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatHeader {
     /// Explicit file version, required on every day file.
     pub format: u32,
-    /// Whether the `retryingTriggers` key is present; format two requires it, so a
-    /// damaged file cannot silently regain spent retries. Never serialized.
-    #[serde(
-        rename = "retryingTriggers",
-        default,
-        deserialize_with = "key_present",
-        skip_serializing
-    )]
-    pub has_retry_record: bool,
-}
-fn key_present<'de, D: serde::Deserializer<'de>>(value: D) -> Result<bool, D::Error> {
-    serde::de::IgnoredAny::deserialize(value).map(|_| true)
 }
 impl FormatHeader {
-    /// Accept only versions with a defined decoder: the current one, and format one,
-    /// which `DayFile::into_day` migrates.
+    /// Accept only versions with a defined decoder.
     /// # Errors
-    /// Newer versions return `NewerFormat`; zero has no shipped migration; a format-two
-    /// file without its retry record returns `MissingRetryRecord`.
+    /// Newer versions and older formats without a migration are rejected.
     pub fn check(self) -> Result<(), DayFileError> {
         if self.format > FORMAT {
             return Err(DayFileError::NewerFormat { found: self.format });
@@ -44,12 +28,10 @@ impl FormatHeader {
         if self.format < OLDEST_FORMAT {
             return Err(DayFileError::UnsupportedFormat { found: self.format });
         }
-        if self.format == FORMAT && !self.has_retry_record {
-            return Err(DayFileError::MissingRetryRecord);
-        }
         Ok(())
     }
 }
+
 /// Every persisted day field, separated from the session-only undo stack.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -61,30 +43,8 @@ pub struct DayData {
     pub next_task_number: u64,
     /// Current tasks in creation order.
     pub tasks: Vec<Task>,
-    /// Append-only rows including check-ins and structured changes.
+    /// Append-only conversation and structured task changes.
     pub messages: Vec<Message>,
-    /// Next look scheduled by the model.
-    #[serde(with = "serde_civil::optional_datetime")]
-    pub next_planned_look: Option<DateTime>,
-    /// Most recent delivered check-in instant.
-    pub last_unprompted_at: Option<UnixMillis>,
-    /// End of the owner's mute period.
-    pub muted_until: Option<UnixMillis>,
-    /// Authoritative consumed facts, including deleted tasks; task facts also live on Task.
-    pub triggers_fired: Vec<Trigger>,
-    /// Pending triggers held for later consideration.
-    pub held_triggers: Vec<Trigger>,
-    /// Held non-deadline triggers whose one retry is already granted, so a restart
-    /// neither grants another nor spends it. Saved as a subset of `held_triggers`;
-    /// absent before format two, which decodes as empty; `FormatHeader::check`
-    /// refuses a format-two file without it.
-    #[serde(default)]
-    pub retrying_triggers: Vec<Trigger>,
-    /// Summary retained from the previous logical day.
-    pub yesterday_record: Option<YesterdayRecord>,
-    /// Fingerprint of the last fallback notice, so restart does not repeat it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_instructions_notice: Option<u64>,
 }
 impl DayData {
     pub(super) fn empty(date: Date) -> Self {
@@ -93,17 +53,10 @@ impl DayData {
             next_task_number: 1,
             tasks: Vec::new(),
             messages: Vec::new(),
-            next_planned_look: None,
-            last_unprompted_at: None,
-            muted_until: None,
-            triggers_fired: Vec::new(),
-            held_triggers: Vec::new(),
-            retrying_triggers: Vec::new(),
-            yesterday_record: None,
-            last_instructions_notice: None,
         }
     }
 }
+
 /// Versioned on-disk DTO; unknown fields are ignored by serde.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,29 +76,15 @@ impl From<&Day> for DayFile {
     }
 }
 impl DayFile {
-    /// Validate stored task invariants, migrate format one, and start a fresh session
-    /// undo stack. Format one has no retry record, so no held trigger counts as retrying.
+    /// Validate stored task invariants and start a fresh session undo stack.
     /// # Errors
     /// Unsupported version, invalid task fields, duplicate identifiers or an invalid
-    /// high-water mark, missing consumed numbers, task limit, inconsistent closing status,
-    /// or a retrying trigger that is not held.
+    /// high-water mark, missing consumed numbers, task limit, or inconsistent status.
     pub fn into_day(mut self, tuning: Tuning) -> Result<Day, DayFileError> {
         FormatHeader {
             format: self.format,
-            has_retry_record: true,
         }
         .check()?;
-        if self.format < FORMAT {
-            self.data.retrying_triggers.clear();
-        }
-        if self
-            .data
-            .retrying_triggers
-            .iter()
-            .any(|trigger| !self.data.held_triggers.contains(trigger))
-        {
-            return Err(DayFileError::RetryingNotHeld);
-        }
         let mut numbers = BTreeSet::new();
         if self.data.next_task_number == 0 {
             return Err(DayFileError::InvalidNumbering);
@@ -162,22 +101,8 @@ impl DayFile {
                 return Err(DayFileError::InvalidNumbering);
             }
         }
-        // Deleted and undone additions remain in visible rows; a corrupt high-water
-        // mark must not make one of those already-used numbers reusable after load.
         for message in &self.data.messages {
             if let Some(set) = &message.change_set {
-                // An earlier day's leftover keeps that day's numbering, so it is held to
-                // the task rules but not to this day's consumed numbers.
-                for leftover in &set.leftovers {
-                    if leftover.date >= self.data.date {
-                        return Err(DayFileError::InvalidTask {
-                            kind: DayError::InvalidStatus,
-                        });
-                    }
-                    for task in [&leftover.before, &leftover.after] {
-                        validate_stored_task(task, tuning, u64::MAX)?;
-                    }
-                }
                 for change in &set.changes {
                     match change {
                         super::Change::Task { before, after } => {
@@ -194,25 +119,18 @@ impl DayFile {
                 }
             }
         }
-        // Every observed number has already been validated to lie in 1..next.
-        // Equal cardinality therefore proves the complete contiguous range was
-        // consumed, including deleted and undone tasks. The set grows only with
-        // actual snapshots, never with a possibly corrupt cursor's claimed range.
         if u64::try_from(numbers.len()).ok() != Some(self.data.next_task_number - 1) {
             return Err(DayFileError::InvalidNumbering);
         }
-        let mut data = self.data;
-        data.tasks.sort_by_key(|task| task.number);
+        self.data.tasks.sort_by_key(|task| task.number);
         Ok(Day {
-            data,
+            data: self.data,
             tuning,
             undo: Vec::new(),
-            released_retrying: Vec::new(),
         })
     }
 }
-// Live tasks and historical snapshots obey the same domain invariants. Numbers
-// may recur in history; uniqueness is checked only in the current task collection.
+
 fn validate_stored_task(
     task: &Task,
     tuning: Tuning,
@@ -242,13 +160,13 @@ pub enum DayFileError {
     /// App cannot understand this newer format and must not overwrite it.
     #[error("day format is newer than supported")]
     NewerFormat {
-        /// Version found, safe to report.
+        /// Format version in the file.
         found: u32,
     },
     /// No payload of this older version has ever shipped.
     #[error("day format has no defined migration")]
     UnsupportedFormat {
-        /// Undefined older version.
+        /// Format version in the file.
         found: u32,
     },
     /// Duplicate live numbers, invalid bounds, or unaccounted consumed task numbers.
@@ -257,13 +175,7 @@ pub enum DayFileError {
     /// Task data violates core's invariants.
     #[error("invalid stored task")]
     InvalidTask {
-        /// Domain failure without task text.
+        /// The invariant the stored task failed.
         kind: DayError,
     },
-    /// A retry record names a trigger that is not held, so it cannot be trusted.
-    #[error("retrying trigger is not held")]
-    RetryingNotHeld,
-    /// A current-format file lacks its retry record, so spent retries cannot be known.
-    #[error("retry record is missing")]
-    MissingRetryRecord,
 }

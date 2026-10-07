@@ -1,7 +1,6 @@
 //! One model thread. Ordering and all result decisions stay in core.
 use bunshin_core::{
-    Availability, CancelFlag, LanguageModel, ModelAnswer, ModelError,
-    checkin::calls::CheckinRequest, screen::ChatRequest,
+    Availability, CancelFlag, LanguageModel, ModelAnswer, ModelError, screen::ChatRequest,
 };
 use std::{
     io,
@@ -15,12 +14,10 @@ use std::{
 enum Job {
     Probe(CancelFlag),
     Respond(ChatRequest, CancelFlag),
-    Checkin(CheckinRequest, CancelFlag),
 }
 pub(super) enum Completion {
     Availability(Result<Availability, ModelError>),
     Answer(u64, Result<ModelAnswer, ModelError>),
-    Checkin(u64, Result<ModelAnswer, ModelError>),
 }
 pub(super) struct ModelWorker {
     jobs: Option<Sender<Job>>,
@@ -44,10 +41,6 @@ impl ModelWorker {
                         Job::Respond(request, cancel) => {
                             Completion::Answer(request.id, model.respond(&request.request, &cancel))
                         }
-                        Job::Checkin(request, cancel) => Completion::Checkin(
-                            request.id,
-                            model.respond(&request.request, &cancel),
-                        ),
                     };
                     if output.send(completion).is_err() {
                         break;
@@ -74,13 +67,6 @@ impl ModelWorker {
     pub(super) fn respond(&mut self, request: ChatRequest) -> io::Result<()> {
         let cancel = CancelFlag::default();
         self.send(Job::Respond(request, cancel.clone()))?;
-        self.cancel = Some(cancel);
-        Ok(())
-    }
-    /// A check-in cannot be cancelled by Esc; only quitting cancels it.
-    pub(super) fn checkin(&mut self, request: CheckinRequest) -> io::Result<()> {
-        let cancel = CancelFlag::default();
-        self.send(Job::Checkin(request, cancel.clone()))?;
         self.cancel = Some(cancel);
         Ok(())
     }
@@ -153,7 +139,7 @@ mod tests {
         worker.shutdown().expect("cancel and join probe");
         match worker.results.recv().expect("probe completed") {
             Completion::Availability(result) => assert_eq!(result, Err(ModelError::Cancelled)),
-            Completion::Answer(_, _) | Completion::Checkin(_, _) => panic!("expected probe"),
+            Completion::Answer(_, _) => panic!("expected probe"),
         }
         worker.shutdown().expect("idempotent shutdown");
     }
@@ -185,7 +171,7 @@ mod tests {
                 assert_eq!(id, 42);
                 assert_eq!(result, Err(ModelError::Cancelled));
             }
-            Completion::Availability(_) | Completion::Checkin(_, _) => {
+            Completion::Availability(_) => {
                 panic!("expected response")
             }
         }
@@ -210,7 +196,7 @@ mod tests {
         );
         match worker.results.recv().expect("probe result") {
             Completion::Availability(result) => assert_eq!(result, Ok(Availability::Available)),
-            Completion::Answer(_, _) | Completion::Checkin(_, _) => panic!("expected probe"),
+            Completion::Answer(_, _) => panic!("expected probe"),
         }
         worker.busy = false;
         for id in [1, 2] {
@@ -234,42 +220,13 @@ mod tests {
                         assert_eq!(result, Err(ModelError::Refused));
                     }
                 }
-                Completion::Availability(_) | Completion::Checkin(_, _) => {
+                Completion::Availability(_) => {
                     panic!("expected answer")
                 }
             }
             worker.busy = false;
         }
         assert_eq!(model.requests().len(), 2);
-        worker.shutdown().expect("joined");
-    }
-
-    #[test]
-    fn a_check_in_runs_on_the_same_worker_and_returns_its_own_token() {
-        let model = Arc::new(ScriptedLanguageModel::new([Ok(ModelAnswer {
-            json: "checkin".into(),
-        })]));
-        let mut worker = ModelWorker::start(model.clone()).expect("worker");
-        worker
-            .checkin(CheckinRequest {
-                id: 7,
-                request: ModelRequest::new("rules", "triggers", "{}", Tuning::default()),
-            })
-            .expect("check-in");
-        assert!(worker.busy());
-        match worker.results.recv().expect("check-in result") {
-            Completion::Checkin(id, result) => {
-                assert_eq!(id, 7);
-                assert_eq!(
-                    result,
-                    Ok(ModelAnswer {
-                        json: "checkin".into()
-                    })
-                );
-            }
-            Completion::Availability(_) | Completion::Answer(_, _) => panic!("expected check-in"),
-        }
-        assert_eq!(model.requests().len(), 1);
         worker.shutdown().expect("joined");
     }
 }

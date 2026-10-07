@@ -15,8 +15,8 @@ fn day_file_round_trips_and_does_not_persist_undo() {
         )
         .unwrap();
     let json = serde_json::to_value(DayFile::from(&day)).unwrap();
-    assert_eq!(json["format"], 2);
-    assert_eq!(json["retryingTriggers"], serde_json::json!([]));
+    assert_eq!(json["format"], 3);
+    assert!(json.get("retryingTriggers").is_none());
     assert_eq!(json["date"], "2026-10-02");
     assert_eq!(json["tasks"][0]["time"], "15:00");
     assert_eq!(json["nextTaskNumber"], 2);
@@ -33,16 +33,30 @@ fn day_file_round_trips_and_does_not_persist_undo() {
 #[test]
 fn newer_format_is_typed_before_payload_parsing() {
     let header: FormatHeader =
-        serde_json::from_str(r#"{"format":3,"unknown_future_shape":true}"#).unwrap();
-    assert_eq!(header.check(), Err(DayFileError::NewerFormat { found: 3 }));
+        serde_json::from_str(r#"{"format":4,"unknown_future_shape":true}"#).unwrap();
+    assert_eq!(header.check(), Err(DayFileError::NewerFormat { found: 4 }));
+}
+
+#[test]
+fn format_two_day_data_is_read_and_rewritten_with_the_reduced_format_three_schema() {
+    let day = Day::new(date(2026, 10, 2), Tuning::default());
+    let mut legacy = serde_json::to_value(DayFile::from(&day)).unwrap();
+    legacy["format"] = serde_json::json!(2);
+    legacy["retryingTriggers"] = serde_json::json!([]);
+
+    let loaded = serde_json::from_value::<DayFile>(legacy)
+        .unwrap()
+        .into_day(Tuning::default())
+        .unwrap();
+    let saved = serde_json::to_value(DayFile::from(&loaded)).unwrap();
+
+    assert_eq!(saved["format"], 3);
+    assert!(saved.get("retryingTriggers").is_none());
 }
 
 #[test]
 fn payload_has_all_day_and_message_fields_and_ignores_unknown_fields() {
-    use bunshin_core::day::{
-        Author, InboxState, Message, MessageKind, SuppressionReason, TaskStatus, Trigger,
-        TriggerKind, UnpromptedKind, UnpromptedMessage, YesterdayRecord,
-    };
+    use bunshin_core::day::{Author, Message, MessageKind, TaskStatus};
     let (day, _) = Day::new(date(2026, 10, 2), Tuning::default())
         .add(
             "carry".into(),
@@ -57,57 +71,47 @@ fn payload_has_all_day_and_message_fields_and_ignores_unknown_fields() {
     let mut file = DayFile::from(&day);
     file.data.tasks[0].status = TaskStatus::CarriedOver;
     file.data.tasks[0].closed_at = Some(UnixMillis(2));
-    let trigger = Trigger {
-        kind: TriggerKind::BeforeDeadline,
-        task: Some(1),
-        due_at: UnixMillis(3),
-    };
-    file.data.tasks[0].triggers_fired.push(trigger.clone());
-    file.data.triggers_fired.push(trigger.clone());
-    file.data.held_triggers.push(trigger.clone());
-    file.data.next_planned_look = Some(date(2026, 10, 2).at(14, 30, 0, 0));
-    file.data.last_unprompted_at = Some(UnixMillis(3));
-    file.data.muted_until = Some(UnixMillis(6));
-    file.data.yesterday_record = Some(YesterdayRecord {
-        date: date(2026, 10, 1),
-        text: "record".into(),
-    });
     file.data.messages.push(Message {
         author: Author::Bunshin,
         text: "question".into(),
         time: UnixMillis(3),
         kind: MessageKind::Unprompted,
-        unprompted: Some(UnpromptedMessage {
-            kind: UnpromptedKind::Question,
-            trigger,
-            task: Some(1),
-            inbox_state: InboxState::Ignored,
-            state_changed_at: UnixMillis(5),
-            suppressed: Some(SuppressionReason::SameTask),
-        }),
-        answers_question: Some(0),
         change_set: None,
         cancelled: false,
         in_reply_to: None,
     });
     let mut value = serde_json::to_value(&file).unwrap();
+    for field in ["date", "nextTaskNumber", "tasks", "messages"] {
+        assert!(value.get(field).is_some(), "{field}");
+    }
     for field in [
-        "date",
-        "nextTaskNumber",
-        "tasks",
-        "messages",
         "nextPlannedLook",
         "lastUnpromptedAt",
         "mutedUntil",
         "triggersFired",
         "heldTriggers",
         "yesterdayRecord",
+        "retryingTriggers",
     ] {
-        assert!(value.get(field).is_some(), "{field}");
+        assert!(
+            value.get(field).is_none(),
+            "{field} was removed from the day payload"
+        );
     }
+    value["nextPlannedLook"] = serde_json::json!("2026-10-02T14:30:00");
+    value["mutedUntil"] = serde_json::json!(6);
+    value["triggersFired"] = serde_json::json!([{"kind":"beforeDeadline","task":1,"dueAt":3}]);
+    value["tasks"][0]["triggersFired"] =
+        serde_json::json!([{"kind":"beforeDeadline","task":1,"dueAt":3}]);
+    value["messages"][0]["answersQuestion"] = serde_json::json!(0);
+    value["messages"][0]["unprompted"] =
+        serde_json::json!({"kind":"question","task":1,"legacyState":"ignored"});
     value["future_field"] = serde_json::json!({"nested": true});
     let loaded: DayFile = serde_json::from_value(value).unwrap();
-    assert_eq!(loaded, file);
+    assert_eq!(
+        loaded, file,
+        "legacy fields are ignored without rejecting the day"
+    );
     let day = loaded.into_day(Tuning::default()).unwrap();
     assert_eq!(day.task_view()[0].status, TaskStatus::CarriedOver);
     assert_eq!(
@@ -173,10 +177,10 @@ fn invalid_numbering_status_and_task_fields_are_refused() {
         })
     );
     let mut file = original.clone();
-    file.format = 3;
+    file.format = 4;
     assert_eq!(
         file.into_day(Tuning::default()),
-        Err(DayFileError::NewerFormat { found: 3 })
+        Err(DayFileError::NewerFormat { found: 4 })
     );
     let mut file = original;
     file.format = 0;
@@ -549,144 +553,4 @@ fn loading_accounts_for_deleted_and_undone_numbers_from_append_only_history() {
         )
         .unwrap();
     assert_eq!(day.tasks().last().unwrap().number, 4);
-}
-
-#[test]
-fn a_leftover_dated_on_or_after_its_own_day_is_refused() {
-    let tuning = Tuning::default();
-    let (earlier, _) = Day::new(date(2026, 10, 1), tuning)
-        .add(
-            "leftover".into(),
-            TaskKind::Untimed,
-            None,
-            TaskOrigin::Key,
-            UnixMillis(0),
-        )
-        .unwrap();
-    let decided = bunshin_core::rhythm::decide(
-        Day::new(date(2026, 10, 2), tuning),
-        earlier,
-        &[1],
-        bunshin_core::day::LeftoverDecision::CarryOver,
-        UnixMillis(1),
-    )
-    .unwrap();
-    let valid = serde_json::to_value(DayFile::from(&decided.day)).unwrap();
-    assert!(
-        serde_json::from_value::<DayFile>(valid.clone())
-            .unwrap()
-            .into_day(tuning)
-            .is_ok()
-    );
-    for same_or_later in ["2026-10-02", "2026-10-03"] {
-        let mut json = valid.clone();
-        json["messages"][0]["changeSet"]["leftovers"][0]["date"] = same_or_later.into();
-        assert_eq!(
-            serde_json::from_value::<DayFile>(json)
-                .unwrap()
-                .into_day(tuning)
-                .err(),
-            Some(DayFileError::InvalidTask {
-                kind: DayError::InvalidStatus
-            })
-        );
-    }
-}
-
-fn held_planned_look() -> (DayFile, bunshin_core::day::Trigger) {
-    use bunshin_core::day::{Trigger, TriggerKind};
-    let trigger = Trigger {
-        kind: TriggerKind::PlannedLook,
-        task: None,
-        due_at: UnixMillis(5),
-    };
-    let mut file = DayFile::from(&Day::new(date(2026, 10, 2), Tuning::default()));
-    file.data.held_triggers = vec![trigger.clone()];
-    (file, trigger)
-}
-
-#[test]
-fn a_format_one_file_is_migrated_with_no_trigger_retrying() {
-    let (mut file, trigger) = held_planned_look();
-    file.data.retrying_triggers = vec![trigger.clone()];
-    let mut legacy = serde_json::to_value(&file).unwrap();
-    legacy["format"] = serde_json::json!(1);
-    let with_record = legacy.clone();
-    legacy.as_object_mut().unwrap().remove("retryingTriggers");
-    for value in [legacy, with_record] {
-        let day = serde_json::from_value::<DayFile>(value)
-            .unwrap()
-            .into_day(Tuning::default())
-            .unwrap();
-        assert_eq!(day.data().held_triggers, vec![trigger.clone()]);
-        assert!(day.data().retrying_triggers.is_empty());
-        assert_eq!(DayFile::from(&day).format, 2);
-    }
-}
-
-#[test]
-fn a_format_two_retry_record_round_trips() {
-    let (mut file, trigger) = held_planned_look();
-    file.data.retrying_triggers = vec![trigger.clone()];
-    let json = serde_json::to_value(&file).unwrap();
-    assert_eq!(json["format"], 2);
-    assert_eq!(
-        json["retryingTriggers"],
-        serde_json::json!([{"kind":"plannedLook","task":null,"dueAt":5}])
-    );
-    let day = serde_json::from_value::<DayFile>(json)
-        .unwrap()
-        .into_day(Tuning::default())
-        .unwrap();
-    assert_eq!(day.data().retrying_triggers, vec![trigger]);
-    assert_eq!(DayFile::from(&day), file);
-}
-
-#[test]
-fn a_format_three_file_is_refused_as_newer() {
-    let (file, _) = held_planned_look();
-    let mut json = serde_json::to_value(&file).unwrap();
-    json["format"] = serde_json::json!(3);
-    let header: FormatHeader = serde_json::from_value(json.clone()).unwrap();
-    assert_eq!(header.check(), Err(DayFileError::NewerFormat { found: 3 }));
-    assert_eq!(
-        serde_json::from_value::<DayFile>(json)
-            .unwrap()
-            .into_day(Tuning::default()),
-        Err(DayFileError::NewerFormat { found: 3 })
-    );
-}
-
-#[test]
-fn a_retrying_trigger_that_is_not_held_is_refused() {
-    use bunshin_core::day::{Trigger, TriggerKind};
-    let (mut file, trigger) = held_planned_look();
-    file.data.retrying_triggers = vec![Trigger {
-        kind: TriggerKind::EveningReview,
-        ..trigger.clone()
-    }];
-    assert_eq!(
-        file.clone().into_day(Tuning::default()),
-        Err(DayFileError::RetryingNotHeld)
-    );
-    file.data.held_triggers.clear();
-    file.data.retrying_triggers = vec![trigger];
-    assert_eq!(
-        file.into_day(Tuning::default()),
-        Err(DayFileError::RetryingNotHeld)
-    );
-}
-
-#[test]
-fn a_format_two_file_without_its_retry_record_is_refused() {
-    let (file, _) = held_planned_look();
-    let mut json = serde_json::to_value(&file).unwrap();
-    let header: FormatHeader = serde_json::from_value(json.clone()).unwrap();
-    assert_eq!(header.check(), Ok(()));
-    json.as_object_mut().unwrap().remove("retryingTriggers");
-    let header: FormatHeader = serde_json::from_value(json.clone()).unwrap();
-    assert_eq!(header.check(), Err(DayFileError::MissingRetryRecord));
-    json["format"] = serde_json::json!(1);
-    let header: FormatHeader = serde_json::from_value(json).unwrap();
-    assert_eq!(header.check(), Ok(()));
 }

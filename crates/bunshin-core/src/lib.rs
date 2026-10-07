@@ -10,21 +10,14 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 pub mod board;
-pub mod checkin;
 pub mod day;
-pub mod inbox;
-pub mod instructions;
 pub mod model;
 pub mod prompt;
-pub mod rhythm;
 pub mod screen;
-pub mod shell;
 pub mod time;
 pub mod tuning;
-pub use tuning::{CheckinTuning, DayTuning, PromptTuning, RhythmTuning};
-
-pub use shell::{ShellAction, ShellKey, ShellScreen};
 pub use time::{Clock, Now, UnixMillis, logical_date};
+pub use tuning::{ChatTuning, DayTuning, PromptTuning};
 
 pub use model::{
     Availability, CancelFlag, LanguageModel, ModelAnswer, ModelError, ModelRequest,

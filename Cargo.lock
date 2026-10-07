@@ -65,7 +65,6 @@ dependencies = [
  "bunshin-test-support",
  "clap",
  "ratatui",
- "serde_json",
  "tempfile",
  "tracing",
 ]

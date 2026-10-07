@@ -3,37 +3,37 @@
 /// Keys the binary translates from its terminal library.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScreenKey {
-    /// A committed character, including IME full-width ASCII.
+    /// A printable character.
     Char(char),
-    /// Previous row.
+    /// Move to the preceding task or chat row.
     Up,
-    /// Next row.
+    /// Move to the following task or chat row.
     Down,
-    /// Previous kind or text position.
+    /// Move the input cursor left.
     Left,
-    /// Next kind or text position.
+    /// Move the input cursor right.
     Right,
-    /// Submit or edit.
+    /// Submit the current input.
     Enter,
-    /// Next focus or form field.
+    /// Move focus to the other main pane.
     Tab,
-    /// Previous focus or form field.
+    /// Move focus to the other main pane in reverse.
     BackTab,
-    /// Close or cancel.
+    /// Cancel the current action or close help.
     Esc,
-    /// Ctrl+C, interpreted as quit even in a modal.
+    /// Interrupt the active request or quit.
     Interrupt,
-    /// Ctrl+Z, interpreted as undo even in a modal.
+    /// Undo the latest task change.
     Undo,
-    /// Remove the previous character.
+    /// Remove the character before the input cursor.
     Backspace,
-    /// Remove the next character.
+    /// Remove the character at the input cursor.
     Delete,
-    /// Beginning of the current field.
+    /// Move the input cursor to the start.
     Home,
-    /// End of the current field.
+    /// Move the input cursor to the end.
     End,
-    /// Scroll the chat by one visible page.
+    /// Scroll the chat toward older rows.
     PageUp,
     /// Scroll the chat toward newer rows.
     PageDown,
@@ -58,126 +58,65 @@ pub(super) fn normalize_character(character: char) -> char {
         character
     }
 }
-/// A user's intent, without display wording or terminal types.
+
+/// One user intent in the task list or conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScreenAction {
-    /// Leave the application.
+    /// End the screen session.
     Quit,
-    /// Undo one day change set.
+    /// Undo the latest task change.
     Undo,
-    /// Switch between input and task pane.
+    /// Move focus between the task list and input.
     MoveFocus,
-    /// Focus the input.
+    /// Focus the conversation input.
     Input,
-    /// Select the previous task.
+    /// Select the preceding task.
     Previous,
-    /// Select the next task.
+    /// Select the following task.
     Next,
-    /// Toggle finished and open.
-    Done,
-    /// Toggle dropped and open.
-    Drop,
-    /// Open a blank task form.
-    Add,
-    /// Open the selected task's form.
-    Edit,
-    /// Remove the selected task.
-    Delete,
-    /// Toggle mute.
-    Mute,
-    /// Open all key descriptors.
+    /// Show keyboard help.
     Help,
-    /// Close the help overlay.
+    /// Close keyboard help.
     CloseHelp,
-    /// Submit the task form.
-    SaveForm,
-    /// Move to the next form field.
-    NextField,
-    /// Move to the previous form field.
-    PreviousField,
-    /// Move the kind or insertion point left.
-    Left,
-    /// Move the kind or insertion point right.
-    Right,
-    /// Edit a form field with insertion-point or deletion keys.
-    EditText,
-    /// Cancel the task form.
-    CancelForm,
-    /// Show the instructions currently used by model calls.
-    Instructions,
-    /// Close the instructions view.
-    CloseInstructions,
-    /// Scroll the instructions toward their beginning.
-    InstructionsUp,
-    /// Scroll the instructions toward their end.
-    InstructionsDown,
-    /// Scroll toward older chat rows.
+    /// Scroll the chat toward older rows.
     ChatUp,
-    /// Scroll toward newer chat rows.
+    /// Scroll the chat toward newer rows.
     ChatDown,
-    /// Resume following the newest chat rows outside a text field.
+    /// Jump to the newest chat rows.
     ChatLatest,
-    /// Submit literal input.
+    /// Submit the conversation input.
     SendInput,
-    /// Cancel the owner call or clear unsent input.
+    /// Cancel the current input or model request.
     CancelInput,
-    /// Carry the selected leftover over to today as a new untimed task.
-    CarryLeftover,
-    /// Drop the selected leftover on its own day.
-    DropLeftover,
-    /// Carry every leftover over at once.
-    CarryAllLeftovers,
-    /// Drop every leftover at once.
-    DropAllLeftovers,
-    /// Open the inbox of today's open notes and questions.
-    Inbox,
-    /// Answer the selected question in the input, or acknowledge the selected note.
-    InboxRespond,
-    /// Close the selected item: a note acknowledged, a question dismissed.
-    InboxClose,
-    /// Acknowledge every open note; questions stay.
-    InboxAcknowledgeNotes,
-    /// Close the inbox and select the item's task.
-    InboxTask,
-    /// Close the inbox without reacting.
-    CloseInbox,
 }
 /// The region in which a binding is interpreted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyRegion {
-    /// Also available while a modal captures focus.
+    /// The binding is accepted regardless of focus.
     Anywhere,
-    /// Base screen only: modals capture focus movement.
+    /// The binding is accepted in either main pane.
     Main,
-    /// Task pane only.
+    /// The binding is accepted while the task list is focused.
     Tasks,
-    /// Task form only.
-    Form,
-    /// Help overlay only.
+    /// The binding is accepted while help is visible.
     Help,
-    /// Read-only instructions overlay.
-    Instructions,
-    /// Chat input only.
+    /// The binding is accepted while the input is focused.
     Input,
-    /// The leftovers block at the top of the task pane, while its row is selected.
-    Leftovers,
-    /// The inbox overlay.
-    Inbox,
 }
-/// One source of truth for dispatch and the binary's translated help labels.
+/// One source of truth for dispatch and translated help labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyBinding {
-    /// Typed intent; the binary owns its Japanese label.
+    /// Action dispatched for a matching key.
     pub action: ScreenAction,
-    /// Alternative keys for this intent in this region.
+    /// Keys that invoke the action.
     pub keys: &'static [ScreenKey],
-    /// Where these alternatives apply.
+    /// Region that accepts the keys.
     pub region: KeyRegion,
 }
-use KeyRegion::{Anywhere, Form, Help, Main, Tasks};
+use KeyRegion::{Anywhere, Help, Main, Tasks};
 use ScreenAction as A;
 use ScreenKey as K;
-/// Bindings in the relative order of the product key table, restricted to this screen.
+/// Bindings in the relative order of the screen key table.
 pub const KEY_TABLE: &[KeyBinding] = &[
     KeyBinding {
         action: A::SendInput,
@@ -188,26 +127,6 @@ pub const KEY_TABLE: &[KeyBinding] = &[
         action: A::CancelInput,
         keys: &[K::Esc],
         region: KeyRegion::Input,
-    },
-    KeyBinding {
-        action: A::Instructions,
-        keys: &[K::Char('p')],
-        region: Tasks,
-    },
-    KeyBinding {
-        action: A::CloseInstructions,
-        keys: &[K::Esc, K::Char('p')],
-        region: KeyRegion::Instructions,
-    },
-    KeyBinding {
-        action: A::InstructionsUp,
-        keys: &[K::Up],
-        region: KeyRegion::Instructions,
-    },
-    KeyBinding {
-        action: A::InstructionsDown,
-        keys: &[K::Down],
-        region: KeyRegion::Instructions,
     },
     KeyBinding {
         action: A::Quit,
@@ -265,142 +184,20 @@ pub const KEY_TABLE: &[KeyBinding] = &[
         region: Tasks,
     },
     KeyBinding {
-        action: A::Done,
-        keys: &[K::Char(' ')],
-        region: Tasks,
-    },
-    KeyBinding {
-        action: A::Drop,
-        keys: &[K::Char('d')],
-        region: Tasks,
-    },
-    KeyBinding {
-        action: A::Add,
-        keys: &[K::Char('a')],
-        region: Tasks,
-    },
-    KeyBinding {
-        action: A::Edit,
-        keys: &[K::Char('e'), K::Enter],
-        region: Tasks,
-    },
-    KeyBinding {
-        action: A::Delete,
-        keys: &[K::Char('x')],
-        region: Tasks,
-    },
-    KeyBinding {
-        action: A::Mute,
-        keys: &[K::Char('m')],
-        region: Tasks,
-    },
-    KeyBinding {
-        action: A::Inbox,
-        keys: &[K::Char('b')],
-        region: Tasks,
-    },
-    KeyBinding {
         action: A::Help,
         keys: &[K::Char('?')],
         region: Tasks,
     },
     KeyBinding {
-        action: A::CarryLeftover,
-        keys: &[K::Char('c')],
-        region: KeyRegion::Leftovers,
-    },
-    KeyBinding {
-        action: A::DropLeftover,
-        keys: &[K::Char('d')],
-        region: KeyRegion::Leftovers,
-    },
-    KeyBinding {
-        action: A::CarryAllLeftovers,
-        keys: &[K::Char('C')],
-        region: KeyRegion::Leftovers,
-    },
-    KeyBinding {
-        action: A::DropAllLeftovers,
-        keys: &[K::Char('D')],
-        region: KeyRegion::Leftovers,
-    },
-    KeyBinding {
-        action: A::InboxRespond,
-        keys: &[K::Enter],
-        region: KeyRegion::Inbox,
-    },
-    KeyBinding {
-        action: A::InboxClose,
-        keys: &[K::Char('x')],
-        region: KeyRegion::Inbox,
-    },
-    KeyBinding {
-        action: A::InboxAcknowledgeNotes,
-        keys: &[K::Char('X')],
-        region: KeyRegion::Inbox,
-    },
-    KeyBinding {
-        action: A::InboxTask,
-        keys: &[K::Char('g')],
-        region: KeyRegion::Inbox,
-    },
-    KeyBinding {
-        action: A::CloseInbox,
-        keys: &[K::Esc, K::Char('b')],
-        region: KeyRegion::Inbox,
-    },
-    KeyBinding {
-        action: A::Previous,
-        keys: &[K::Up, K::Char('k')],
-        region: KeyRegion::Inbox,
-    },
-    KeyBinding {
-        action: A::Next,
-        keys: &[K::Down, K::Char('j')],
-        region: KeyRegion::Inbox,
-    },
-    KeyBinding {
         action: A::CloseHelp,
-        keys: &[K::Esc, K::Char('?')],
+        keys: &[K::Esc],
         region: Help,
     },
-    KeyBinding {
-        action: A::SaveForm,
-        keys: &[K::Enter],
-        region: Form,
-    },
-    KeyBinding {
-        action: A::NextField,
-        keys: &[K::Tab],
-        region: Form,
-    },
-    KeyBinding {
-        action: A::PreviousField,
-        keys: &[K::BackTab],
-        region: Form,
-    },
-    KeyBinding {
-        action: A::Left,
-        keys: &[K::Left],
-        region: Form,
-    },
-    KeyBinding {
-        action: A::Right,
-        keys: &[K::Right],
-        region: Form,
-    },
-    KeyBinding {
-        action: A::EditText,
-        keys: &[K::Home, K::End, K::Backspace, K::Delete],
-        region: Form,
-    },
-    KeyBinding {
-        action: A::CancelForm,
-        keys: &[K::Esc],
-        region: Form,
-    },
 ];
-pub(super) fn action_for(key: ScreenKey, region: KeyRegion) -> Option<ScreenAction> {
+
+/// Look up one normalized key in one region.
+#[must_use]
+pub fn action_for(key: ScreenKey, region: KeyRegion) -> Option<ScreenAction> {
     KEY_TABLE
         .iter()
         .find(|binding| binding.region == region && binding.keys.contains(&key))
