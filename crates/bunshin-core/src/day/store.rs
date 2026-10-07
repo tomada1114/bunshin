@@ -106,8 +106,8 @@ mod tests {
     fn file_failures_have_typed_data_free_store_errors() {
         for (file, store) in [
             (
-                DayFileError::NewerFormat { found: 3 },
-                DayStoreError::NewerFormat { found: 3 },
+                DayFileError::NewerFormat { found: 4 },
+                DayStoreError::NewerFormat { found: 4 },
             ),
             (
                 DayFileError::UnsupportedFormat { found: 0 },

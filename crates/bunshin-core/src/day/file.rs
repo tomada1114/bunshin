@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 /// The current on-disk contract version.
-pub const FORMAT: u32 = 2;
+pub const FORMAT: u32 = 3;
 /// The oldest version with a defined migration.
 pub const OLDEST_FORMAT: u32 = 1;
 

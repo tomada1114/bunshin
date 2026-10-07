@@ -304,3 +304,17 @@ why), and **Sources** where an external fact carried weight.
 - **Rejected:** retaining the old commands or reading old day files — compatibility
   requires the secretary's data model and widens a prototype that is meant to test one
   board conversation loop.
+
+### 2026-10-07 — The reduced interim day format writes version 3
+
+- **Revises:** 2026-10-06, Day file format 2 records each trigger's spent retry; and
+  2026-10-07, Retiring the secretary contracts is breaking.
+
+- **Decided:** while the transitional task and chat screen still reads day files, keep
+  format 1 and format 2 readable, then write the reduced day payload as format 3. A
+  format-2 binary refuses the reduced payload as newer instead of treating it as the
+  same schema. This compatibility bridge ends when the task screen and day store are
+  removed; the board remains in memory only.
+- **Rejected:** continuing to write format 2 — its reader requires retryingTriggers,
+  which the reduced model no longer writes, so the same version would describe two
+  incompatible schemas.

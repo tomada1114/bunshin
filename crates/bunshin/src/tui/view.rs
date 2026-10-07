@@ -69,7 +69,14 @@ pub(super) fn draw_with_metrics(
         (tasks, right)
     };
     draw_tasks(frame, screen, tasks);
-    let input_rows = screen.input().text().lines().count().clamp(1, 3);
+    let input_rows = input_lines(
+        screen.input().text(),
+        screen.input().cursor(),
+        usize::from(right.width.saturating_sub(2)),
+    )
+    .0
+    .len()
+    .clamp(1, 3);
     let input_height = u16::try_from(input_rows).unwrap_or(3).saturating_add(2);
     let [chat, input] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(input_height)]).areas(right);
@@ -190,7 +197,7 @@ fn draw_chat(
     let block = block(wording::CHAT_TITLE, false);
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let mut lines = screen
+    let mut rows = screen
         .day()
         .messages()
         .iter()
@@ -221,36 +228,53 @@ fn draw_chat(
             } else {
                 content
             };
-            Line::from(vec![
-                Span::raw(format!("{timestamp} ")),
-                Span::styled(format!("{speaker}  "), style.add_modifier(Modifier::BOLD)),
-                Span::styled(sanitize(&content), style),
-            ])
+            let prefix = format!("{timestamp} {speaker}  ");
+            let indent = Span::raw(&prefix).width();
+            (
+                Line::from(vec![
+                    Span::raw(format!("{timestamp} ")),
+                    Span::styled(format!("{speaker}  "), style.add_modifier(Modifier::BOLD)),
+                    Span::styled(sanitize(&content), style),
+                ]),
+                indent,
+            )
         })
         .collect::<Vec<_>>();
     if let Some(bunshin_core::screen::ScreenError::Day(error)) = screen.error() {
-        lines.push(Line::styled(wording::day_error(error), ERROR));
+        rows.push((Line::styled(wording::day_error(error), ERROR), 8));
     }
     match screen.chat_status(now.instant) {
-        ChatStatus::Thinking => lines.push(Line::styled(
-            format!("{}  {}", wording::APP_NAME, wording::THINKING_ROW),
-            MODEL,
+        ChatStatus::Thinking => rows.push((
+            Line::styled(
+                format!("{}  {}", wording::APP_NAME, wording::THINKING_ROW),
+                MODEL,
+            ),
+            0,
         )),
-        ChatStatus::LongWait => lines.push(Line::styled(
-            format!("{}  {}", wording::APP_NAME, wording::LONG_WAIT),
-            MODEL,
+        ChatStatus::LongWait => rows.push((
+            Line::styled(
+                format!("{}  {}", wording::APP_NAME, wording::LONG_WAIT),
+                MODEL,
+            ),
+            0,
         )),
         ChatStatus::Idle | ChatStatus::Waiting => {}
     }
-    let count = lines.len();
-    let scroll = u16::try_from(screen.chat_scroll_top()).unwrap_or(u16::MAX);
+    let rows = wrap_chat_rows(rows, usize::from(inner.width));
+    let count = rows.len();
+    let height = usize::from(inner.height);
+    let end = count.saturating_sub(height);
+    let start = if screen.chat_follows_latest() {
+        end
+    } else {
+        screen.chat_scroll_top().min(end)
+    };
+    let scroll = u16::try_from(start).unwrap_or(u16::MAX);
     frame.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .scroll((scroll, 0)),
+        Paragraph::new(rows.into_iter().skip(start).collect::<Vec<_>>()).scroll((scroll, 0)),
         inner,
     );
-    (count, usize::from(inner.height))
+    (count, height)
 }
 
 fn draw_input(frame: &mut Frame, screen: &MainScreen, area: Rect) {
@@ -263,30 +287,94 @@ fn draw_input(frame: &mut Frame, screen: &MainScreen, area: Rect) {
     );
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    frame.render_widget(
-        Paragraph::new(sanitize(screen.input().text())).wrap(Wrap { trim: false }),
-        inner,
+    let (rows, column, row) = input_lines(
+        screen.input().text(),
+        screen.input().cursor(),
+        usize::from(inner.width),
     );
     if screen.focus() == Focus::Input
         && inner.width > 0
         && inner.height > 0
         && !screen.is_confirming_quit()
     {
-        let prefix = screen
-            .input()
-            .text()
-            .chars()
-            .take(screen.input().cursor())
-            .collect::<String>();
-        let columns = Line::from(sanitize(&prefix)).width();
-        let width = usize::from(inner.width);
-        let x = columns % width;
-        let y = (columns / width).min(usize::from(inner.height.saturating_sub(1)));
+        let start = row
+            .saturating_add(1)
+            .saturating_sub(usize::from(inner.height));
+        let visible = rows.into_iter().skip(start).collect::<Vec<_>>();
+        frame.render_widget(Paragraph::new(visible), inner);
         frame.set_cursor_position((
-            inner.x + u16::try_from(x).unwrap_or_default(),
-            inner.y + u16::try_from(y).unwrap_or_default(),
+            inner.x + u16::try_from(column).unwrap_or_default(),
+            inner.y + u16::try_from(row - start).unwrap_or_default(),
         ));
+    } else {
+        frame.render_widget(Paragraph::new(rows), inner);
     }
+}
+
+fn input_lines(text: &str, cursor: usize, width: usize) -> (Vec<Line<'static>>, usize, usize) {
+    if width == 0 {
+        return (vec![Line::default()], 0, 0);
+    }
+    let text = Span::raw(sanitize(text));
+    let mut rows = vec![String::new()];
+    let mut column = 0;
+    let mut scalars = 0;
+    let mut cursor_position = None;
+    for grapheme in text.styled_graphemes(BASE) {
+        let columns = Span::raw(grapheme.symbol).width();
+        if column + columns > width {
+            rows.push(String::new());
+            column = 0;
+        }
+        let end = scalars + grapheme.symbol.chars().count();
+        if cursor_position.is_none() && cursor < end {
+            cursor_position = Some((column, rows.len() - 1));
+        }
+        if let Some(row) = rows.last_mut() {
+            row.push_str(grapheme.symbol);
+        }
+        column += columns;
+        scalars = end;
+    }
+    if column == width {
+        rows.push(String::new());
+        column = 0;
+    }
+    let (column, row) = cursor_position.unwrap_or((column, rows.len() - 1));
+    (rows.into_iter().map(Line::from).collect(), column, row)
+}
+
+fn wrap_chat_rows(rows: Vec<(Line<'static>, usize)>, width: usize) -> Vec<Line<'static>> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut wrapped = Vec::new();
+    for (line, indent) in rows {
+        let indent = indent.min(width.saturating_sub(1));
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        let mut used = 0;
+        let base = BASE.patch(line.style);
+        for span in &line.spans {
+            for grapheme in span.styled_graphemes(base) {
+                let size = Span::raw(grapheme.symbol).width();
+                if used + size > width && !spans.is_empty() {
+                    wrapped.push(Line::from(std::mem::take(&mut spans)));
+                    spans.push(Span::raw(" ".repeat(indent)));
+                    used = indent;
+                }
+                if let Some(last) = spans.last_mut()
+                    && last.style == grapheme.style
+                {
+                    last.content.to_mut().push_str(grapheme.symbol);
+                } else {
+                    spans.push(Span::styled(grapheme.symbol.to_owned(), grapheme.style));
+                }
+                used += size;
+            }
+        }
+        wrapped.push(Line::from(spans));
+    }
+    wrapped
 }
 
 fn draw_help(frame: &mut Frame) {

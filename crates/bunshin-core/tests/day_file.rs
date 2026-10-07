@@ -15,7 +15,7 @@ fn day_file_round_trips_and_does_not_persist_undo() {
         )
         .unwrap();
     let json = serde_json::to_value(DayFile::from(&day)).unwrap();
-    assert_eq!(json["format"], 2);
+    assert_eq!(json["format"], 3);
     assert!(json.get("retryingTriggers").is_none());
     assert_eq!(json["date"], "2026-10-02");
     assert_eq!(json["tasks"][0]["time"], "15:00");
@@ -33,8 +33,25 @@ fn day_file_round_trips_and_does_not_persist_undo() {
 #[test]
 fn newer_format_is_typed_before_payload_parsing() {
     let header: FormatHeader =
-        serde_json::from_str(r#"{"format":3,"unknown_future_shape":true}"#).unwrap();
-    assert_eq!(header.check(), Err(DayFileError::NewerFormat { found: 3 }));
+        serde_json::from_str(r#"{"format":4,"unknown_future_shape":true}"#).unwrap();
+    assert_eq!(header.check(), Err(DayFileError::NewerFormat { found: 4 }));
+}
+
+#[test]
+fn format_two_day_data_is_read_and_rewritten_with_the_reduced_format_three_schema() {
+    let day = Day::new(date(2026, 10, 2), Tuning::default());
+    let mut legacy = serde_json::to_value(DayFile::from(&day)).unwrap();
+    legacy["format"] = serde_json::json!(2);
+    legacy["retryingTriggers"] = serde_json::json!([]);
+
+    let loaded = serde_json::from_value::<DayFile>(legacy)
+        .unwrap()
+        .into_day(Tuning::default())
+        .unwrap();
+    let saved = serde_json::to_value(DayFile::from(&loaded)).unwrap();
+
+    assert_eq!(saved["format"], 3);
+    assert!(saved.get("retryingTriggers").is_none());
 }
 
 #[test]
@@ -160,10 +177,10 @@ fn invalid_numbering_status_and_task_fields_are_refused() {
         })
     );
     let mut file = original.clone();
-    file.format = 3;
+    file.format = 4;
     assert_eq!(
         file.into_day(Tuning::default()),
-        Err(DayFileError::NewerFormat { found: 3 })
+        Err(DayFileError::NewerFormat { found: 4 })
     );
     let mut file = original;
     file.format = 0;
