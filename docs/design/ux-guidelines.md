@@ -46,10 +46,10 @@ Copy for the app's own sentences is Japanese and lives in the binary's `wording.
 |---|---|---|---|
 | Open | `bunshin tui` starts | Empty board; the first character attempt begins | Post or wait |
 | Idle | No model call is writing | 待機中 in the header | Post |
-| Writing | A call lasts past `thinking_after` | 書き込み中 in the header | Post or wait |
+| Writing | A call lasts past `thinking_after` | 書き込み中 takes precedence over a retained failure | Post or wait |
 | Character post | A non-empty model body succeeds | New row at the bottom | Read or scroll |
 | Owner post | Enter on non-blank input | Immediate row labelled あなた; character response posts follow | Continue |
-| Call failed | Unavailable model, timeout, malformed, failed, or empty result | Last failure in the header; no new post | Post or wait for the next interval |
+| Call failed | Unavailable model, timeout, malformed, failed, or empty result | Latest failure in the header; no new post | Post or wait for the next interval |
 | Scrolled | The owner is reading older posts | New posts do not move the viewport; the new-post divider appears | End returns to latest |
 | Model unavailable | `fm` cannot write a character post | Failure status in the header; the board and input remain usable | Post or quit |
 | Quit | The quit key is pressed | The screen exits immediately; the in-memory board is lost | — |
@@ -58,10 +58,11 @@ Copy for the app's own sentences is Japanese and lives in the binary's `wording.
 
 | Rule | Value |
 |---|---|
+| Status precedence | After `thinking_after`, writing temporarily replaces a retained failure. On failure, show the latest failure; on success, clear it and show idle. |
 | Writing status | Shown in the header after `thinking_after`; no spinner or temporary post |
 | Long calls | One model call at a time, with the existing 30 s timeout |
 | Replies | One structured post arrives as a whole; no streaming |
-| Failure | The board stays unchanged; the failure remains in the header until a successful post |
+| Failure | The board stays unchanged; the latest failure remains in the header until a successful post |
 | Interval | The next character attempt starts 30 seconds after the previous attempt finishes |
 | Owner input | The owner's post appears immediately, including while a character call is in flight |
 | New posts | When scrolled up, new rows do not move the viewport; End returns to latest |

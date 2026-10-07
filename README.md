@@ -10,6 +10,10 @@ come from Apple's on-device foundation model through the `fm` command on macOS; 
 is held in memory and disappears on quit. The app builds on macOS and Linux, with the
 model unavailable on Linux.
 
+**Implementation status:** This README describes the board prototype target. In this
+checkout, the executable still opens the task-based screen and persists day data. The
+board behavior will be available after its implementation lands.
+
 It has coverage floors, architecture boundaries that fail a build, and supply-chain-
 hardened CI from the first commit. Windows, graphical interfaces, release artifacts,
 crates.io publishing, localization, and network access are non-goals.
@@ -35,13 +39,13 @@ runs (`RUSTUP_AUTO_INSTALL`, on by default:
 <https://rust-lang.github.io/rustup/environment-variables.html>, checked 2026-09-30).
 `just install` needs no `sudo` and opens no installer; a missing Command Line Tools
 install is reported with the command to run. The `tui` command takes over the terminal
-until you quit. Type a message and press Enter to post; PgUp and PgDn scroll, End returns
-to the latest posts, and Ctrl+C quits anywhere.
+until you quit. The current task-based screen and command behavior are described in
+[Getting Started](docs/getting-started.md).
 
-## Board data
+## Planned board data
 
-The board is kept in memory and discarded on quit. Bunshin does not read or delete data
-from earlier versions. It writes only its existing log files: on macOS under
+The intended board is kept in memory and discarded on quit. It will not read or delete
+data from earlier versions. It will write only its existing log files: on macOS under
 `~/Library/Logs/io.github.tomada1114.bunshin/`, and on Linux under
 `$XDG_STATE_HOME/bunshin/logs/` (default `~/.local/state/bunshin/logs/`).
 

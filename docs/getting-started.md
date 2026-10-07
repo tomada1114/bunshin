@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- A Mac with Apple silicon, or Linux.
+- A Mac with Apple Silicon, or Linux.
 - On a Mac, the Xcode Command Line Tools (`xcode-select --install`); the full Xcode app
   is not needed. On Linux, a C toolchain for the linker (`build-essential` on Debian and
   Ubuntu).
@@ -28,7 +28,7 @@ clone runs `mise trust` first (<https://mise.jdx.dev/cli/trust.html>, checked
 2. runs `mise install` for the pinned tools;
 3. installs lefthook's pre-commit hook, and fails if it is not in place.
 
-The first `cargo` command installs the Rust toolchain pinned in `rust-toolchain.toml`.
+The first `cargo` command installs the Rust toolchain `rust-toolchain.toml` pins.
 
 ## Everyday commands
 
@@ -48,42 +48,44 @@ just fmt         # format everything
 just logs        # the newest log file's last lines
 ```
 
-Run the board in a terminal with:
+The main screen loads the logical day and saves after every task change. Tab moves to
+its task pane: `a` adds, Space finishes or reopens, `e` edits, and `?` shows all keys.
+`q` quits from the pane; Ctrl+C quits anywhere. Failed saves keep changes in memory
+and ask once before quitting. Chat and model-driven interaction are forthcoming.
+Old sample data is left untouched. Logs go to `~/Library/Logs/io.github.tomada1114.bunshin/` on macOS
+and `$XDG_STATE_HOME/bunshin/logs/` on Linux (default `~/.local/state/bunshin/logs/`).
 
 ```bash
-cargo run --locked -p bunshin -- tui
+cargo run --locked -p bunshin -- --help
+cargo run --locked -p bunshin -- tui   # a human's terminal: Ctrl+C quits anywhere
 ```
 
-The screen has a header, a scrolling board, and an input line. The three fixed characters
-post to the shared board; type a message and press Enter to join them. PgUp and PgDn
-scroll, End returns to the latest posts, and Ctrl+C quits. The board exists only in
-memory and is discarded on quit. The app does not read or remove earlier application
-data. No check or agent runs the real terminal loop; you can try it yourself.
+`tui` takes over the terminal you run it from until you quit, and restores it on the
+way out. It is yours to run: no check and no agent starts it.
 
-The only command-line subcommand is `tui`; `--help` and `--version` are also available.
-To run `bunshin` from any directory, `just install-cli` installs it into
-`~/.cargo/bin` (`cargo install --locked --path crates/bunshin`). It writes outside the
-checkout, so it is a human's recipe that no check and no agent runs unasked. There is no
-other distribution: no release artifacts or installer.
+To run `bunshin` from any directory, `just install-cli` installs it into `~/.cargo/bin`
+(`cargo install --locked --path crates/bunshin`). It writes outside the checkout, so it is
+a human's recipe that no check and no agent runs unasked. There is no other
+distribution: no release artifacts, no installer.
 
-Logs go to `~/Library/Logs/io.github.tomada1114.bunshin/` on macOS and
-`$XDG_STATE_HOME/bunshin/logs/` on Linux (default
-`~/.local/state/bunshin/logs/`).
+Read today's saved task list with `cargo run -p bunshin -- today`, or add `--json`
+for its stable versioned task view. The command works while a screen holds the writer
+lock. It does not create a missing day, change files, or invoke the model.
 
 ## Permissions (TCC)
 
-The app asks for no privacy permission. If an app cut from the template later needs a
-macOS permission such as Accessibility or Full Disk Access, `just test-local` runs the
-tests marked for a logged-in session, a TCC grant, or the Keychain. A human
-starts that recipe. macOS grants a permission to the program that asks, so how a tool
-installed with `cargo install` keeps its grant across rebuilds is a decision that app
-must record.
+The sample asks for no privacy permission. When an app cut from the template does on
+macOS — Accessibility, Full Disk Access, and the like — `just test-local` runs the
+`#[ignore]`d tests that need a logged-in session, a TCC grant, or the Keychain. You
+start it; nothing else does. macOS grants such a permission to the program that asks,
+so how a tool installed with `cargo install` keeps its grant across rebuilds is a
+decision for that app to record.
 
 ## The domain foundation
 
-Core owns the board's bounded in-memory state, character-turn selection, post creation,
-and screen actions. The `Clock` and `LanguageModel` ports keep time and model access
-outside the domain; platform adapters call the real system and model, while tests use
-fakes. The binary owns the single model worker, terminal loop, view, and user-facing
-wording. The architecture skill records the current decisions; the product requirements
-and UX flows describe visible behavior.
+Core's `day` module holds task transitions, undo, and versioned file DTOs. The shared
+`Tuning` holds `DayTuning` and the logical-day boundary. `Clock`, `SystemClock`,
+`FixedClock`, and `clock_contract` illustrate the same port, adapter, fake, and
+contract split used for I/O features. Core's `screen` module owns focus, task forms,
+the key table, save-result state and quit confirmation; the binary draws it with
+ratatui's `TestBackend` covering the view. Real terminal lifecycle evidence comes from the owner's run.

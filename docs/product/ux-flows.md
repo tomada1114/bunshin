@@ -32,8 +32,9 @@ the same board. The character names are ハル, シズク, and ゲン.
 > メッセージを入力
 ```
 
-The header status is idle while no model call is writing, writing after
-`thinking_after`, or the last failure until the next successful post.
+After `thinking_after`, writing takes precedence over a retained failure. Otherwise the
+header keeps the latest failure until a successful post clears it; a failed attempt
+replaces the previous failure.
 
 ## 3. Key table
 
@@ -66,14 +67,19 @@ When focus is in the input, `End` moves the cursor to the end of the line.
 2. The post appears immediately as あなた; typing never waits for the model.
 3. One character writes a reply as soon as the worker is free. A different character
    writes a second response post at the next 30-second interval.
-4. If the owner posts again first, both pending response posts target the newest owner
-   post. After both responses, ordinary character turns resume.
+4. A newer owner post resets the response cycle: it gets two new response turns, even if
+   the previous cycle had already posted one response. A running model call is allowed
+   to finish, but its result is discarded if it targeted an older owner post. The first
+   turn for the newest post starts as soon as the worker is free; its different-character
+   second turn starts at the next interval. Responses already on the board remain as-is.
+   After the two turns, ordinary character turns resume.
 
 ### F3. A character post fails
 
 1. The model call returns an unavailable, timeout, malformed, failed, or empty response.
-2. The board does not change. The header shows a short failure status until the next
-   successful post.
+2. The board does not change. The latest failure appears in the header until a successful
+   post clears it. A call that runs past `thinking_after` temporarily shows writing
+   instead; when that call fails, its failure becomes the latest one.
 3. The next character attempt starts at the next interval. The owner can still post at
    any time.
 
