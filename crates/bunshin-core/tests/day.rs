@@ -1,4 +1,4 @@
-//! Behavioral task, mute, ordering, validation and session undo contracts.
+//! Behavioral task ordering, validation and session undo contracts.
 use bunshin_core::day::{Day, DayError, TaskKind, TaskOrigin, TaskStatus};
 use bunshin_core::{Tuning, UnixMillis};
 use jiff::civil::{date, time};
@@ -74,7 +74,7 @@ fn invalid_changes_leave_the_day_unchanged() {
 }
 
 #[test]
-fn every_task_operation_and_mute_is_one_visible_undoable_set() {
+fn every_task_operation_is_one_visible_undoable_set() {
     let (day, _) = Day::new(date(2026, 10, 2), Tuning::default())
         .add(
             "元".into(),
@@ -107,15 +107,7 @@ fn every_task_operation_and_mute_is_one_visible_undoable_set() {
     assert!(day.tasks().is_empty());
     let (day, _) = day.undo(UnixMillis(8)).unwrap();
     assert_eq!(day.tasks()[0].number, 1);
-    let (day, muted) = day.mute(UnixMillis(100), UnixMillis(9));
-    assert_eq!(muted.changes.len(), 1);
-    assert_eq!(day.data().muted_until, Some(UnixMillis(100)));
-    let (day, unmuted) = day.unmute(UnixMillis(10));
-    assert_eq!(unmuted.changes.len(), 1);
-    assert_eq!(day.data().muted_until, None);
-    let (day, _) = day.undo(UnixMillis(11)).unwrap();
-    assert_eq!(day.data().muted_until, Some(UnixMillis(100)));
-    assert_eq!(day.messages().len(), 11);
+    assert_eq!(day.messages().len(), 8);
     assert!(day.messages().iter().all(|message| {
         message
             .change_set

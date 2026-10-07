@@ -74,10 +74,9 @@ impl From<DayFileError> for DayStoreError {
         match error {
             DayFileError::NewerFormat { found } => Self::NewerFormat { found },
             DayFileError::UnsupportedFormat { found } => Self::UnsupportedFormat { found },
-            DayFileError::InvalidNumbering
-            | DayFileError::InvalidTask { kind: _ }
-            | DayFileError::RetryingNotHeld
-            | DayFileError::MissingRetryRecord => Self::Unreadable,
+            DayFileError::InvalidNumbering | DayFileError::InvalidTask { kind: _ } => {
+                Self::Unreadable
+            }
         }
     }
 }
@@ -121,8 +120,6 @@ mod tests {
                 },
                 DayStoreError::Unreadable,
             ),
-            (DayFileError::RetryingNotHeld, DayStoreError::Unreadable),
-            (DayFileError::MissingRetryRecord, DayStoreError::Unreadable),
         ] {
             assert_eq!(DayStoreError::from(file), store);
         }

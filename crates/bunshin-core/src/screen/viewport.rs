@@ -44,7 +44,7 @@ impl MainScreen {
     pub const fn chat_follows_latest(&self) -> bool {
         self.chat.viewport.following
     }
-    /// Establish the initial-notice baseline without acknowledging rows after owner input.
+    /// Establish the initial conversation baseline without acknowledging rows after owner input.
     #[must_use]
     pub fn record_chat_bootstrap(mut self) -> Self {
         if !self.chat_has_key {
@@ -60,11 +60,7 @@ impl MainScreen {
             .iter()
             .enumerate()
             .skip(self.last_key_messages)
-            .find(|(_, row)| {
-                row.unprompted
-                    .as_ref()
-                    .is_none_or(|extra| extra.suppressed.is_none())
-            })
+            .find(|(_, row)| row.kind != crate::day::MessageKind::Change)
             .map(|(index, _)| index)
     }
     /// New visible messages since the owner scrolled away from the latest row.
@@ -77,11 +73,7 @@ impl MainScreen {
             .messages()
             .iter()
             .skip(self.chat.viewport.seen)
-            .filter(|row| {
-                row.unprompted
-                    .as_ref()
-                    .is_none_or(|extra| extra.suppressed.is_none())
-            })
+            .filter(|row| row.kind != crate::day::MessageKind::Change)
             .count()
     }
     pub(super) fn scroll_chat(&mut self, action: ScreenAction) {

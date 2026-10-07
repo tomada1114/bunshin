@@ -33,11 +33,6 @@ impl MainScreen {
     pub const fn save_state(&self) -> SaveState {
         self.save_state
     }
-    /// Quit confirmation captures the next key: only normalized `y` exits.
-    #[must_use]
-    pub const fn is_confirming_quit(&self) -> bool {
-        self.confirming_quit
-    }
     /// Accept a synchronous save completion before another input event.
     /// A changed failure condition adds one persistent, non-undoable error row using
     /// the binary's wording. Repeating that condition adds none; the next mutation
@@ -65,8 +60,6 @@ impl MainScreen {
                         text: notice.to_owned(),
                         time: at,
                         kind: MessageKind::Error,
-                        unprompted: None,
-                        answers_question: None,
                         change_set: None,
                         cancelled: false,
                         in_reply_to: None,

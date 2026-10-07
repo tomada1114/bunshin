@@ -1,15 +1,12 @@
 //! A logical day's deterministic state and undoable task operations.
 pub mod change;
 pub mod file;
-mod leftover;
 mod serde_civil;
 pub mod store;
-pub mod today_view;
 
 use crate::{Tuning, UnixMillis};
-pub use change::{Change, ChangeSet, LeftoverChange};
-use jiff::civil::{Date, DateTime, Time};
-pub use leftover::{LeftoverDecision, offered_as_leftover};
+pub use change::{Change, ChangeSet};
+use jiff::civil::{Date, Time};
 use serde::{Deserialize, Serialize};
 
 /// The meaning of a task's optional civil time.
@@ -70,8 +67,6 @@ pub struct Task {
     pub created_at: UnixMillis,
     /// Closing instant, absent for an open task.
     pub closed_at: Option<UnixMillis>,
-    /// Task-specific triggers already consumed by the check-in rules.
-    pub triggers_fired: Vec<Trigger>,
     /// Original request source.
     pub origin: TaskOrigin,
 }
@@ -107,34 +102,6 @@ impl From<&Task> for TaskView {
     }
 }
 
-/// Why a check-in was considered. Trigger rules are implemented separately.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum TriggerKind {
-    /// Before a deadline.
-    BeforeDeadline,
-    /// After a deadline.
-    AfterDeadline,
-    /// A model-planned look.
-    PlannedLook,
-    /// Beginning of a logical day.
-    DayStart,
-    /// Evening summary.
-    EveningReview,
-    /// Consolidated return from absence.
-    CatchUp,
-}
-/// A considered trigger with its task and supplied instant.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Trigger {
-    /// Trigger reason.
-    pub kind: TriggerKind,
-    /// Task number when task-specific.
-    pub task: Option<u64>,
-    /// Instant at which it was first found due.
-    pub due_at: UnixMillis,
-}
 /// The speaker of a chat row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -152,7 +119,7 @@ pub enum Author {
 pub enum MessageKind {
     /// A prompted model response or owner's message.
     Reply,
-    /// An unsolicited check-in.
+    /// A retained message from an older local data file.
     Unprompted,
     /// Structured task or mute changes, formatted by the binary.
     Change,
@@ -160,58 +127,6 @@ pub enum MessageKind {
     Notice,
     /// A recoverable app error.
     Error,
-}
-/// Note or question; unlike a question a note needs no reply.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum UnpromptedKind {
-    /// Informational message.
-    Note,
-    /// Request for an answer.
-    Question,
-}
-/// Stored inbox disposition; the later inbox use case owns transitions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum InboxState {
-    /// Awaiting reaction.
-    Open,
-    /// Explicit reply received.
-    Answered,
-    /// Note acknowledged.
-    Acknowledged,
-    /// Question dismissed.
-    Dismissed,
-    /// Its task closed.
-    TaskClosed,
-    /// Owner muted check-ins.
-    Muted,
-    /// No reaction within the reaction window.
-    Ignored,
-}
-/// Why an unprompted message was suppressed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SuppressionReason {
-    /// A recent check-in named the same task.
-    SameTask,
-}
-/// Extra facts associated with an unprompted row.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UnpromptedMessage {
-    /// Note or question.
-    pub kind: UnpromptedKind,
-    /// The triggering event.
-    pub trigger: Trigger,
-    /// Task being discussed, if any.
-    pub task: Option<u64>,
-    /// Current inbox disposition.
-    pub inbox_state: InboxState,
-    /// Last inbox transition instant.
-    pub state_changed_at: UnixMillis,
-    /// Suppression reason when no row was delivered.
-    pub suppressed: Option<SuppressionReason>,
 }
 /// Stored chat data; change rows carry typed facts instead of user-facing wording.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -225,10 +140,6 @@ pub struct Message {
     pub time: UnixMillis,
     /// Row role.
     pub kind: MessageKind,
-    /// Extra check-in facts.
-    pub unprompted: Option<UnpromptedMessage>,
-    /// Index of the question this message answers, if any.
-    pub answers_question: Option<u64>,
     /// Typed visible change facts, including undo records.
     pub change_set: Option<ChangeSet>,
     /// A cancelled or failed owner call retains its text but supplies no future context.
@@ -239,26 +150,12 @@ pub struct Message {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_reply_to: Option<u64>,
 }
-/// The last day on record, summarized by core at the day start for every model call.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct YesterdayRecord {
-    /// Logical date summarized.
-    #[serde(with = "serde_civil::date")]
-    pub date: Date,
-    /// Core-written model input: counts and a few titles, bounded by the prompt tuning.
-    pub text: String,
-}
 /// A pure day's state, with a session-only undo stack.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Day {
     data: file::DayData,
     tuning: Tuning,
     undo: Vec<change::UndoEntry>,
-    // Retry records of held triggers the scheduler has handed to the call queue. The
-    // queue reads them on enqueue and re-holds them, so the saved record stays a subset
-    // of the saved held triggers.
-    released_retrying: Vec<Trigger>,
 }
 /// Rejected day operation; no user data is carried in the error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Serialize)]
@@ -312,7 +209,6 @@ impl Day {
             data: file::DayData::empty(date),
             tuning,
             undo: Vec::new(),
-            released_retrying: Vec::new(),
         }
     }
     /// Logical date identifying this day.
@@ -330,47 +226,31 @@ impl Day {
     pub fn messages(&self) -> &[Message] {
         &self.data.messages
     }
-    pub(crate) fn inbox_messages_mut(&mut self) -> &mut [Message] {
-        &mut self.data.messages
-    }
-    pub(crate) const fn tuning(&self) -> Tuning {
-        self.tuning
-    }
     pub(crate) fn append_message(&mut self, message: Message) {
         self.data.messages.push(message);
     }
-    pub(crate) fn cancel_owner_message(
-        &mut self,
-        index: usize,
-        before: Option<(u64, InboxState, UnixMillis)>,
-    ) -> Option<u64> {
-        let message = self.data.messages.get_mut(index)?;
-        message.cancelled = true;
-        let sent_at = message.time;
-        let (target, state, changed_at) = before?;
-        let question = self
-            .data
-            .messages
-            .get_mut(usize::try_from(target).ok()?)?
-            .unprompted
-            .as_mut()?;
-        if question.inbox_state == InboxState::Answered && question.state_changed_at == sent_at {
-            question.inbox_state = state;
-            question.state_changed_at = changed_at;
-            Some(target)
-        } else {
-            None
+    pub(crate) fn cancel_owner_message(&mut self, index: usize) {
+        if let Some(message) = self.data.messages.get_mut(index) {
+            message.cancelled = true;
         }
+    }
+    pub(crate) fn record_owner_message(&self, text: &str, at: UnixMillis) -> Self {
+        let mut day = self.clone();
+        day.data.messages.push(Message {
+            author: Author::You,
+            text: text.to_owned(),
+            time: at,
+            kind: MessageKind::Reply,
+            change_set: None,
+            cancelled: false,
+            in_reply_to: None,
+        });
+        day
     }
     pub(crate) fn link_chat_reply(&mut self, owner: usize) {
         if let Some(reply) = self.data.messages.last_mut() {
             reply.in_reply_to = u64::try_from(owner).ok();
         }
-    }
-    pub(crate) fn record_instructions_notice(&mut self, revision: Option<u64>) -> bool {
-        let changed = self.data.last_instructions_notice != revision;
-        self.data.last_instructions_notice = revision;
-        changed
     }
     pub(crate) fn chat_context_without_owner_rows(&self, indices: &[usize]) -> Self {
         let mut context = self.clone();
@@ -476,7 +356,6 @@ impl Day {
             status: TaskStatus::Open,
             created_at: at,
             closed_at: None,
-            triggers_fired: Vec::new(),
             origin,
         };
         self.data.tasks.push(task.clone());
@@ -536,7 +415,6 @@ impl Day {
     pub fn delete(mut self, number: u64, at: UnixMillis) -> Result<(Self, ChangeSet), DayError> {
         let index = self.index(number)?;
         let snapshot = self.snapshot();
-        self.retain_fired_facts();
         let task = self.data.tasks.remove(index);
         Ok(self.record(
             snapshot,
@@ -547,170 +425,19 @@ impl Day {
             at,
         ))
     }
-    /// Set a caller-computed mute end; duration decisions belong to later use cases.
-    #[must_use]
-    pub fn mute(mut self, until: UnixMillis, at: UnixMillis) -> (Self, ChangeSet) {
-        let snapshot = self.snapshot();
-        let before = self.data.muted_until;
-        self.data.muted_until = Some(until);
-        if until > at {
-            self.react_to_mute(at);
-        }
-        self.record(
-            snapshot,
-            vec![Change::Mute {
-                before,
-                after: Some(until),
-            }],
-            at,
-        )
-    }
-    /// Clear mute, recording one undoable set.
-    #[must_use]
-    pub fn unmute(mut self, at: UnixMillis) -> (Self, ChangeSet) {
-        let snapshot = self.snapshot();
-        let before = self.data.muted_until;
-        self.data.muted_until = None;
-        self.record(
-            snapshot,
-            vec![Change::Mute {
-                before,
-                after: None,
-            }],
-            at,
-        )
-    }
     /// Walk back one session change, appending a visible undo row without undoing it.
     /// # Errors
     /// No retained session changes.
     pub fn undo(mut self, at: UnixMillis) -> Result<(Self, ChangeSet), DayError> {
         let entry = self.undo.pop().ok_or(DayError::NothingToUndo)?;
-        self.retain_fired_facts();
         self.data.tasks = entry.snapshot.tasks;
-        self.restore_fired_facts();
-        self.data.muted_until = entry.snapshot.muted_until;
         let set = ChangeSet {
             time: at,
             changes: entry.changes,
             undo: true,
-            leftovers: entry.leftovers,
         };
         self.append_change(&set);
         Ok((self, set))
-    }
-    // Narrow metadata transitions cannot modify task content or historical rows.
-    pub(crate) fn record_checkin_trigger(&mut self, trigger: Trigger) {
-        if let Some(number) = trigger.task
-            && let Some(task) = self
-                .data
-                .tasks
-                .iter_mut()
-                .find(|task| task.number == number)
-        {
-            task.triggers_fired.push(trigger.clone());
-        }
-        self.data.triggers_fired.push(trigger.clone());
-        self.data.held_triggers.push(trigger);
-    }
-    pub(crate) fn consume_planned_look(&mut self, at: UnixMillis) {
-        self.data.next_planned_look = None;
-        self.record_checkin_trigger(Trigger {
-            kind: TriggerKind::PlannedLook,
-            task: None,
-            due_at: at,
-        });
-    }
-    pub(crate) fn take_held_triggers(&mut self) -> Vec<Trigger> {
-        let taken = std::mem::take(&mut self.data.held_triggers);
-        self.release_retrying(&taken);
-        taken
-    }
-    pub(crate) fn take_held_triggers_matching(&mut self, eligible: &[Trigger]) -> Vec<Trigger> {
-        let mut remaining = eligible.to_vec();
-        let mut ready = Vec::new();
-        let mut held = Vec::new();
-        for trigger in std::mem::take(&mut self.data.held_triggers) {
-            if let Some(index) = remaining.iter().position(|event| event == &trigger) {
-                remaining.remove(index);
-                ready.push(trigger);
-            } else {
-                held.push(trigger);
-            }
-        }
-        self.data.held_triggers = held;
-        self.release_retrying(&ready);
-        ready
-    }
-    fn release_retrying(&mut self, taken: &[Trigger]) {
-        let (released, kept) = std::mem::take(&mut self.data.retrying_triggers)
-            .into_iter()
-            .partition::<Vec<_>, _>(|trigger| taken.contains(trigger));
-        self.data.retrying_triggers = kept;
-        for trigger in released {
-            if !self.released_retrying.contains(&trigger) {
-                self.released_retrying.push(trigger);
-            }
-        }
-    }
-    pub(crate) fn append_unprompted(&mut self, message: Message) {
-        if message
-            .unprompted
-            .as_ref()
-            .is_some_and(|extra| extra.suppressed.is_none())
-        {
-            self.data.last_unprompted_at = Some(message.time);
-        }
-        self.data.messages.push(message);
-    }
-    pub(crate) fn hold_checkin_triggers(&mut self, triggers: &[Trigger]) {
-        for trigger in triggers {
-            if !self.data.held_triggers.contains(trigger) {
-                self.data.held_triggers.push(trigger.clone());
-            }
-        }
-    }
-    // The retry record follows the call queue's `retrying` sets, for held triggers only.
-    pub(crate) fn is_retrying(&self, trigger: &Trigger) -> bool {
-        self.data.retrying_triggers.contains(trigger) || self.released_retrying.contains(trigger)
-    }
-    pub(crate) fn mark_retrying(&mut self, triggers: &[Trigger]) {
-        for trigger in triggers {
-            if self.data.held_triggers.contains(trigger)
-                && !self.data.retrying_triggers.contains(trigger)
-            {
-                self.data.retrying_triggers.push(trigger.clone());
-            }
-        }
-        self.released_retrying
-            .retain(|trigger| !self.data.retrying_triggers.contains(trigger));
-    }
-    pub(crate) fn forget_retrying(&mut self, triggers: &[Trigger]) {
-        self.data
-            .retrying_triggers
-            .retain(|trigger| !triggers.contains(trigger));
-        self.released_retrying
-            .retain(|trigger| !triggers.contains(trigger));
-    }
-    pub(crate) fn schedule_look(&mut self, at: DateTime) {
-        self.data.next_planned_look = Some(at);
-    }
-    fn retain_fired_facts(&mut self) {
-        for task in &self.data.tasks {
-            for trigger in &task.triggers_fired {
-                if !self.data.triggers_fired.contains(trigger) {
-                    self.data.triggers_fired.push(trigger.clone());
-                }
-            }
-        }
-    }
-    fn restore_fired_facts(&mut self) {
-        for task in &mut self.data.tasks {
-            for trigger in &self.data.triggers_fired {
-                if trigger.task == Some(task.number) && !task.triggers_fired.contains(trigger) {
-                    task.triggers_fired.push(trigger.clone());
-                }
-            }
-        }
     }
     fn index(&self, number: u64) -> Result<usize, DayError> {
         self.data
@@ -743,9 +470,6 @@ impl Day {
             Some(at)
         };
         let after = self.data.tasks[index].clone();
-        if matches!(status, TaskStatus::Done | TaskStatus::Dropped) {
-            self.close_task_inbox(number, at);
-        }
         Ok(self.record(
             snapshot,
             vec![Change::Task {
@@ -758,28 +482,17 @@ impl Day {
     fn snapshot(&self) -> change::Snapshot {
         change::Snapshot {
             tasks: self.data.tasks.clone(),
-            muted_until: self.data.muted_until,
         }
     }
     fn record(
-        self,
-        snapshot: change::Snapshot,
-        changes: Vec<Change>,
-        at: UnixMillis,
-    ) -> (Self, ChangeSet) {
-        self.record_with_leftovers(snapshot, changes, Vec::new(), at)
-    }
-    fn record_with_leftovers(
         mut self,
         snapshot: change::Snapshot,
         changes: Vec<Change>,
-        leftovers: Vec<LeftoverChange>,
         at: UnixMillis,
     ) -> (Self, ChangeSet) {
         self.undo.push(change::UndoEntry {
             snapshot,
             changes: changes.clone(),
-            leftovers: leftovers.clone(),
         });
         if self.undo.len() > self.tuning.day.undo_depth {
             self.undo.remove(0);
@@ -788,7 +501,6 @@ impl Day {
             time: at,
             changes,
             undo: false,
-            leftovers,
         };
         self.append_change(&set);
         (self, set)
@@ -799,8 +511,6 @@ impl Day {
             text: String::new(),
             time: set.time,
             kind: MessageKind::Change,
-            unprompted: None,
-            answers_question: None,
             change_set: Some(set.clone()),
             cancelled: false,
             in_reply_to: None,

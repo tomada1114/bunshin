@@ -94,59 +94,9 @@ pub fn log_dir(home: &Path) -> PathBuf {
     }
 }
 
-/// The owner's plain UTF-8 instructions inside the application data directory.
-#[must_use]
-pub fn instructions_file(root: &Path) -> PathBuf {
-    root.join("instructions.md")
-}
-
-/// Symbolic location for no-editor guidance. Neither HOME nor a custom XDG
-/// directory value is exposed in the error wording. `root` is resolved once.
-#[must_use]
-pub fn instructions_location(
-    home: &Path,
-    root: &Path,
-) -> bunshin_core::instructions::InstructionsLocation {
-    use bunshin_core::instructions::InstructionsLocation;
-    if cfg!(target_os = "macos") {
-        InstructionsLocation::MacosHome
-    } else if root == xdg_data_dir(home, None) {
-        InstructionsLocation::LinuxHome
-    } else {
-        InstructionsLocation::XdgDataHome
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn instructions_hint_uses_the_symbolic_location_for_the_resolved_data_root() {
-        use bunshin_core::instructions::InstructionsLocation;
-        let home = Path::new("/virtual/private-owner");
-        let default = if cfg!(target_os = "macos") {
-            macos_data_dir(home)
-        } else {
-            xdg_data_dir(home, None)
-        };
-        assert_eq!(
-            instructions_location(home, &default),
-            if cfg!(target_os = "macos") {
-                InstructionsLocation::MacosHome
-            } else {
-                InstructionsLocation::LinuxHome
-            }
-        );
-        assert_eq!(
-            instructions_location(home, Path::new("/virtual/private-data")),
-            if cfg!(target_os = "macos") {
-                InstructionsLocation::MacosHome
-            } else {
-                InstructionsLocation::XdgDataHome
-            }
-        );
-    }
 
     const HOME: &str = "/home/someone";
 

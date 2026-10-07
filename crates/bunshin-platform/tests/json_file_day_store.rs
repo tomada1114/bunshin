@@ -149,7 +149,7 @@ fn corrupt_and_future_files_are_refused_and_never_overwritten() {
 }
 
 #[test]
-fn the_header_preflight_accepts_format_one_and_two_and_a_save_migrates_one_to_two() {
+fn the_header_preflight_accepts_format_one_and_current_and_save_writes_current_format() {
     use bunshin_core::{
         UnixMillis,
         day::{TaskKind, TaskOrigin},
@@ -170,10 +170,6 @@ fn the_header_preflight_accepts_format_one_and_two_and_a_save_migrates_one_to_tw
     let current = serde_json::to_value(bunshin_core::day::file::DayFile::from(&day)).expect("json");
     let mut legacy = current.clone();
     legacy["format"] = serde_json::json!(1);
-    legacy
-        .as_object_mut()
-        .expect("object")
-        .remove("retryingTriggers");
     for value in [&legacy, &current] {
         fs::write(&path, serde_json::to_vec(value).expect("bytes")).expect("fixture");
         assert_eq!(store.load(day.date()).expect("readable").data(), day.data());
@@ -183,7 +179,7 @@ fn the_header_preflight_accepts_format_one_and_two_and_a_save_migrates_one_to_tw
     let saved: serde_json::Value =
         serde_json::from_slice(&fs::read(&path).expect("saved")).expect("json");
     assert_eq!(saved["format"], 2);
-    assert_eq!(saved["retryingTriggers"], serde_json::json!([]));
+    assert!(saved.get("retryingTriggers").is_none());
     let mut newer = current;
     newer["format"] = serde_json::json!(3);
     let bytes = serde_json::to_vec(&newer).expect("bytes");
