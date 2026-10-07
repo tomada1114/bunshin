@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `bunshin tui` now checks in on its own: the screen runs the day start and a catch-up
+  of what came due while it was closed when it opens, hands the check-in rules the
+  clock at least once a second, and rings one terminal bell for each note or question
+  it posts. Unprompted messages open with a magenta `[お知らせ / …]` or bold
+  `[質問 / …]` tag line; the header shows 受信箱 N, 保留 N, ミュート中 〜HH:MM,
+  時間外（HH:MM から）, 次の見回り HH:MM, and 見回り中… while a check-in runs. `b`
+  opens the inbox (Enter, `x`, `X`, `g`, Esc), the task pane shows yesterday's
+  leftovers with `c`/`d`/`C`/`D`, and a key mute's change line says `m` undoes it.
+
 - Core day rhythm: the day start at the first open of a logical day, or at the first
   key after 04:00 with the screen open, writes yesterday's record (counts and up to three
   titles each, within 120 tokens) that every model call carries, drops the previous

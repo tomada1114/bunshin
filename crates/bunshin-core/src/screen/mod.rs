@@ -1,4 +1,6 @@
 //! Pure screen state: keys change one Day or request an effect, never call a model.
+mod checkin;
+pub use checkin::CheckinHeader;
 pub mod help;
 mod inbox;
 mod input;
@@ -47,6 +49,8 @@ pub enum Effect {
     SaveLeftovers,
     /// Load the new logical day and run its day start (`start_day`) before the next key.
     StartDay,
+    /// Ring the terminal bell once, for one newly posted unprompted message.
+    Bell,
 }
 /// A task-pane refusal, with user-facing wording owned by the binary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -79,6 +83,7 @@ pub struct MainScreen {
     last_key_messages: usize,
     chat_has_key: bool,
     rhythm: rhythm::RhythmState,
+    checkins: checkin::CheckinState,
 }
 impl MainScreen {
     /// Start in the input with the first display row selected, without reading I/O.
@@ -109,12 +114,18 @@ impl MainScreen {
             last_key_messages,
             chat_has_key: false,
             rhythm: rhythm::RhythmState::default(),
+            checkins: checkin::CheckinState::new(tuning),
         }
     }
     /// Day to render or persist after a Save effect.
     #[must_use]
     pub const fn day(&self) -> &Day {
         &self.day
+    }
+    /// The tuning this screen decides with, for a front end's derived labels.
+    #[must_use]
+    pub const fn tuning(&self) -> Tuning {
+        self.tuning
     }
     /// Current captured focus.
     #[must_use]
@@ -311,18 +322,9 @@ impl MainScreen {
                     self.error = None;
                 }
             }
-            ScreenAction::Mute => {
-                let result = if self.day.data().muted_until.is_some_and(|until| until > at) {
-                    self.day.clone().unmute(at)
-                } else {
-                    let duration = i64::from(self.tuning.key_mute_minutes) * 60_000;
-                    self.day
-                        .clone()
-                        .mute(UnixMillis(at.0.saturating_add(duration)), at)
-                };
-                self.accept(Ok(result), effects);
-            }
+            ScreenAction::Mute => self.toggle_mute(at, effects),
             ScreenAction::Help => self.focus = Focus::Help,
+            ScreenAction::Inbox => self.inbox_selected = Some(0),
             ScreenAction::SaveForm => self.save_form(at, effects),
             ScreenAction::NextField
             | ScreenAction::PreviousField
@@ -337,12 +339,29 @@ impl MainScreen {
                 self.form = None;
                 self.focus = Focus::Tasks;
             }
-            // Decided before `apply`, where the instant's civil time is still at hand.
+            // Leftovers are decided before `apply`, where the instant's civil time is still
+            // at hand; the open inbox captures its keys before the base screen sees them.
             ScreenAction::CarryLeftover
             | ScreenAction::DropLeftover
             | ScreenAction::CarryAllLeftovers
-            | ScreenAction::DropAllLeftovers => {}
+            | ScreenAction::DropAllLeftovers
+            | ScreenAction::InboxRespond
+            | ScreenAction::InboxClose
+            | ScreenAction::InboxAcknowledgeNotes
+            | ScreenAction::InboxTask
+            | ScreenAction::CloseInbox => {}
         }
+    }
+    fn toggle_mute(&mut self, at: UnixMillis, effects: &mut Vec<Effect>) {
+        let result = if self.day.data().muted_until.is_some_and(|until| until > at) {
+            self.day.clone().unmute(at)
+        } else {
+            let duration = i64::from(self.tuning.key_mute_minutes) * 60_000;
+            self.day
+                .clone()
+                .mute(UnixMillis(at.0.saturating_add(duration)), at)
+        };
+        self.accept(Ok(result), effects);
     }
     /// Clamp instruction scrolling to the rows measured by the drawing adapter.
     #[must_use]
@@ -404,7 +423,13 @@ impl MainScreen {
             | ScreenAction::CarryLeftover
             | ScreenAction::DropLeftover
             | ScreenAction::CarryAllLeftovers
-            | ScreenAction::DropAllLeftovers => return,
+            | ScreenAction::DropAllLeftovers
+            | ScreenAction::Inbox
+            | ScreenAction::InboxRespond
+            | ScreenAction::InboxClose
+            | ScreenAction::InboxAcknowledgeNotes
+            | ScreenAction::InboxTask
+            | ScreenAction::CloseInbox => return,
         };
         self.accept(result, effects);
     }

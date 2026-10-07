@@ -14,6 +14,7 @@ pub const SYSTEM: &str = "システム";
 pub const CHANGE: &str = "変更";
 pub const NEW_MESSAGE_DIVIDER: &str = "── ここから新着 ──";
 pub const CANCELLED_MARK: &str = "（中止）";
+const MUTE_GUIDE: &str = "（m で解除）";
 pub const INSTRUCTIONS_TITLE: &str = " 指示文（読み取り専用） ";
 pub const INSTRUCTIONS_EDIT: &str =
     "編集: 端末で bunshin instructions edit（次の呼び出しから反映）";
@@ -46,7 +47,10 @@ pub fn chat_changes(
             Change::Task { before, after } => task_change(before.as_ref(), after.as_ref()),
             Change::Mute { before: _, after } => after.map_or_else(
                 || "ミュート解除".into(),
-                |at| format!("ミュート 〜{}", chat_timestamp(local_at(at))),
+                |at| {
+                    let guide = if set.undo { "" } else { MUTE_GUIDE };
+                    format!("ミュート 〜{}{guide}", chat_timestamp(local_at(at)))
+                },
             ),
         })
         .collect::<Vec<_>>()
@@ -216,7 +220,7 @@ mod tests {
         let (_, muted) = day.mute(UnixMillis(3_600_000), now.instant);
         assert_eq!(
             chat_changes(&muted, &|at| now.at_fixed_offset(at)),
-            "ミュート 〜16:31"
+            "ミュート 〜16:31（m で解除）"
         );
     }
 }
@@ -273,14 +277,14 @@ mod zone_tests {
                 "2026-03-08T01:30:00",
                 60,
                 "2026-03-08T03:30:00",
-                "ミュート 〜03:30",
+                "ミュート 〜03:30（m で解除）",
             ),
             (
                 1_793_511_000_000,
                 "2026-11-01T01:30:00",
                 120,
                 "2026-11-01T02:30:00",
-                "ミュート 〜02:30",
+                "ミュート 〜02:30（m で解除）",
             ),
         ] {
             let now = Now {

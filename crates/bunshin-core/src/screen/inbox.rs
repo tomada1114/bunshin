@@ -1,5 +1,8 @@
 //! Inbox selection is session state; reactions remain in the owning Day.
-use super::{Effect, Focus, MainScreen, ScreenKey};
+use super::{
+    Effect, Focus, MainScreen, ScreenKey,
+    keys::{KeyRegion, ScreenAction, action_for},
+};
 use crate::{
     Now,
     day::UnpromptedKind,
@@ -7,8 +10,7 @@ use crate::{
 };
 
 impl MainScreen {
-    /// Open the overlay from the TUI caller once its renderer is installed.
-    /// The terminal key translation and drawing are a separate integration.
+    /// Open the inbox overlay, as the task pane's `b` does; only the task pane opens it.
     #[must_use]
     pub fn open_inbox(mut self) -> Self {
         if !self.finished && self.focus == Focus::Tasks {
@@ -16,7 +18,7 @@ impl MainScreen {
         }
         self
     }
-    /// Overlay facts for the future inbox renderer, absent while closed.
+    /// Overlay facts for the inbox renderer, absent while closed.
     #[must_use]
     pub fn inbox(&self) -> Option<InboxView> {
         self.inbox_selected.map(|selected| {
@@ -60,69 +62,7 @@ impl MainScreen {
         }
         let view = self.inbox()?;
         let item = view.selected.and_then(|index| view.items.get(index));
-        let action = match key {
-            ScreenKey::Esc | ScreenKey::Char('b') => {
-                self.inbox_selected = None;
-                None
-            }
-            ScreenKey::Up | ScreenKey::Char('k') => {
-                self.inbox_selected = Some(view.selected.unwrap_or(0).saturating_sub(1));
-                None
-            }
-            ScreenKey::Down | ScreenKey::Char('j') => {
-                self.inbox_selected = Some(
-                    view.selected
-                        .unwrap_or(0)
-                        .saturating_add(1)
-                        .min(view.items.len().saturating_sub(1)),
-                );
-                None
-            }
-            ScreenKey::Enter => {
-                if let Some(item) = item {
-                    match item.kind {
-                        UnpromptedKind::Question => {
-                            self.reply_target = Some(item.message);
-                            self.inbox_selected = None;
-                            self.focus = Focus::Input;
-                            None
-                        }
-                        UnpromptedKind::Note => Some(InboxAction::Acknowledge),
-                    }
-                } else {
-                    None
-                }
-            }
-            ScreenKey::Char('x') => Some(InboxAction::Close),
-            ScreenKey::Char('X') => Some(InboxAction::AcknowledgeNotes),
-            ScreenKey::Char('g') => {
-                self.inbox_selected = None;
-                self.focus = Focus::Tasks;
-                if let Some(task) = item.and_then(|item| item.task)
-                    && let Some(index) = self
-                        .day
-                        .task_view()
-                        .iter()
-                        .position(|row| row.number == task)
-                {
-                    self.selected = Some(index);
-                }
-                None
-            }
-            ScreenKey::Char(_)
-            | ScreenKey::Left
-            | ScreenKey::Right
-            | ScreenKey::Tab
-            | ScreenKey::BackTab
-            | ScreenKey::Backspace
-            | ScreenKey::Delete
-            | ScreenKey::Home
-            | ScreenKey::End
-            | ScreenKey::Undo
-            | ScreenKey::Interrupt
-            | ScreenKey::PageUp
-            | ScreenKey::PageDown => None,
-        };
+        let action = self.inbox_reaction(action_for(key, KeyRegion::Inbox), &view);
         let mut effects = Vec::new();
         if let Some(action) = action {
             let (day, changed) =
@@ -139,5 +79,101 @@ impl MainScreen {
                 Some(selected.min(self.day.inbox_view().items.len().saturating_sub(1)));
         }
         Some(effects)
+    }
+    /// The reaction one inbox key asks for; selection and routing change here, and
+    /// what the day records is returned.
+    fn inbox_reaction(
+        &mut self,
+        action: Option<ScreenAction>,
+        view: &InboxView,
+    ) -> Option<InboxAction> {
+        let item = view.selected.and_then(|index| view.items.get(index));
+        match action {
+            Some(ScreenAction::CloseInbox) => {
+                self.inbox_selected = None;
+                None
+            }
+            Some(ScreenAction::Previous) => {
+                self.inbox_selected = Some(view.selected.unwrap_or(0).saturating_sub(1));
+                None
+            }
+            Some(ScreenAction::Next) => {
+                self.inbox_selected = Some(
+                    view.selected
+                        .unwrap_or(0)
+                        .saturating_add(1)
+                        .min(view.items.len().saturating_sub(1)),
+                );
+                None
+            }
+            Some(ScreenAction::InboxRespond) => {
+                if let Some(item) = item {
+                    match item.kind {
+                        UnpromptedKind::Question => {
+                            self.reply_target = Some(item.message);
+                            self.inbox_selected = None;
+                            self.focus = Focus::Input;
+                            None
+                        }
+                        UnpromptedKind::Note => Some(InboxAction::Acknowledge),
+                    }
+                } else {
+                    None
+                }
+            }
+            Some(ScreenAction::InboxClose) => Some(InboxAction::Close),
+            Some(ScreenAction::InboxAcknowledgeNotes) => Some(InboxAction::AcknowledgeNotes),
+            Some(ScreenAction::InboxTask) => {
+                self.inbox_selected = None;
+                self.focus = Focus::Tasks;
+                if let Some(task) = item.and_then(|item| item.task)
+                    && let Some(index) = self
+                        .day
+                        .task_view()
+                        .iter()
+                        .position(|row| row.number == task)
+                {
+                    self.selected = Some(index);
+                    self.rhythm.cursor = None;
+                }
+                None
+            }
+            Some(
+                ScreenAction::Quit
+                | ScreenAction::Undo
+                | ScreenAction::MoveFocus
+                | ScreenAction::Input
+                | ScreenAction::Done
+                | ScreenAction::Drop
+                | ScreenAction::Add
+                | ScreenAction::Edit
+                | ScreenAction::Delete
+                | ScreenAction::Mute
+                | ScreenAction::Help
+                | ScreenAction::CloseHelp
+                | ScreenAction::SaveForm
+                | ScreenAction::NextField
+                | ScreenAction::PreviousField
+                | ScreenAction::Left
+                | ScreenAction::Right
+                | ScreenAction::EditText
+                | ScreenAction::CancelForm
+                | ScreenAction::Instructions
+                | ScreenAction::CloseInstructions
+                | ScreenAction::InstructionsUp
+                | ScreenAction::InstructionsDown
+                | ScreenAction::ChatUp
+                | ScreenAction::ChatDown
+                | ScreenAction::ChatLatest
+                | ScreenAction::SendInput
+                | ScreenAction::CancelInput
+                | ScreenAction::CarryLeftover
+                | ScreenAction::DropLeftover
+                | ScreenAction::CarryAllLeftovers
+                | ScreenAction::DropAllLeftovers
+                | ScreenAction::Inbox,
+            )
+            | None => None,
+        }
     }
 }

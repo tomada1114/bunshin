@@ -21,3 +21,36 @@ pub fn task_help() -> Vec<&'static KeyBinding> {
         }))
         .collect()
 }
+
+/// The task-pane line while the cursor is in the leftovers block: Help first, then the
+/// block's keys, then moving focus.
+#[must_use]
+pub fn leftovers_help() -> Vec<&'static KeyBinding> {
+    KEY_TABLE
+        .iter()
+        .filter(|binding| {
+            binding.region == KeyRegion::Tasks && binding.action == ScreenAction::Help
+        })
+        .chain(
+            KEY_TABLE
+                .iter()
+                .filter(|binding| binding.region == KeyRegion::Leftovers),
+        )
+        .chain(KEY_TABLE.iter().filter(|binding| {
+            binding.region == KeyRegion::Main && binding.action == ScreenAction::MoveFocus
+        }))
+        .collect()
+}
+
+/// The inbox overlay's own key line, in the product table's order; selection keys are
+/// left to the help overlay.
+#[must_use]
+pub fn inbox_help() -> Vec<&'static KeyBinding> {
+    KEY_TABLE
+        .iter()
+        .filter(|binding| {
+            binding.region == KeyRegion::Inbox
+                && !matches!(binding.action, ScreenAction::Previous | ScreenAction::Next)
+        })
+        .collect()
+}

@@ -1,5 +1,7 @@
 //! Translate screen effects to port calls before accepting another key.
 
+use std::io::{self, Write};
+
 use bunshin_core::{
     Now,
     day::store::DayStore,
@@ -13,11 +15,22 @@ pub(super) fn process_key(
     now: Now,
     store: &dyn DayStore,
     cancel: impl FnMut(),
+    bells: &mut usize,
 ) -> MainScreen {
     let (mut screen, effects) = screen.update(key, now);
-    screen = process_effects(screen, effects, now, store, cancel);
+    screen = process_effects(screen, effects, now, store, cancel, bells);
     screen
 }
+
+/// Write one BEL per counted `Bell` effect, and nothing when there is none.
+pub(super) fn ring(out: &mut impl Write, bells: usize) -> io::Result<()> {
+    if bells == 0 {
+        return Ok(());
+    }
+    out.write_all(&vec![BEL; bells])?;
+    out.flush()
+}
+const BEL: u8 = 0x07;
 
 /// Recover pending owner rows before the terminal's error path drops the screen.
 pub(super) fn cancel_after_error(
@@ -27,7 +40,9 @@ pub(super) fn cancel_after_error(
     mut cancel: impl FnMut(),
 ) -> MainScreen {
     cancel();
-    process_key(screen, ScreenKey::Interrupt, now, store, || {})
+    // The terminal is failing and quitting rings nothing, so no count is kept.
+    let mut bells = 0;
+    process_key(screen, ScreenKey::Interrupt, now, store, || {}, &mut bells)
 }
 
 pub(super) fn process_effects(
@@ -36,6 +51,7 @@ pub(super) fn process_effects(
     now: Now,
     store: &dyn DayStore,
     mut cancel: impl FnMut(),
+    bells: &mut usize,
 ) -> MainScreen {
     let mut queue = std::collections::VecDeque::from(effects);
     while let Some(effect) = queue.pop_front() {
@@ -62,6 +78,7 @@ pub(super) fn process_effects(
                     screen = screen.record_save_result(Err(error), now.instant, &notice);
                 }
             }
+            Effect::Bell => *bells = bells.saturating_add(1),
             Effect::StartDay => {
                 let (next, effects) = screen.start_day(store, now);
                 screen = next;
@@ -90,7 +107,7 @@ mod tests {
         now: Now,
         store: &dyn DayStore,
     ) -> MainScreen {
-        super::process_key(screen, key, now, store, || {})
+        super::process_key(screen, key, now, store, || {}, &mut 0)
     }
 
     fn pane(clock: &FixedClock) -> MainScreen {
@@ -148,6 +165,7 @@ mod tests {
             now,
             &store,
             || {},
+            &mut 0,
         );
         assert!(
             store
@@ -194,6 +212,7 @@ mod tests {
             now,
             &store,
             || {},
+            &mut 0,
         );
         let screen = process_key(screen, ScreenKey::Tab, now, &store);
         // Today's file becomes unwritable while the earlier day's stays writable.
@@ -273,6 +292,7 @@ mod tests {
             now,
             &FailingDayStore,
             || cancelled = true,
+            &mut 0,
         );
         assert!(cancelled);
         assert!(!failed.finished());
@@ -407,5 +427,53 @@ mod tests {
                 DayFile::from(screen.day())
             );
         }
+    }
+
+    #[test]
+    fn ring_writes_one_bel_per_bell_and_nothing_without_one() {
+        let mut out = Vec::new();
+        ring(&mut out, 2).expect("written");
+        assert_eq!(out, b"\x07\x07");
+        let mut out = Vec::new();
+        ring(&mut out, 0).expect("nothing to write");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn only_bell_effects_count_toward_the_bell() {
+        use bunshin_core::screen::{ChatNotice, Effect};
+        let clock = FixedClock::default();
+        let now = clock.now();
+        let store = InMemoryDayStore::new(Tuning::default());
+        let mut bells = 0;
+        let screen = process_effects(
+            pane(&clock),
+            vec![
+                Effect::Bell,
+                Effect::Save,
+                Effect::ChatNotice(ChatNotice::ModelBack),
+                Effect::Bell,
+            ],
+            now,
+            &store,
+            || {},
+            &mut bells,
+        );
+        assert_eq!(bells, 2);
+        let mut bells = 0;
+        let _ = process_effects(
+            screen,
+            vec![
+                Effect::Save,
+                Effect::ChatNotice(ChatNotice::Failed),
+                Effect::CancelModel,
+                Effect::SaveLeftovers,
+            ],
+            now,
+            &store,
+            || {},
+            &mut bells,
+        );
+        assert_eq!(bells, 0);
     }
 }

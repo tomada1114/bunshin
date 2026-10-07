@@ -31,16 +31,54 @@ pub const HELP_TITLE: &str = " キー操作（? または Esc で閉じる） ";
 pub const HELP_IME: &str = "キーは英数入力（全角英数も使えます）";
 pub const HELP_MARKS: &str = "表示: [ ] 未完了  [x] 完了  [-] やめた  [>] 持ち越し済み";
 pub const HELP_TIMES: &str = "10:00 予定（その時刻に始まる）  〜15:00 締切（その時刻までに）";
+pub const HEADER_SEPARATOR: &str = " | ";
+pub const CHECKING_IN: &str = "見回り中…";
+pub const LEFTOVERS_NO_TASKS: &str = "（今日のタスクはまだありません）";
+pub const INBOX_TITLE: &str = " 受信箱 ";
+pub const INBOX_EMPTY: &str = "対応が必要なものはありません。";
 
-pub fn date_and_clock(day: &Day, now: Now) -> String {
+pub fn header_inbox(count: usize) -> String {
+    format!("受信箱 {count}")
+}
+pub fn header_held(count: usize) -> String {
+    format!("保留 {count}")
+}
+pub fn header_muted(until: &str) -> String {
+    format!("ミュート中 〜{until}")
+}
+/// Hours and minutes arrive as plain numbers so the binary names no time crate.
+pub fn header_outside_hours(hour: i8, minute: i8) -> String {
+    format!("時間外（{hour:02}:{minute:02} から）")
+}
+pub fn header_next_look(at: Option<(i8, i8)>) -> String {
+    at.map_or_else(
+        || "次の見回り —".into(),
+        |(hour, minute)| format!("次の見回り {hour:02}:{minute:02}"),
+    )
+}
+pub fn leftovers_heading(previous: &Day) -> String {
+    format!(
+        "前日の残り {} ─ 持ち越すか、やめるか決めてください",
+        short_date(previous)
+    )
+}
+pub fn inbox_count(open: usize) -> String {
+    format!(" 未対応 {open} ")
+}
+pub fn inbox_note(minutes: u16) -> String {
+    format!("── 未対応は今日の分だけ。{minutes}分反応がないと「無視」として秘書に伝わります")
+}
+fn short_date(day: &Day) -> String {
     const WEEKDAYS: [&str; 7] = ["日", "月", "火", "水", "木", "金", "土"];
     let date = day.date();
     let weekday = usize::try_from(date.weekday().to_sunday_zero_offset()).unwrap_or(0);
+    format!("{}/{}({})", date.month(), date.day(), WEEKDAYS[weekday])
+}
+
+pub fn date_and_clock(day: &Day, now: Now) -> String {
     format!(
-        "{}/{}({}) {:02}:{:02}",
-        date.month(),
-        date.day(),
-        WEEKDAYS[weekday],
+        "{} {:02}:{:02}",
+        short_date(day),
         now.local.hour(),
         now.local.minute()
     )
@@ -102,6 +140,7 @@ pub fn region_label(region: KeyRegion) -> &'static str {
         KeyRegion::Instructions => "指示文",
         KeyRegion::Input => "入力欄",
         KeyRegion::Leftovers => "前日の残り",
+        KeyRegion::Inbox => "受信箱",
     }
 }
 pub fn action_label(action: ScreenAction) -> &'static str {
@@ -119,7 +158,9 @@ pub fn action_label(action: ScreenAction) -> &'static str {
         ScreenAction::Delete => "削除",
         ScreenAction::Mute => "ミュート60分⇔解除",
         ScreenAction::Help => "全キー",
-        ScreenAction::CloseHelp | ScreenAction::CloseInstructions => "閉じる",
+        ScreenAction::CloseHelp | ScreenAction::CloseInstructions | ScreenAction::InboxClose => {
+            "閉じる"
+        }
         ScreenAction::SaveForm => "保存",
         ScreenAction::NextField => "次へ",
         ScreenAction::PreviousField => "前へ",
@@ -137,6 +178,11 @@ pub fn action_label(action: ScreenAction) -> &'static str {
         ScreenAction::CarryLeftover => "持ち越し",
         ScreenAction::CarryAllLeftovers => "全部持ち越し",
         ScreenAction::DropAllLeftovers => "全部やめる",
+        ScreenAction::Inbox => "受信箱",
+        ScreenAction::InboxRespond => "返事する／了解",
+        ScreenAction::InboxAcknowledgeNotes => "お知らせを全部了解",
+        ScreenAction::InboxTask => "タスクへ",
+        ScreenAction::CloseInbox => "戻る",
     }
 }
 pub fn key_label(key: ScreenKey) -> String {

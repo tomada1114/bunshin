@@ -1,14 +1,15 @@
 //! Captured forms and help cover the main screen without owning domain state.
 use super::{
     BASE_STYLE, ERROR_STYLE, FOCUSED_STYLE, KEY_STYLE, binding_line, compact_binding_line,
-    region_block, truncate,
+    region_block, sanitize, tag_label, tag_style, truncate, wrap_chat_rows,
 };
 use crate::wording;
 use bunshin_core::{
     day::TaskKind,
+    inbox::InboxView,
     screen::{
         Focus, MainScreen,
-        help::help_rows,
+        help::{help_rows, inbox_help},
         keys::KeyRegion,
         task_form::{FormField, TaskForm},
     },
@@ -16,12 +17,21 @@ use bunshin_core::{
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
+    style::Modifier,
     text::{Line, Span},
     widgets::{Clear, Paragraph, Wrap},
 };
 
-pub(super) fn draw(frame: &mut Frame, screen: &MainScreen) -> Option<(usize, usize)> {
+pub(super) fn draw(
+    frame: &mut Frame,
+    screen: &MainScreen,
+    local_at: &dyn Fn(bunshin_core::UnixMillis) -> Option<bunshin_core::Now>,
+) -> Option<(usize, usize)> {
     if screen.is_confirming_quit() {
+        return None;
+    }
+    if let Some(inbox) = screen.inbox() {
+        draw_inbox(frame, screen, &inbox, local_at);
         return None;
     }
     match screen.focus() {
@@ -224,7 +234,15 @@ pub(super) fn field_window(text: &str, cursor: usize, width: usize) -> (String, 
     (visible, offset.min(width - 1))
 }
 fn draw_help(frame: &mut Frame) {
-    let area = centered(frame.area(), 100, frame.area().height);
+    // Every group must fit 60×18, so the overlay takes the full height.
+    let full = frame.area();
+    let width = full.width.saturating_sub(2).min(100);
+    let area = Rect::new(
+        full.x + (full.width - width) / 2,
+        full.y,
+        width,
+        full.height,
+    );
     frame.render_widget(Clear, area);
     let mut lines = Vec::new();
     for region in [
@@ -302,4 +320,95 @@ fn draw_instructions(frame: &mut Frame, screen: &MainScreen) -> Option<(usize, u
     );
     frame.render_widget(Paragraph::new(wording::INSTRUCTIONS_FOOTER), footer);
     Some(metrics)
+}
+
+/// T4: today's open notes and questions, newest first, with its own key line.
+fn draw_inbox(
+    frame: &mut Frame,
+    screen: &MainScreen,
+    inbox: &InboxView,
+    local_at: &dyn Fn(bunshin_core::UnixMillis) -> Option<bunshin_core::Now>,
+) {
+    let width = 80.min(frame.area().width.saturating_sub(2));
+    let text_width = usize::from(width.saturating_sub(2));
+    let mut rows = vec![(Line::default(), 0)];
+    let mut selected_row = 0;
+    if inbox.items.is_empty() {
+        rows.push((Line::from(format!(" {}", wording::INBOX_EMPTY)), 1));
+    }
+    for (index, item) in inbox.items.iter().enumerate() {
+        let chosen = inbox.selected == Some(index);
+        let marker = if chosen { '>' } else { ' ' };
+        let clock = wording::chat_timestamp(local_at(item.time));
+        let mut first = Line::from(vec![
+            Span::raw(format!(" {marker} {clock} ")),
+            Span::styled(
+                tag_label(screen, item.kind, &item.trigger, item.task),
+                tag_style(item.kind),
+            ),
+        ]);
+        if chosen {
+            selected_row = rows.len();
+            first = first.patch_style(BASE_STYLE.add_modifier(Modifier::REVERSED));
+        }
+        rows.push((first, 9));
+        for part in item.text.lines() {
+            rows.push((
+                Line::from(format!("{}{}", " ".repeat(9), sanitize(part))),
+                9,
+            ));
+        }
+    }
+    rows.push((Line::default(), 0));
+    if !inbox.items.is_empty() {
+        rows.push((
+            Line::from(format!(
+                "   {}",
+                wording::inbox_note(screen.tuning().inbox_reaction_minutes)
+            )),
+            3,
+        ));
+        rows.push((Line::default(), 0));
+    }
+    let lines = wrap_chat_rows(rows, text_width);
+    let wanted = u16::try_from(lines.len())
+        .unwrap_or(u16::MAX)
+        .saturating_add(3);
+    let area = centered(frame.area(), width, wanted);
+    frame.render_widget(Clear, area);
+    let block = region_block(wording::INBOX_TITLE, true)
+        .title_top(Line::from(wording::inbox_count(inbox.items.len())).right_aligned());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let [body, footer] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
+    let scroll = (selected_row + 2).saturating_sub(usize::from(body.height));
+    frame.render_widget(
+        Paragraph::new(lines).scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0)),
+        body,
+    );
+    let keys = inbox_help();
+    let keys = if inbox.items.is_empty() {
+        keys.into_iter()
+            .filter(|binding| {
+                binding.action == bunshin_core::screen::keys::ScreenAction::CloseInbox
+            })
+            .collect()
+    } else {
+        keys
+    };
+    frame.render_widget(Paragraph::new(first_key_line(&keys)), footer);
+}
+/// A key line naming only each binding's first key, as T4's own line does.
+fn first_key_line(bindings: &[&bunshin_core::screen::keys::KeyBinding]) -> Line<'static> {
+    let mut spans = vec![Span::raw(" ")];
+    for binding in bindings {
+        if let Some(key) = binding.keys.first() {
+            spans.push(Span::styled(wording::key_label(*key), KEY_STYLE));
+            spans.push(Span::raw(format!(
+                " {}  ",
+                wording::action_label(binding.action)
+            )));
+        }
+    }
+    Line::from(spans)
 }

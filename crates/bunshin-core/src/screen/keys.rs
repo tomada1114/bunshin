@@ -129,6 +129,18 @@ pub enum ScreenAction {
     CarryAllLeftovers,
     /// Drop every leftover at once.
     DropAllLeftovers,
+    /// Open the inbox of today's open notes and questions.
+    Inbox,
+    /// Answer the selected question in the input, or acknowledge the selected note.
+    InboxRespond,
+    /// Close the selected item: a note acknowledged, a question dismissed.
+    InboxClose,
+    /// Acknowledge every open note; questions stay.
+    InboxAcknowledgeNotes,
+    /// Close the inbox and select the item's task.
+    InboxTask,
+    /// Close the inbox without reacting.
+    CloseInbox,
 }
 /// The region in which a binding is interpreted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,6 +161,8 @@ pub enum KeyRegion {
     Input,
     /// The leftovers block at the top of the task pane, while its row is selected.
     Leftovers,
+    /// The inbox overlay.
+    Inbox,
 }
 /// One source of truth for dispatch and the binary's translated help labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,6 +295,11 @@ pub const KEY_TABLE: &[KeyBinding] = &[
         region: Tasks,
     },
     KeyBinding {
+        action: A::Inbox,
+        keys: &[K::Char('b')],
+        region: Tasks,
+    },
+    KeyBinding {
         action: A::Help,
         keys: &[K::Char('?')],
         region: Tasks,
@@ -304,6 +323,41 @@ pub const KEY_TABLE: &[KeyBinding] = &[
         action: A::DropAllLeftovers,
         keys: &[K::Char('D')],
         region: KeyRegion::Leftovers,
+    },
+    KeyBinding {
+        action: A::InboxRespond,
+        keys: &[K::Enter],
+        region: KeyRegion::Inbox,
+    },
+    KeyBinding {
+        action: A::InboxClose,
+        keys: &[K::Char('x')],
+        region: KeyRegion::Inbox,
+    },
+    KeyBinding {
+        action: A::InboxAcknowledgeNotes,
+        keys: &[K::Char('X')],
+        region: KeyRegion::Inbox,
+    },
+    KeyBinding {
+        action: A::InboxTask,
+        keys: &[K::Char('g')],
+        region: KeyRegion::Inbox,
+    },
+    KeyBinding {
+        action: A::CloseInbox,
+        keys: &[K::Esc, K::Char('b')],
+        region: KeyRegion::Inbox,
+    },
+    KeyBinding {
+        action: A::Previous,
+        keys: &[K::Up, K::Char('k')],
+        region: KeyRegion::Inbox,
+    },
+    KeyBinding {
+        action: A::Next,
+        keys: &[K::Down, K::Char('j')],
+        region: KeyRegion::Inbox,
     },
     KeyBinding {
         action: A::CloseHelp,
