@@ -531,6 +531,7 @@ impl Board {
         if self.generation != turn.generation {
             return Outcome::Stale;
         }
+        self.advance_owner_cycle(turn);
 
         let body: String = match answer {
             Ok(answer) => match serde_json::from_str::<PostAnswer>(&answer.json) {
@@ -550,23 +551,40 @@ impl Board {
         }
 
         let post = self.make_post(Author::Character(turn.speaker), body, now);
+        if let TurnKind::NewTopic { topic } = turn.kind {
+            self.previous_topic_category = Some(topic.category);
+        }
         self.append(post.clone());
+        Outcome::Posted(post)
+    }
+
+    fn advance_owner_cycle(&mut self, turn: &Turn) {
+        let mut clear_cycle = false;
         if let Some(cycle) = self.owner_cycle.as_mut() {
-            match cycle.phase {
-                OwnerPhase::First if matches!(turn.kind, TurnKind::OwnerReply { .. }) => {
+            match turn.kind {
+                TurnKind::OwnerReply { target }
+                    if target == cycle.target.id && cycle.phase == OwnerPhase::First =>
+                {
                     cycle.phase = OwnerPhase::Second {
                         first_speaker: turn.speaker,
                     };
                 }
-                OwnerPhase::Second { .. }
-                    if matches!(turn.kind, TurnKind::OwnerReaction { .. }) =>
+                TurnKind::OwnerReaction { target }
+                    if target == cycle.target.id
+                        && matches!(cycle.phase, OwnerPhase::Second { .. }) =>
                 {
-                    self.owner_cycle = None;
+                    clear_cycle = true;
                 }
-                OwnerPhase::First | OwnerPhase::Second { .. } => {}
+                TurnKind::OwnerReply { .. }
+                | TurnKind::OwnerReaction { .. }
+                | TurnKind::Reply { .. }
+                | TurnKind::ChimeIn { .. }
+                | TurnKind::NewTopic { .. } => {}
             }
         }
-        Outcome::Posted(post)
+        if clear_cycle {
+            self.owner_cycle = None;
+        }
     }
 
     fn make_post(&mut self, author: Author, body: String, at: UnixMillis) -> Post {
@@ -595,8 +613,8 @@ impl Board {
             return true;
         };
         let elapsed = i128::from(now.0) - i128::from(finished.0);
-        elapsed >= 0
-            && u128::try_from(elapsed)
+        elapsed < 0
+            || u128::try_from(elapsed)
                 .is_ok_and(|millis| millis >= self.tuning.post_interval.as_millis())
     }
 
@@ -684,7 +702,6 @@ impl Board {
             .filter(|category| Some(*category) != self.previous_topic_category)
             .collect::<Vec<_>>();
         let category = categories[rng.index(categories.len())];
-        self.previous_topic_category = Some(category);
 
         Topic {
             category,

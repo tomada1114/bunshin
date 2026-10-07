@@ -149,6 +149,49 @@ fn owner_post_gets_two_responses_about_the_same_post_by_different_characters() {
 }
 
 #[test]
+fn failed_owner_turns_consume_the_two_response_cycle() {
+    for (index, (answer, expected)) in [
+        (Err(ModelError::TimedOut), FailureKind::TimedOut),
+        (Ok(ModelAnswer { json: "{".into() }), FailureKind::Malformed),
+        (
+            Ok(ModelAnswer {
+                json: r#"{"body":"  "}"#.into(),
+            }),
+            FailureKind::EmptyBody,
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut board = board_with_interval(Duration::from_secs(30));
+        let owner = board
+            .owner_post("返事がほしい投稿", at(0))
+            .expect("owner post");
+        let mut rng = Rng::from_seed(index as u64 + 101);
+        let first = start_turn(&mut board, 0, &mut rng);
+        assert_eq!(first.kind, TurnKind::OwnerReply { target: owner.id });
+        assert_eq!(
+            board.finish(&first, answer, at(1)),
+            Outcome::Failed(expected)
+        );
+
+        let second = start_turn(&mut board, 30_001, &mut rng);
+        assert_eq!(second.kind, TurnKind::OwnerReaction { target: owner.id });
+        assert_ne!(second.speaker, first.speaker);
+        assert_eq!(
+            board.finish(&second, Err(ModelError::Failed), at(30_002),),
+            Outcome::Failed(FailureKind::Failed)
+        );
+
+        let next = start_turn(&mut board, 60_002, &mut rng);
+        assert!(!matches!(
+            next.kind,
+            TurnKind::OwnerReply { .. } | TurnKind::OwnerReaction { .. }
+        ));
+    }
+}
+
+#[test]
 fn a_new_owner_post_can_be_answered_by_the_previous_character_again() {
     let mut reused_previous_speaker = false;
 
@@ -225,6 +268,22 @@ fn failed_attempts_add_nothing_and_restart_the_interval_at_finish_time() {
     assert!(board.posts().is_empty());
     assert!(!board.is_due(at(44_999)));
     assert!(board.is_due(at(45_000)));
+}
+
+#[test]
+fn a_backward_clock_correction_makes_the_next_attempt_due() {
+    let mut board = board_with_interval(Duration::from_secs(30));
+    let mut rng = Rng::from_seed(45);
+    let first = start_turn(&mut board, 120_000, &mut rng);
+    finish_post(&mut board, &first, 120_001);
+
+    assert!(!board.is_due(at(150_000)));
+    assert!(board.is_due(at(120_000)));
+
+    let after_rollback = start_turn(&mut board, 120_000, &mut rng);
+    finish_post(&mut board, &after_rollback, 120_000);
+    assert!(!board.is_due(at(149_999)));
+    assert!(board.is_due(at(150_000)));
 }
 
 #[test]
@@ -457,6 +516,65 @@ fn new_topic_categories_do_not_repeat_and_uniform_dimensions_cover_the_fixed_set
     for expected in [TopicMood::Relaxed, TopicMood::Excited, TopicMood::Debatable] {
         assert!(moods.contains(&expected), "missing mood: {expected:?}");
     }
+}
+
+#[test]
+fn failed_new_topics_do_not_replace_the_last_successful_category() {
+    let mut failed_category_was_reused = false;
+
+    for seed in 0..512 {
+        let mut board = board_with_interval(Duration::ZERO);
+        let mut rng = Rng::from_seed(seed + 1);
+        let first = start_turn(&mut board, 0, &mut rng);
+        let TurnKind::NewTopic { topic: first_topic } = first.kind else {
+            panic!("an empty board starts with a new topic");
+        };
+        finish_post(&mut board, &first, 1);
+        let last_successful_category = first_topic.category;
+        let mut now = 3;
+
+        let mut failed_category = None;
+        for _ in 0..100 {
+            let turn = start_turn(&mut board, now, &mut rng);
+            if let TurnKind::NewTopic { topic } = turn.kind {
+                failed_category = Some(topic.category);
+                assert_eq!(
+                    board.finish(&turn, Err(ModelError::Failed), at(now + 1)),
+                    Outcome::Failed(FailureKind::Failed)
+                );
+                now += 2;
+                break;
+            }
+            finish_post(&mut board, &turn, now + 1);
+            now += 2;
+        }
+        let Some(failed_category) = failed_category else {
+            continue;
+        };
+
+        for _ in 0..100 {
+            let turn = start_turn(&mut board, now, &mut rng);
+            if let TurnKind::NewTopic { topic } = turn.kind {
+                assert_ne!(topic.category, last_successful_category);
+                if topic.category == failed_category {
+                    failed_category_was_reused = true;
+                }
+                finish_post(&mut board, &turn, now + 1);
+                break;
+            }
+            finish_post(&mut board, &turn, now + 1);
+            now += 2;
+        }
+
+        if failed_category_was_reused {
+            break;
+        }
+    }
+
+    assert!(
+        failed_category_was_reused,
+        "a failed new topic should not prevent its category from being selected again"
+    );
 }
 
 #[test]
