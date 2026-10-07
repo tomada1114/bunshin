@@ -39,49 +39,37 @@ floor.
 This section is the one part of this file about the application rather than the
 harness: without it, an agent implementing an issue here has no in-repo answer to "is
 this in scope?". The owner writes each bullet (the `starting-an-app` skill says how);
-`just check-harness` fails while one still holds its `TODO` marker.
+`just check-harness` verifies the section is complete.
 
-- **What it is, and who it is for** — Bunshin (分身, "alter ego") is a secretary that
-  lives in a terminal pane and thinks with Apple's on-device foundation model through
-  the `fm` command that ships with macOS 27: no server, no API key, nothing leaves the
-  Mac. Its owner keeps `bunshin tui` open beside their work and tells it in plain
-  Japanese what the day holds and what got done; it keeps today's tasks — due by a time,
-  at a time, or untimed — and once a minute decides, with the model, whether to speak
-  first. It is for its developer: one person at one Apple silicon Mac on macOS 27 or
-  later, working in the terminal, whose problem is that AI agents only answer when
-  asked — nobody watches the day and says 「そろそろこれ片付けたほうがいいんじゃない？」
-  before a task slips.
-- **The core interaction** — telling Bunshin what today holds and what got done, in
-  plain words, and being nudged at the right moment without asking: a short note or
-  question in the chat with a terminal bell, kept to active hours and never twice about
-  one task within half an hour. Every change it makes from words is shown and undoable,
-  and every task operation is also one key away; the subcommands only read.
-- **Non-goals** — from [`docs/product/requirements.md`](docs/product/requirements.md) §2,
-  where the Later list sits beside them:
-  - **Network access in this version** — the MVP talks to nothing but `fm`; every
-    connection on the Later list needs its own decision.
-  - **Acting outside the app** — it sends nothing, edits no file but its own, and runs
-    no command on the user's behalf.
-  - **A general chatbot or knowledge source** — chat is about the day; answers of fact
-    are not something it promises.
-  - **Built-in voice input or speech** — the OS's dictation into the terminal is enough.
-  - **Editing or deleting past messages**, and export or import — the day files are
-    plain local files the owner can read.
-  - **Planning the day for the owner** — no time-blocking, no moving a task's time on
-    its own, no focus timers; it suggests in words and the owner decides.
-  - **Priorities, tags, projects, sub-tasks** — a day's list is flat.
-  - **Mail** — Gmail or any other mail service, reading or replying: out of scope
-    (decided 2026-10-02).
-  - **More than one persona**, more than one user, accounts, sync between Macs.
+- **What it is, and who it is for** — Bunshin (分身, "alter ego") is a prototype
+  bulletin board in a terminal pane. Three fixed characters — ハル, シズク, and ゲン —
+  talk on one shared board through Apple's on-device foundation model, reached through
+  the `fm` command on macOS 27 or later. The prototype is for its developer: one person
+  at one Apple silicon Mac, working in the terminal.
+- **The core interaction** — while `bunshin tui` is open, one character posts about
+  every 30 seconds. The owner can join the same board by posting in plain Japanese.
+  Their post appears immediately; one character writes a reply as soon as the model
+  worker is free, then a different character writes a second response post at the next
+  interval. The screen has a header,
+  the scrolling board, and the input line. Posts stay in memory and are lost on quit.
+- **Non-goals** — from
+  [`docs/product/requirements.md`](docs/product/requirements.md) §2:
+  - **Network access** — the prototype uses only the on-device `fm` command.
+  - **Acting outside the app** — it takes no action on the owner's behalf.
+  - **Built-in voice input or speech** — terminal dictation is enough.
+  - **Accounts, multiple users, or Mac-to-Mac sync.**
+  - **Persistence, history, export, or import** — the board is in memory only.
+  - **Editable or configurable characters and topics** — these are fixed in code.
+  - **Threads, mentions, emoji reactions or likes as separate post controls; editing
+    or deleting posts.**
+  - **Notifications, a terminal bell, or other sound.**
 - **Where these decisions are recorded** —
-  [`docs/product/requirements.md`](docs/product/requirements.md): the scope, each
-  feature's values, and a decision log that keeps every rejected alternative and why;
-  with the screens and flows in [`docs/product/ux-flows.md`](docs/product/ux-flows.md),
-  the app-wide UX rules in
-  [`docs/design/ux-guidelines.md`](docs/design/ux-guidelines.md), and the color roles in
-  [`docs/design/design-direction.md`](docs/design/design-direction.md). The architecture
-  and its decision log live in the `deciding-architecture` skill, and a feature request
-  goes through `managing-the-product` before any issue is filed.
+  [`docs/product/requirements.md`](docs/product/requirements.md): scope and values;
+  [`docs/product/ux-flows.md`](docs/product/ux-flows.md): the screen, keys, and flows;
+  [`docs/design/ux-guidelines.md`](docs/design/ux-guidelines.md): app-wide UX rules;
+  [`docs/design/design-direction.md`](docs/design/design-direction.md): color roles.
+  Architecture and its decision log live in the `deciding-architecture` skill.
+  A feature request goes through `managing-the-product` before any issue is filed.
 
 ## Quick Reference
 

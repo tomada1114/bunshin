@@ -1,78 +1,26 @@
 # Roadmap
 
-This page records the app's direction: the outcomes it is working toward now, the ones
-that come next, and the ones only intended for later. It sits between two other homes
-and repeats neither:
+This page records the outcomes the app is working toward now, next, and later. It sits
+between `AGENTS.md`'s Product section, which says what the app is, and the issue tracker,
+which holds the units of work and their priority. It links issues and never copies their
+bodies. It records direction, not authorization; the owner approves roadmap changes in
+the pull request.
 
-- `AGENTS.md`'s `## Product` says what the app is, its core interaction, and its
-  non-goals. Nothing here contradicts a non-goal; moving one is the owner's call, made
-  in that section first (`managing-the-product`).
-- The issue tracker holds the units of work, their priority labels, and their `blocked:`
-  and `on hold` labels (`triaging-issues`). This page links issues and never copies
-  their bodies.
-
-It records direction and authorizes nothing. An issue is implemented because it is
-filed, prioritized, and picked, never because a line here names it. It is not a
-decision record either: a decision a line depends on lives in the `deciding-architecture`
-skill and is named from here. What has shipped is in `CHANGELOG.md`, not on this page.
-
-The owner decides what the page says; an agent proposes a change to it in a pull
-request, and the change lands only once the owner has approved it.
-
-- **Last reviewed:** 2026-10-02
+- **Last reviewed:** 2026-10-07
 
 ## Now
 
-The outcomes being worked on, one to three of them. Each has its issues filed.
-
-- **Keep today's list by hand** — the list, its keys, and its files are what every
-  later feature writes into, and they work with no model at all.
-  Issues: [#2](https://github.com/tomada1114/bunshin/issues/2), sub-issues [#6](https://github.com/tomada1114/bunshin/issues/6), [#7](https://github.com/tomada1114/bunshin/issues/7), [#5](https://github.com/tomada1114/bunshin/issues/5), [#8](https://github.com/tomada1114/bunshin/issues/8), [#9](https://github.com/tomada1114/bunshin/issues/9), [#10](https://github.com/tomada1114/bunshin/issues/10), [#11](https://github.com/tomada1114/bunshin/issues/11).
-  Done when: in `bunshin tui` the owner adds, edits, completes, drops, deletes, and
-  undoes tasks by key (requirements §3.2, §3.4); after quitting and reopening the list
-  is the same; `bunshin today` and `bunshin today --json` print it (§3.9); a second
-  `bunshin tui` refuses to start (§3.7); and the template's sample is gone.
-- **Tell it the day in words** — the core interaction's first half.
-  Issues: [#3](https://github.com/tomada1114/bunshin/issues/3), sub-issues [#12](https://github.com/tomada1114/bunshin/issues/12), [#13](https://github.com/tomada1114/bunshin/issues/13), [#14](https://github.com/tomada1114/bunshin/issues/14), [#15](https://github.com/tomada1114/bunshin/issues/15).
-  Done when: a sentence such as 「15時までに資料」 adds a deadline task, 「会議終わった」
-  marks the meeting done, each shown as a change line and undone by one key (§3.3); the
-  owner's instructions shape the reply and `bunshin instructions` prints them (§3.8);
-  and with `fm` unavailable the screen says so and every key still works (§4).
-- **Be nudged at the right moment** — the second half: it speaks first.
-  Issues: [#4](https://github.com/tomada1114/bunshin/issues/4), sub-issues [#16](https://github.com/tomada1114/bunshin/issues/16), [#17](https://github.com/tomada1114/bunshin/issues/17), [#18](https://github.com/tomada1114/bunshin/issues/18), [#19](https://github.com/tomada1114/bunshin/issues/19), [#20](https://github.com/tomada1114/bunshin/issues/20).
-  Done when: over one working day with the screen open, the day starts with yesterday's
-  leftovers and the plan (§3.6), every open deadline task is considered before and after
-  its time, check-ins come at intervals the model chose and never outside active hours
-  or twice about one task in 30 minutes (§3.5), questions wait in the inbox until
-  answered or dismissed (§3.10), the evening review comes at 18:00, a sleep or a reopen
-  becomes one catch-up message (§3.7), and one key mutes it.
+- **Board prototype** — three fixed characters and the owner share one in-memory board.
+  Issue: [#46](https://github.com/tomada1114/bunshin/issues/46).
+  Done when: the five-minute owner run shows roughly ten character posts, a new topic,
+  no consecutive posts by one character, and two character response posts to an owner post; `just
+  check` passes; `bunshin today` exits 2; and no file is written under the app data
+  directory.
 
 ## Next
 
-The outcomes that follow once Now's are done. An issue may already exist for one, often
-parked as `on hold`; none is required.
-
-- **Tune the starting values on real days** — every † value in the requirements is a
-  guess until a few weeks of use. Before it moves up: the three Now outcomes in daily
-  use, and the open items in `deciding-architecture`'s design (the `fm` error codes, the
-  prompt language, greedy sampling) observed with `just test-local`.
-- **macOS notifications when the terminal is behind other windows** — pulled forward if
-  the bell is missed in practice. Before it moves up: the owner reports missing a
-  check-in; a recorded decision on the notification mechanism and its permission.
+No next outcome is recorded.
 
 ## Later
 
-Direction the app intends to take but has not ordered. No issue is filed for a line
-here, apart from a parked one that a line names.
-
-- **Writing from the shell** (`bunshin add`, `bunshin done`) — brought forward when the
-  owner wants to add tasks without the screen; needs a decision on a second writer.
-- **A background process** that keeps watching with the screen closed — brought forward
-  if the screen being closed costs missed deadlines.
-- **Multi-day and recurring tasks**, and **looking back over past days** — every day is
-  already kept; brought forward when one day's list stops being enough.
-- **Settings for the starting values** — when one value needs changing more often than
-  a rebuild.
-- **Outside sources**: RSS digests, Obsidian vault tasks, macOS Calendar, a hosted model
-  behind the same interface — each needs its own decision on network access, a
-  non-goal of this version.
+No later outcome is recorded.

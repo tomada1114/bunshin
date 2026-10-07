@@ -48,6 +48,7 @@ why), and **Sources** where an external fact carried weight.
   instructions file and passing text to core — the default, the limit, and the "why the
   default is in use" view are decisions core must test; the clock returning only an
   instant with core converting — conversion needs the system zone, which is I/O.
+- Superseded in part on 2026-10-07: the storage and instructions ports are retired; Clock and LanguageModel remain.
 
 ### 2026-10-02 — The model is reached by one `fm respond` process per call
 
@@ -77,6 +78,7 @@ why), and **Sources** where an external fact carried weight.
   (https://developer.apple.com/documentation/technotes/tn3193-managing-the-on-device-foundation-model-s-context-window,
   checked 2026-10-02). Free-form "should I speak now?" was echoed back, while the same
   question with a schema gave a usable decision (observed 2026-10-02).
+- Superseded on 2026-10-07: character turns use one {body} call with a fixed board context instead of chat and check-in events.
 
 ### 2026-10-02 — One JSON file per day, rewritten whole
 
@@ -88,6 +90,7 @@ why), and **Sources** where an external fact carried weight.
   would need replay logic; SQLite — a C-building dependency, and the owner could no
   longer read the day as a plain file (Non-goals: "the day files are plain local files");
   a backup now — the owner chose none for the first version (2026-10-02).
+- Superseded on 2026-10-07 by the in-memory board; no board file is written.
 
 ### 2026-10-02 — Data directory, owner-only files, a lock file
 
@@ -104,6 +107,7 @@ why), and **Sources** where an external fact carried weight.
 - Corrected 2026-10-02: the file is `instructions.md`, as `docs/product/ux-flows.md`
   T5, C2, and C3 show; the lock file also holds the running screen's PID, which C4's
   refusal prints.
+- Superseded on 2026-10-07: the board has no user-data directory or single-writer lock, and the instructions file is retired.
 
 ### 2026-10-02 — Configuration: VISUAL and EDITOR only
 
@@ -112,6 +116,7 @@ why), and **Sources** where an external fact carried weight.
   variables the template reads.
 - **Rejected:** a settings file now — it is a Later item ("Settings for the starting
   values"), and values tuned by rebuild suit one owner until one changes often.
+- Superseded in part on 2026-10-07: the owner editor variables are no longer read; HOME and XDG still locate logs.
 
 ### 2026-10-02 — Time through jiff
 
@@ -126,6 +131,7 @@ why), and **Sources** where an external fact carried weight.
   (https://crates.io/api/v1/crates/jiff, checked 2026-10-02); `TimeZone::system()`
   (https://docs.rs/jiff/latest/jiff/tz/struct.TimeZone.html, checked 2026-10-02). Both
   licences are in `deny.toml`'s allow list.
+- Superseded in part on 2026-10-07: the 04:00 day boundary is retired; Clock still supplies local display time and an instant.
 
 ### 2026-10-02 — Japanese user-facing wording, an exception to English
 
@@ -175,6 +181,7 @@ why), and **Sources** where an external fact carried weight.
 - **Rejected:** changing the publication protocol to promise an exact holder PID —
   unnecessary complexity for advisory startup guidance when the OS already prevents
   two cooperating writers.
+- Superseded on 2026-10-07: the board does not take a writer lock.
 
 ### 2026-10-03 — Day files have no size cap
 
@@ -184,6 +191,7 @@ why), and **Sources** where an external fact carried weight.
 - **Rejected:** a 16 MiB maximum that refuses reads and saves while preserving the
   file — changes the existing unlimited contract and adds a new rejection policy
   the owner does not want in this version.
+- Superseded on 2026-10-07: the prototype has no user-data file.
 
 ### 2026-10-03 — Distinguish publication from confirmed durability
 
@@ -194,6 +202,7 @@ why), and **Sources** where an external fact carried weight.
 - **Rejected:** reporting the post-rename failure as an ordinary failed write —
   falsely implies that the old file remains and can mislead retry and quit handling;
   treating the failure as success — hides the unconfirmed durability.
+- Superseded on 2026-10-07: there is no persisted board state to publish.
 
 ### 2026-10-03 — Reuse existing serde_json in core prompt handling
 
@@ -213,6 +222,7 @@ why), and **Sources** where an external fact carried weight.
 - **Rejected:** serializing the persisted day object — exposes bookkeeping and
   couples script output to storage; hand-written JSON formatting — duplicates
   escaping and risks invalid output for complete owner titles.
+- Superseded on 2026-10-07: the read-only task command and its JSON output are retired.
 
 ### 2026-10-03 — Reuse shared port fakes in binary tests
 
@@ -239,3 +249,58 @@ why), and **Sources** where an external fact carried weight.
   `heldTriggers` also holds triggers that only waited on the guards (active hours,
   the mute, the delivery gap) and never reached the model, which would lose the
   "retried once" allowance of §3.5.
+- Superseded on 2026-10-07: the board has no day file or persisted check-in retry state.
+
+### 2026-10-07 — The board is in memory only
+
+- **Revises:** 2026-10-02, One JSON file per day, rewritten whole; 2026-10-02, Data directory, owner-only files, a lock file; and 2026-10-06, Day file format 2 records each trigger's spent retry.
+
+- **Decided:** one shared board exists in memory, holds at most 200 posts, and is lost on
+  quit. The app does not read or delete earlier day data and takes no day-store lock.
+- **Rejected:** keeping a board file — a prototype needs no user-data format or persistence
+  behavior to prove its conversation loop.
+
+### 2026-10-07 — Core chooses board turns with a seeded generator
+
+- **Revises:** 2026-10-02, One schema-constrained call per event, budgeted by estimate; core now chooses the speaker, kind, and topic before the model call.
+
+- **Decided:** core chooses the speaker, post kind, and new-topic values with a small
+  xorshift generator seeded once from the clock's instant. The model writes only the
+  post body.
+- **Rejected:** adding the rand crate — it adds a dependency and a review/sign-off step;
+  letting the model choose the speaker and kind — the small on-device model handles that
+  poorly and would need a richer schema.
+
+### 2026-10-07 — One schema-constrained call per post
+
+- **Revises:** 2026-10-02, One schema-constrained call per event, budgeted by estimate; each scheduled character post now has its own fixed board context.
+
+- **Decided:** one fm respond call writes each character post using a schema with one
+  string field, body. The prompt includes the latest 12 posts† and the selected task;
+  keep the existing 30-second timeout. The instruction asks for at most 80 characters,
+  and display trims to 120† characters.
+- **Rejected:** a separate call to decide whether to speak — it doubles latency and
+  complicates the one-worker rule; free-form output — a schema constrains the response
+  to one body field.
+- **Observed:** the owner received a real schema-constrained reply in bunshin tui,
+  2026-10-07.
+
+### 2026-10-07 — Character and topic instructions are fixed in core
+
+- **Revises:** 2026-10-02, Ports: LanguageModel, DayStore, InstructionsSource; Clock gives local time; and 2026-10-02, Configuration: VISUAL and EDITOR only.
+
+- **Decided:** character personas and topic values are compiled-in prompt data. There is
+  no owner instructions file or editor command.
+- **Rejected:** keeping an editable instructions file — the prototype tests fixed
+  characters, and the file adds persistence, validation, and editing behavior.
+
+### 2026-10-07 — Retiring the secretary contracts is breaking
+
+- **Revises:** 2026-10-02, Data directory, owner-only files, a lock file; 2026-10-03, Reuse serde_json for the public task output; and 2026-10-06, Day file format 2 records each trigger's spent retry.
+
+- **Decided:** the only subcommand is tui; the old task-reading commands and day-file
+  format are retired. Earlier data is left untouched and unread. Implementation changes
+  record their visible removals in the Unreleased changelog.
+- **Rejected:** retaining the old commands or reading old day files — compatibility
+  requires the secretary's data model and widens a prototype that is meant to test one
+  board conversation loop.
