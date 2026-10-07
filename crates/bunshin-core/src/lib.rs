@@ -16,6 +16,7 @@ pub mod prompt;
 pub mod screen;
 pub mod time;
 pub mod tuning;
+pub use board::BoardTuning;
 pub use time::{Clock, Now, UnixMillis, logical_date};
 pub use tuning::{ChatTuning, DayTuning, PromptTuning};
 

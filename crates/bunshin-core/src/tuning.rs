@@ -2,6 +2,8 @@
 use jiff::civil::Time;
 use std::time::Duration;
 
+use crate::board::BoardTuning;
+
 const DEFAULT_MODEL_TIMEOUT: Duration = Duration::from_secs(30);
 
 const DEFAULT_DAY_BOUNDARY: Time = Time::constant(4, 0, 0, 0);
@@ -9,6 +11,8 @@ const DEFAULT_DAY_BOUNDARY: Time = Time::constant(4, 0, 0, 0);
 /// Shared domain tunables, adjustable without reading configuration in core.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tuning {
+    /// Board scheduling and display bounds.
+    pub board: BoardTuning,
     /// Prompt window, response reserves and text bounds shared by model callers.
     pub prompt: PromptTuning,
     /// Owner-call feedback and unavailable-model recheck intervals.
@@ -24,6 +28,7 @@ pub struct Tuning {
 impl Default for Tuning {
     fn default() -> Self {
         Self {
+            board: BoardTuning::default(),
             prompt: PromptTuning::default(),
             chat: ChatTuning::default(),
             day: DayTuning::shipped(),

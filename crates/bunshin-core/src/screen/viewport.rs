@@ -1,98 +1,101 @@
-//! Wrapped-row viewport facts supplied by the renderer, with pure paging decisions.
-use super::{MainScreen, keys::ScreenAction};
+//! Wrapped-row viewport facts supplied by the renderer.
+
+use crate::board::{Post, PostId};
+
+/// Wrapped-row scroll state for the board's post list.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ChatViewport {
+pub(super) struct BoardViewport {
     top: usize,
     rows: usize,
     height: usize,
     following: bool,
-    seen: usize,
+    seen_through: Option<PostId>,
 }
-impl Default for ChatViewport {
+
+impl Default for BoardViewport {
     fn default() -> Self {
         Self {
             top: 0,
             rows: 0,
             height: 0,
             following: true,
-            seen: 0,
+            seen_through: None,
         }
     }
 }
-impl MainScreen {
-    /// Accept measured wrapped-row counts after drawing. Paused views retain their anchor.
-    #[must_use]
-    pub fn record_chat_layout(mut self, rows: usize, height: usize) -> Self {
-        let view = &mut self.chat.viewport;
-        view.rows = rows;
-        view.height = height;
+
+impl BoardViewport {
+    pub(super) fn record_layout(&mut self, rows: usize, height: usize) {
+        self.rows = rows;
+        self.height = height;
         let end = rows.saturating_sub(height);
-        view.top = if view.following {
+        self.top = if self.following {
             end
         } else {
-            view.top.min(end)
+            self.top.min(end)
         };
-        self
     }
-    /// Wrapped row at the top of a paused view.
-    #[must_use]
-    pub const fn chat_scroll_top(&self) -> usize {
-        self.chat.viewport.top
+
+    pub(super) const fn top(&self) -> usize {
+        self.top
     }
-    /// Whether new rows should move the viewport to the bottom.
-    #[must_use]
-    pub const fn chat_follows_latest(&self) -> bool {
-        self.chat.viewport.following
+
+    pub(super) const fn follows_latest(&self) -> bool {
+        self.following
     }
-    /// Establish the initial conversation baseline without acknowledging rows after owner input.
-    #[must_use]
-    pub fn record_chat_bootstrap(mut self) -> Self {
-        if !self.chat_has_key {
-            self.last_key_messages = self.day.messages().len();
-        }
-        self
-    }
-    /// First visible row posted after the owner's last key, even while following.
-    #[must_use]
-    pub fn chat_first_unseen(&self) -> Option<usize> {
-        self.day
-            .messages()
-            .iter()
-            .enumerate()
-            .skip(self.last_key_messages)
-            .find(|(_, row)| row.kind != crate::day::MessageKind::Change)
-            .map(|(index, _)| index)
-    }
-    /// New visible messages since the owner scrolled away from the latest row.
-    #[must_use]
-    pub fn chat_new_messages(&self) -> usize {
-        if self.chat.viewport.following {
+
+    pub(super) fn new_post_count(&self, posts: &[Post]) -> usize {
+        if self.following {
             return 0;
         }
-        self.day
-            .messages()
+        posts
             .iter()
-            .skip(self.chat.viewport.seen)
-            .filter(|row| row.kind != crate::day::MessageKind::Change)
+            .filter(|post| self.seen_through.is_none_or(|seen| post.id.0 > seen.0))
             .count()
     }
-    pub(super) fn scroll_chat(&mut self, action: ScreenAction) {
-        let view = &mut self.chat.viewport;
-        if view.following {
-            view.seen = self.day.messages().len();
+
+    pub(super) fn first_unseen_post(&self, posts: &[Post]) -> Option<usize> {
+        if self.following {
+            return None;
         }
-        if action == ScreenAction::ChatLatest {
-            view.following = true;
-        } else if action == ScreenAction::ChatUp {
-            view.top = view.top.saturating_sub(view.height.max(1));
-            view.following = false;
-        } else if action == ScreenAction::ChatDown {
-            let end = view.rows.saturating_sub(view.height);
-            view.top = view.top.saturating_add(view.height.max(1)).min(end);
-            view.following = view.top == end;
-        }
-        if view.following {
-            view.top = view.rows.saturating_sub(view.height);
+        posts
+            .iter()
+            .position(|post| self.seen_through.is_none_or(|seen| post.id.0 > seen.0))
+    }
+
+    pub(super) fn scroll_up(&mut self, posts: &[Post]) {
+        self.leave_latest(posts);
+        self.top = self.top.saturating_sub(1);
+    }
+
+    pub(super) fn scroll_down(&mut self, posts: &[Post]) {
+        self.leave_latest(posts);
+        let end = self.rows.saturating_sub(self.height);
+        self.top = self.top.saturating_add(1).min(end);
+        self.following = self.top == end;
+    }
+
+    pub(super) fn scroll_page_up(&mut self, posts: &[Post]) {
+        self.leave_latest(posts);
+        self.top = self.top.saturating_sub(self.height.max(1));
+    }
+
+    pub(super) fn scroll_page_down(&mut self, posts: &[Post]) {
+        self.leave_latest(posts);
+        let end = self.rows.saturating_sub(self.height);
+        self.top = self.top.saturating_add(self.height.max(1)).min(end);
+        self.following = self.top == end;
+    }
+
+    pub(super) fn follow_latest(&mut self) {
+        self.following = true;
+        self.top = self.rows.saturating_sub(self.height);
+    }
+
+    fn leave_latest(&mut self, posts: &[Post]) {
+        if self.following {
+            self.seen_through = posts.last().map(|post| post.id);
+            self.following = false;
         }
     }
 }
