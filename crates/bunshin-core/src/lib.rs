@@ -9,6 +9,7 @@
 // error at every place that must decide what it means (`.claude/rules/testing.md`).
 #![deny(clippy::wildcard_enum_match_arm)]
 
+pub mod board;
 pub mod day;
 pub mod model;
 pub mod prompt;
