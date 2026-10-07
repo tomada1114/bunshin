@@ -51,12 +51,20 @@ fn pane() -> MainScreen {
         Ok(value) => value,
         Err(error) => panic!("fixture task: {error}"),
     };
-    let (screen, effects) = MainScreen::new(day, tuning).update(ScreenKey::Tab, now());
-    assert!(effects.is_empty());
+    let day = match day.done(1, UnixMillis(500)) {
+        Ok((day, _)) => day,
+        Err(error) => panic!("fixture task could not be closed: {error}"),
+    };
+    MainScreen::new(day, tuning)
+}
+fn type_text(mut screen: MainScreen, text: &str) -> MainScreen {
+    for character in text.chars() {
+        screen = screen.update(ScreenKey::Char(character), now()).0;
+    }
     screen
 }
 fn failed_change() -> MainScreen {
-    let (screen, effects) = pane().update(ScreenKey::Char(' '), now());
+    let (screen, effects) = pane().update(ScreenKey::Undo, now());
     assert_eq!(effects, vec![Effect::Save]);
     screen.record_save_result(
         Err(DayStoreError::Unavailable),
@@ -76,7 +84,7 @@ fn error_count(screen: &MainScreen) -> usize {
 #[test]
 fn failed_saves_keep_changes_and_one_notice_until_the_next_change_can_save() {
     let screen = failed_change();
-    assert_eq!(screen.day().tasks()[0].status, TaskStatus::Done);
+    assert_eq!(screen.day().tasks()[0].status, TaskStatus::Open);
     assert_eq!(
         screen.save_state(),
         SaveState::NotSaved(DayStoreError::Unavailable)
@@ -98,7 +106,7 @@ fn failed_saves_keep_changes_and_one_notice_until_the_next_change_can_save() {
         screen.save_state(),
         SaveState::NotSaved(DayStoreError::Unavailable)
     );
-    let (screen, effects) = screen.update(ScreenKey::Char(' '), now());
+    let (screen, effects) = type_text(screen, "another owner note").update(ScreenKey::Enter, now());
     assert_eq!(effects, vec![Effect::Save]);
     assert_eq!(screen.day().tasks()[0].status, TaskStatus::Open);
     let screen = screen.record_save_result(Ok(()), now().instant, "unused");
@@ -106,12 +114,14 @@ fn failed_saves_keep_changes_and_one_notice_until_the_next_change_can_save() {
     assert_eq!(error_count(&screen), 1);
     let (screen, effects) = screen.update(ScreenKey::Undo, now());
     assert_eq!(effects, vec![Effect::Save]);
-    assert_eq!(screen.day().tasks()[0].status, TaskStatus::Done);
+    assert!(screen.day().tasks().is_empty());
 }
 
 #[test]
 fn quit_while_unsaved_is_captured_until_y_and_any_other_key_stays() {
-    let (screen, effects) = failed_change().update(ScreenKey::Char('q'), now());
+    let (screen, effects) = failed_change().update(ScreenKey::Tab, now());
+    assert!(effects.is_empty());
+    let (screen, effects) = screen.update(ScreenKey::Char('q'), now());
     assert!(effects.is_empty());
     assert!(!screen.finished());
     assert!(screen.is_confirming_quit());
@@ -120,7 +130,6 @@ fn quit_while_unsaved_is_captured_until_y_and_any_other_key_stays() {
     assert!(effects.is_empty());
     assert!(!screen.is_confirming_quit());
     assert_eq!(screen.day(), &before);
-    assert!(screen.form().is_none());
     let (screen, effects) = screen.update(ScreenKey::Interrupt, now());
     assert!(effects.is_empty());
     assert!(screen.is_confirming_quit());
@@ -139,7 +148,6 @@ fn a_saved_screen_quits_without_confirmation_and_a_finished_screen_ignores_keys(
     let (screen, effects) = screen.update(ScreenKey::Char('a'), now());
     assert!(effects.is_empty());
     assert!(screen.finished());
-    assert!(screen.form().is_none());
     let before = screen.day().clone();
     let screen = screen.record_save_result(
         Err(DayStoreError::Unavailable),
@@ -152,7 +160,7 @@ fn a_saved_screen_quits_without_confirmation_and_a_finished_screen_ignores_keys(
 
 #[test]
 fn a_published_day_with_unconfirmed_durability_has_its_own_state_and_quit_confirmation() {
-    let (screen, effects) = pane().update(ScreenKey::Char(' '), now());
+    let (screen, effects) = pane().update(ScreenKey::Undo, now());
     assert_eq!(effects, vec![Effect::Save]);
     let screen = screen.record_save_result(
         Err(DayStoreError::PublishedButNotDurable),
@@ -160,7 +168,7 @@ fn a_published_day_with_unconfirmed_durability_has_its_own_state_and_quit_confir
         "visible new day, durability unconfirmed",
     );
     assert_eq!(screen.save_state(), SaveState::DurabilityUnconfirmed);
-    assert_eq!(screen.day().tasks()[0].status, TaskStatus::Done);
+    assert_eq!(screen.day().tasks()[0].status, TaskStatus::Open);
     assert_eq!(error_count(&screen), 1);
     let (screen, effects) = screen.update(ScreenKey::Interrupt, now());
     assert!(effects.is_empty());
@@ -169,6 +177,8 @@ fn a_published_day_with_unconfirmed_durability_has_its_own_state_and_quit_confir
     assert!(effects.is_empty());
     let screen = screen.record_save_result(Ok(()), now().instant, "unused");
     assert_eq!(screen.save_state(), SaveState::Saved);
+    let (screen, effects) = screen.update(ScreenKey::Tab, now());
+    assert!(effects.is_empty());
     let (screen, effects) = screen.update(ScreenKey::Char('q'), now());
     assert!(screen.finished());
     assert_eq!(effects, vec![Effect::Quit]);

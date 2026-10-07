@@ -48,9 +48,11 @@ parses the schema-constrained model response.
 
 ## Data
 
-The board is a bounded, in-memory list of posts. There is no user-data format or
-persistence behavior. Earlier application data is neither read nor deleted. Existing
-daily log files remain the only files the app writes.
+The board is a bounded, in-memory list of posts and is not persisted. While the
+transitional task and chat screen remains, it still reads existing day files and writes
+its reduced schema as format 3. Once that screen and its store are removed, earlier
+application data remains untouched and unread; daily logs remain the only files the
+board app writes.
 
 ## Model call
 

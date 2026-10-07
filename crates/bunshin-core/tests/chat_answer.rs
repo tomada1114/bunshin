@@ -23,7 +23,7 @@ fn answer(text: &str) -> ModelAnswer {
 #[test]
 fn valid_proposals_share_one_visible_change_and_one_undo_with_prior_history_preserved() {
     let before = day().expect("one valid task");
-    let result=apply_chat(&before,&answer(r#"{"changes":[{"op":"rename","task":1,"title":"資料を作る"},{"op":"changeTime","task":1,"kind":"deadline","time":"15:30"},{"op":"done","task":1},{"op":"add","title":"会議","kind":"appointment","time":"16:00"},{"op":"mute","minutes":5}],"reply":"了解"}"#),UnixMillis(1000),Tuning::default()).expect("valid test fixture");
+    let result=apply_chat(&before,&answer(r#"{"changes":[{"op":"rename","task":1,"title":"資料を作る"},{"op":"changeTime","task":1,"kind":"deadline","time":"15:30"},{"op":"done","task":1},{"op":"add","title":"会議","kind":"appointment","time":"16:00"}],"reply":"了解"}"#),UnixMillis(1000),Tuning::default()).expect("valid test fixture");
     assert!(result.refused.is_empty());
     assert_eq!(result.reply, "了解");
     assert_eq!(
@@ -33,21 +33,19 @@ fn valid_proposals_share_one_visible_change_and_one_undo_with_prior_history_pres
             .expect("valid test fixture")
             .changes
             .len(),
-        5
+        4
     );
     assert_eq!(result.day.tasks()[0].title, "資料を作る");
     assert_eq!(result.day.tasks()[0].time, Some(time(15, 30, 0, 0)));
     assert_eq!(result.day.tasks()[0].status, TaskStatus::Done);
     assert_eq!(result.day.tasks()[1].origin, TaskOrigin::Chat);
-    assert_eq!(result.day.data().muted_until, Some(UnixMillis(301_000)));
     assert_eq!(result.day.messages().len(), before.messages().len() + 1);
     let (undone, set) = result
         .day
         .undo(UnixMillis(2000))
         .expect("valid test fixture");
     assert_eq!(undone.tasks(), before.tasks());
-    assert_eq!(undone.data().muted_until, None);
-    assert_eq!(set.changes.len(), 5);
+    assert_eq!(set.changes.len(), 4);
     assert_eq!(
         undone
             .undo(UnixMillis(3000))
@@ -63,10 +61,10 @@ fn valid_proposals_share_one_visible_change_and_one_undo_with_prior_history_pres
 #[test]
 fn invalid_proposals_are_reported_by_index_without_discarding_valid_neighbors() {
     let before = day().expect("one valid task");
-    let result=apply_chat(&before,&answer(r#"{"changes":[{"op":"done","task":7},{"op":"changeTime","task":1,"kind":"deadline","time":"午後"},{"op":"rename","task":1,"title":""},{"op":"mute","minutes":481},{"op":"done","task":1}],"reply":"確認したよ"}"#),UnixMillis(0),Tuning::default()).expect("valid test fixture");
+    let result=apply_chat(&before,&answer(r#"{"changes":[{"op":"done","task":7},{"op":"changeTime","task":1,"kind":"deadline","time":"午後"},{"op":"rename","task":1,"title":""},{"op":"done","task":1}],"reply":"確認したよ"}"#),UnixMillis(0),Tuning::default()).expect("valid test fixture");
     assert_eq!(
         result.refused.iter().map(|r| r.index).collect::<Vec<_>>(),
-        vec![0, 1, 2, 3]
+        vec![0, 1, 2]
     );
     assert_eq!(
         result.refused[0].reason,
@@ -175,7 +173,6 @@ fn boundaries_missing_inputs_and_invalid_clock_strings_are_individual_refusals()
         serde_json::json!({"op":"done"}),
         serde_json::json!({"op":"add","kind":"untimed"}),
         serde_json::json!({"op":"add","title":"title"}),
-        serde_json::json!({"op":"mute"}),
     ] {
         let result = apply_chat(
             &before,
@@ -190,45 +187,16 @@ fn boundaries_missing_inputs_and_invalid_clock_strings_are_individual_refusals()
             RefusalReason::MissingField { .. }
         ));
     }
-    for minutes in [-1, 0, 4, 481, 100_000] {
-        let result = apply_chat(
+    assert_eq!(
+        apply_chat(
             &before,
-            &answer(
-                &serde_json::json!({"changes":[{"op":"mute","minutes":minutes}],"reply":"確認"})
-                    .to_string(),
-            ),
+            &answer(r#"{"changes":[{"op":"mute","minutes":5}],"reply":"ok"}"#),
             UnixMillis(0),
             Tuning::default(),
-        )
-        .expect("valid test fixture");
-        assert_eq!(result.refused[0].reason, RefusalReason::MuteOutOfRange);
-        assert_eq!(result.day, before);
-    }
-    for minutes in [5, 480] {
-        let result = apply_chat(
-            &before,
-            &answer(
-                &serde_json::json!({"changes":[{"op":"mute","minutes":minutes}],"reply":"ok"})
-                    .to_string(),
-            ),
-            UnixMillis(1000),
-            Tuning::default(),
-        )
-        .expect("valid test fixture");
-        assert_eq!(
-            result.day.data().muted_until,
-            Some(UnixMillis(1000 + minutes * 60_000))
-        );
-    }
-    let result = apply_chat(
-        &before,
-        &answer(r#"{"changes":[{"op":"mute","minutes":5}],"reply":"ok"}"#),
-        UnixMillis(i64::MAX),
-        Tuning::default(),
-    )
-    .expect("valid test fixture");
-    assert_eq!(result.refused[0].reason, RefusalReason::MuteOverflow);
-    assert_eq!(result.day, before);
+        ),
+        Err(ModelError::Malformed),
+        "removed proposals are rejected by the schema"
+    );
 }
 #[test]
 fn task_limits_titles_times_and_statuses_use_the_existing_day_rules() {
@@ -333,27 +301,20 @@ fn schema_rejects_missing_or_extra_root_fields_and_all_wrong_optional_field_type
 }
 #[test]
 fn scripted_model_receives_one_bounded_request_and_its_answer_is_validated() {
-    use bunshin_core::{
-        CancelFlag, LanguageModel, Now,
-        instructions::InstructionsState,
-        prompt::chat::{ContextExtras, build_chat},
-    };
+    use bunshin_core::{CancelFlag, LanguageModel, Now, prompt::chat::build_chat};
     use bunshin_test_support::ScriptedLanguageModel;
     let tuning = Tuning::default();
     let before = day().expect("one valid task");
     let model = ScriptedLanguageModel::new([Ok(answer(
         r#"{"changes":[{"op":"done","task":1}],"reply":"おつかれ！"}"#,
     ))]);
-    let owner = InstructionsState::resolve(None, "instructions.md".into(), tuning);
     let request = build_chat(
         &before,
-        &owner,
         "資料できた",
         Now {
             instant: UnixMillis(0),
             local: date(2026, 10, 2).at(14, 0, 0, 0),
         },
-        ContextExtras::default(),
         tuning,
     )
     .expect("valid test fixture");
@@ -380,14 +341,6 @@ fn refusal_codes_carry_only_kinds_and_indices() {
         (
             RefusalReason::InvalidTime,
             serde_json::json!({"code":"invalidTime"}),
-        ),
-        (
-            RefusalReason::MuteOutOfRange,
-            serde_json::json!({"code":"muteOutOfRange"}),
-        ),
-        (
-            RefusalReason::MuteOverflow,
-            serde_json::json!({"code":"muteOverflow"}),
         ),
         (
             RefusalReason::Domain {

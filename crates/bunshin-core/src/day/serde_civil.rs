@@ -51,28 +51,3 @@ pub(super) mod optional_time {
             .transpose()
     }
 }
-
-pub(super) mod optional_datetime {
-    use jiff::civil::DateTime;
-    use serde::{Deserialize, Deserializer, Serializer};
-    pub fn serialize<S: Serializer>(
-        datetime: impl std::borrow::Borrow<Option<DateTime>>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        match datetime.borrow() {
-            Some(datetime) => serializer.serialize_some(&datetime.to_string()),
-            None => serializer.serialize_none(),
-        }
-    }
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Option<DateTime>, D::Error> {
-        Option::<String>::deserialize(deserializer)?
-            .map(|value| {
-                value
-                    .parse()
-                    .map_err(|_| serde::de::Error::custom("invalid civil datetime"))
-            })
-            .transpose()
-    }
-}

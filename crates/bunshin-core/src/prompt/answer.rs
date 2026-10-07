@@ -1,9 +1,7 @@
 //! Schema validation precedes all domain transitions; proposals share one undo.
 use crate::{
     Tuning, UnixMillis,
-    day::{
-        Change, ChangeSet, Day, DayError, LeftoverChange, LeftoverDecision, TaskKind, TaskOrigin,
-    },
+    day::{Change, ChangeSet, Day, DayError, TaskKind, TaskOrigin},
     model::{ModelAnswer, ModelError},
 };
 use jiff::civil::Time;
@@ -19,8 +17,6 @@ pub enum ProposalField {
     Title,
     /// Task time kind.
     Kind,
-    /// Mute duration in minutes.
-    Minutes,
 }
 /// Refusals carry only actionable kinds, never the model's text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Serialize)]
@@ -35,12 +31,6 @@ pub enum RefusalReason {
     /// Time was not an explicit, valid HH:MM string.
     #[error("proposal time is not HH:MM")]
     InvalidTime,
-    /// Mute duration is outside tuning's inclusive interval.
-    #[error("proposal mute duration is outside the interval")]
-    MuteOutOfRange,
-    /// The supplied instant cannot represent the mute end.
-    #[error("proposal mute end is not representable")]
-    MuteOverflow,
     /// The existing day rules rejected this operation.
     #[error("proposal violates a day rule")]
     Domain {
@@ -73,8 +63,6 @@ pub struct ChatOutcome {
     pub reply: String,
     /// Domain-invalid operations, in original order.
     pub refused: Vec<RefusedChange>,
-    /// The last day on record after accepted leftover decisions; absent when none.
-    pub leftovers: Option<Day>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -91,9 +79,6 @@ enum Operation {
     Reopen,
     ChangeTime,
     Rename,
-    Mute,
-    CarryOver,
-    DropLeftover,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -107,8 +92,6 @@ struct Proposal {
     kind: Option<TaskKind>,
     #[serde(default, deserialize_with = "present")]
     time: Option<String>,
-    #[serde(default, deserialize_with = "present")]
-    minutes: Option<i128>,
 }
 // A schema-optional field may be omitted, but its declared type excludes null.
 fn present<'de, T: Deserialize<'de>, D: Deserializer<'de>>(d: D) -> Result<Option<T>, D::Error> {
@@ -147,7 +130,7 @@ impl Proposal {
         self,
         day: Day,
         at: UnixMillis,
-        tuning: Tuning,
+        _tuning: Tuning,
     ) -> Result<(Day, ChangeSet), RefusalReason> {
         match self.op {
             Operation::Add => {
@@ -172,49 +155,8 @@ impl Proposal {
                 None,
                 at,
             ),
-            Operation::Mute => {
-                let minutes = required(self.minutes, ProposalField::Minutes)?;
-                let min = i128::from(tuning.checkin.chat_mute_min_minutes);
-                let max = i128::from(tuning.checkin.chat_mute_max_minutes);
-                if minutes < min || minutes > max {
-                    return Err(RefusalReason::MuteOutOfRange);
-                }
-                let millis =
-                    i64::try_from(minutes * 60_000).map_err(|_| RefusalReason::MuteOverflow)?;
-                let until =
-                    at.0.checked_add(millis)
-                        .ok_or(RefusalReason::MuteOverflow)?;
-                Ok(day.mute(UnixMillis(until), at))
-            }
-            Operation::CarryOver | Operation::DropLeftover => Err(DayError::TaskNotFound.into()),
         }
     }
-    fn leftover(&self) -> Option<LeftoverDecision> {
-        match self.op {
-            Operation::CarryOver => Some(LeftoverDecision::CarryOver),
-            Operation::DropLeftover => Some(LeftoverDecision::Drop),
-            Operation::Add
-            | Operation::Done
-            | Operation::Drop
-            | Operation::Reopen
-            | Operation::ChangeTime
-            | Operation::Rename
-            | Operation::Mute => None,
-        }
-    }
-}
-// A leftover decision changes the earlier day and, for a carry-over, adds today's task.
-fn decide_leftover(
-    proposal: &Proposal,
-    decision: LeftoverDecision,
-    day: Day,
-    previous: Option<&Day>,
-    at: UnixMillis,
-) -> Result<(Day, Day, LeftoverChange, Vec<Change>), RefusalReason> {
-    let previous = previous.ok_or(DayError::TaskNotFound)?.clone();
-    let (previous, fact) = previous.settle_leftover(number(proposal.task)?, decision, at)?;
-    let (day, set) = day.record_leftovers(vec![fact.clone()], at)?;
-    Ok((day, previous, fact, set.changes))
 }
 fn edit(
     day: Day,
@@ -244,40 +186,12 @@ pub fn apply_chat(
     at: UnixMillis,
     tuning: Tuning,
 ) -> Result<ChatOutcome, ModelError> {
-    apply_chat_with_leftovers(day, None, answer, at, tuning)
-}
-/// As [`apply_chat`], also accepting carry-over and drop proposals for the leftovers of
-/// `previous`, the last day on record. Both days' changes form the one change set.
-///
-/// # Errors
-/// `Malformed` for invalid JSON, envelope, operation or field types, as [`apply_chat`].
-pub fn apply_chat_with_leftovers(
-    day: &Day,
-    previous: Option<&Day>,
-    answer: &ModelAnswer,
-    at: UnixMillis,
-    tuning: Tuning,
-) -> Result<ChatOutcome, ModelError> {
     let envelope: Envelope =
         serde_json::from_str(&answer.json).map_err(|_| ModelError::Malformed)?;
     let mut next = day.clone();
-    let mut earlier = previous.cloned();
     let mut changes = Vec::new();
-    let mut leftovers = Vec::new();
     let mut refused = Vec::new();
     for (index, proposal) in envelope.changes.into_iter().enumerate() {
-        if let Some(decision) = proposal.leftover() {
-            match decide_leftover(&proposal, decision, next.clone(), earlier.as_ref(), at) {
-                Ok((candidate, settled, fact, facts)) => {
-                    next = candidate;
-                    earlier = Some(settled);
-                    changes.extend(facts);
-                    leftovers.push(fact);
-                }
-                Err(reason) => refused.push(RefusedChange { index, reason }),
-            }
-            continue;
-        }
         match proposal.apply(next.clone(), at, tuning) {
             Ok((candidate, set)) => {
                 let facts = set
@@ -285,7 +199,7 @@ pub fn apply_chat_with_leftovers(
                     .into_iter()
                     .filter(|change| match change {
                         Change::Task { before, after } => before != after,
-                        Change::Mute { before, after } => before != after,
+                        Change::Mute { .. } => false,
                     })
                     .collect::<Vec<_>>();
                 if !facts.is_empty() {
@@ -296,13 +210,11 @@ pub fn apply_chat_with_leftovers(
             Err(reason) => refused.push(RefusedChange { index, reason }),
         }
     }
-    let decided = !leftovers.is_empty();
-    let (day, change_set) = next.group_changes(day, changes, leftovers, at);
+    let (day, change_set) = next.group_changes(day, changes, at);
     Ok(ChatOutcome {
         day,
         change_set,
         reply: envelope.reply,
         refused,
-        leftovers: earlier.filter(|_| decided),
     })
 }

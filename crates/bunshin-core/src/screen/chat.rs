@@ -3,10 +3,9 @@ use super::{Effect, InputBuffer, MainScreen, ScreenKey};
 use crate::{
     Availability, ModelAnswer, ModelError, ModelRequest, Now, UnixMillis,
     day::{Author, Message, MessageKind},
-    instructions::InstructionsState,
     prompt::{
-        answer::{RefusalReason, apply_chat_with_leftovers},
-        chat::{ContextExtras, build_chat},
+        answer::{RefusalReason, apply_chat},
+        chat::build_chat,
     },
 };
 use std::collections::VecDeque;
@@ -14,31 +13,27 @@ use std::collections::VecDeque;
 /// Typed feedback; the binary supplies every displayed sentence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChatNotice {
-    /// A stopped owner call applied no proposal.
+    /// The owner cancelled the active model request.
     Cancelled,
-    /// A model or prompt failure applied no proposal.
+    /// The model request failed.
     Failed,
-    /// Model access needs an owner action.
+    /// The model is not available for this request.
     Unavailable(crate::UnavailableReason),
-    /// A recheck established that the model is usable again.
+    /// The model became available again.
     ModelBack,
-    /// The shipped owner instructions were selected instead of file text.
-    DefaultInstructions(crate::instructions::InstructionsOrigin),
-    /// Reading the owner file failed; the default remains usable with the reason shown.
-    InstructionsFailure(crate::instructions::InstructionsError),
-    /// A structurally valid proposal was rejected by a domain rule.
+    /// The model refused the requested operation.
     Refused(RefusalReason),
 }
 /// Feedback for the currently running owner call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChatStatus {
-    /// No active owner call.
+    /// No model request is active.
     Idle,
-    /// A call has not yet reached the feedback delay.
+    /// A request is queued for the model worker.
     Waiting,
-    /// The thinking row is visible.
+    /// A model request is active.
     Thinking,
-    /// The long-wait cancellation hint is visible.
+    /// The active model request exceeded its expected wait.
     LongWait,
 }
 /// One request whose identifier must accompany the worker completion.
@@ -53,7 +48,6 @@ pub struct ChatRequest {
 struct Pending {
     index: usize,
     text: String,
-    question_before: Option<(u64, crate::day::InboxState, UnixMillis)>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Flight {
@@ -73,7 +67,6 @@ pub(super) struct ChatState {
     probe_at: Option<UnixMillis>,
     probe_observed_at: Option<UnixMillis>,
     pub(super) probing: bool,
-    pub(super) instructions: Option<InstructionsState>,
 }
 impl Default for ChatState {
     fn default() -> Self {
@@ -87,7 +80,6 @@ impl Default for ChatState {
             probe_at: None,
             probe_observed_at: None,
             probing: false,
-            instructions: None,
         }
     }
 }
@@ -107,18 +99,12 @@ impl MainScreen {
     pub const fn model_availability(&self) -> Option<Availability> {
         self.chat.availability
     }
-    /// Latest reread instructions for the read-only overlay.
-    #[must_use]
-    pub const fn instructions(&self) -> Option<&InstructionsState> {
-        self.chat.instructions.as_ref()
-    }
     /// Whether an owner call is queued or still being reaped, including cancellation.
     #[must_use]
     pub fn owner_waiting(&self) -> bool {
         self.chat.flight.is_some() || !self.chat.queue.is_empty()
     }
-    /// Whether queued owner work can dispatch now; probes and unavailable readiness
-    /// defer instruction rereads until a model call can actually begin.
+    /// Whether queued owner work can dispatch now.
     #[must_use]
     pub fn chat_dispatch_ready(&self) -> bool {
         !self.finished
@@ -147,7 +133,7 @@ impl MainScreen {
     }
     pub(super) fn chat_key(&mut self, key: ScreenKey, at: UnixMillis) -> Vec<Effect> {
         use super::keys::{KeyRegion, ScreenAction, action_for};
-        let action = action_for(key, KeyRegion::Input);
+        let action = action_for(key.normalized(), KeyRegion::Input);
         let key = if action == Some(ScreenAction::SendInput) {
             ScreenKey::Enter
         } else if action == Some(ScreenAction::CancelInput) {
@@ -162,25 +148,8 @@ impl MainScreen {
                 }
                 let text = self.chat.input.take();
                 let index = self.day.messages().len();
-                let before = self.day.clone();
-                self.day = self
-                    .day
-                    .clone()
-                    .record_owner_message(&text, self.reply_target(), at);
-                self.reply_target = None;
-                let question_before = self.day.messages()[index].answers_question.and_then(|id| {
-                    let row = before
-                        .messages()
-                        .get(usize::try_from(id).ok()?)?
-                        .unprompted
-                        .as_ref()?;
-                    Some((id, row.inbox_state, row.state_changed_at))
-                });
-                self.chat.queue.push_back(Pending {
-                    index,
-                    text,
-                    question_before,
-                });
+                self.day = self.day.record_owner_message(&text, at);
+                self.chat.queue.push_back(Pending { index, text });
                 vec![Effect::Save]
             }
             ScreenKey::Esc => {
@@ -188,11 +157,8 @@ impl MainScreen {
                     && !flight.cancelled
                 {
                     flight.cancelled = true;
-                    let target = self
-                        .day
-                        .cancel_owner_message(flight.pending.index, flight.pending.question_before);
+                    self.day.cancel_owner_message(flight.pending.index);
                     if self.chat.input.text().is_empty() {
-                        self.reply_target = target;
                         for character in flight.pending.text.chars() {
                             self.chat.input.edit(
                                 ScreenKey::Char(character),
@@ -206,7 +172,6 @@ impl MainScreen {
                         Effect::Save,
                     ];
                 }
-                self.reply_target = None;
                 self.chat
                     .input
                     .edit(key, self.tuning.prompt.input_max_chars);
@@ -234,61 +199,14 @@ impl MainScreen {
             }
         }
     }
-    /// Reread instructions before preparing a call or opening the read-only view.
+    /// Pop one owner message only when no call is outstanding.
     #[must_use]
-    pub fn record_instructions(mut self, owner: InstructionsState) -> (Self, Vec<Effect>) {
-        let revision = (owner.origin != crate::instructions::InstructionsOrigin::Owner)
-            .then(|| owner.notice_revision());
-        let changed = self.day.record_instructions_notice(revision);
-        let notice = changed && revision.is_some();
-        let origin = owner.origin;
-        let failure = owner.failure;
-        self.chat.instructions = Some(owner);
-        let effects = if notice {
-            vec![
-                Effect::ChatNotice(failure.map_or(
-                    ChatNotice::DefaultInstructions(origin),
-                    ChatNotice::InstructionsFailure,
-                )),
-                Effect::Save,
-            ]
-        } else if changed {
-            vec![Effect::Save]
-        } else {
-            Vec::new()
-        };
-        (self, effects)
-    }
-    /// Read the existing instructions port without creating or editing its file. An I/O
-    /// failure uses the shipped default, keeps its typed reason and produces one notice.
-    #[must_use]
-    pub fn reload_instructions(
-        self,
-        source: &dyn crate::instructions::InstructionsSource,
-    ) -> (Self, Vec<Effect>) {
-        let owner = match InstructionsState::read(source, self.tuning) {
-            Ok(owner) => owner,
-            Err(error) => {
-                let mut owner = InstructionsState::resolve(None, source.path(), self.tuning);
-                owner.failure = Some(error);
-                owner
-            }
-        };
-        self.record_instructions(owner)
-    }
-    /// Pop one owner message only when no call is outstanding. Instructions are supplied
-    /// from the source reread for this dispatch. Queued owner rows never enter history.
-    #[must_use]
-    pub fn prepare_chat(
-        mut self,
-        owner: &InstructionsState,
-        now: Now,
-    ) -> (Self, Option<ChatRequest>, Vec<Effect>) {
+    pub fn prepare_chat(&mut self, now: Now) -> (Option<ChatRequest>, Vec<Effect>) {
         if !self.chat_dispatch_ready() {
-            return (self, None, Vec::new());
+            return (None, Vec::new());
         }
         let Some(pending) = self.chat.queue.pop_front() else {
-            return (self, None, Vec::new());
+            return (None, Vec::new());
         };
         let mut indices = self
             .chat
@@ -298,18 +216,7 @@ impl MainScreen {
             .collect::<Vec<_>>();
         indices.push(pending.index);
         let context = self.day.chat_context_without_owner_rows(&indices);
-        let leftovers = self.leftovers();
-        if let Ok(built) = build_chat(
-            &context,
-            owner,
-            &pending.text,
-            now,
-            ContextExtras {
-                leftovers: &leftovers,
-                ..ContextExtras::default()
-            },
-            self.tuning,
-        ) {
+        if let Ok(built) = build_chat(&context, &pending.text, now, self.tuning) {
             let id = self.chat.next_id;
             self.chat.next_id = self.chat.next_id.saturating_add(1);
             self.chat.flight = Some(Flight {
@@ -319,7 +226,6 @@ impl MainScreen {
                 cancelled: false,
             });
             (
-                self,
                 Some(ChatRequest {
                     id,
                     request: built.request,
@@ -327,48 +233,38 @@ impl MainScreen {
                 Vec::new(),
             )
         } else {
-            let effects = self.fail_owner_turn(&pending);
-            (self, None, effects)
+            (None, self.fail_owner_turn(&pending))
         }
     }
-    /// Apply a matching completion to the current Day, preserving intervening key changes.
-    /// Cancelled, stale and duplicate completions never apply proposals or feedback.
+    /// Apply a matching completion to the current Day; stale completions never apply proposals.
     #[must_use]
     pub fn finish_chat(
-        mut self,
+        &mut self,
         id: u64,
         answer: Result<ModelAnswer, ModelError>,
         now: Now,
-    ) -> (Self, Vec<Effect>) {
+    ) -> Vec<Effect> {
         if self
             .chat
             .flight
             .as_ref()
             .is_none_or(|flight| flight.id != id)
         {
-            return (self, Vec::new());
+            return Vec::new();
         }
         let Some(flight) = self.chat.flight.take() else {
-            return (self, Vec::new());
+            return Vec::new();
         };
         if flight.cancelled || self.finished {
-            return (self, Vec::new());
+            return Vec::new();
         }
-        let result = answer.and_then(|answer| {
-            apply_chat_with_leftovers(
-                &self.day,
-                self.leftovers_day(),
-                &answer,
-                now.instant,
-                self.tuning,
-            )
-        });
+        let result =
+            answer.and_then(|answer| apply_chat(&self.day, &answer, now.instant, self.tuning));
         match result {
             Ok(outcome) => {
                 self.day = outcome.day;
                 self.last_change = outcome.change_set;
                 self.error = None;
-                self.clamp_selection();
                 self.append_chat_row(
                     Author::Bunshin,
                     MessageKind::Reply,
@@ -382,19 +278,16 @@ impl MainScreen {
                     .map(|refusal| Effect::ChatNotice(ChatNotice::Refused(refusal.reason)))
                     .collect::<Vec<_>>();
                 effects.push(Effect::Save);
-                if let Some(previous) = outcome.leftovers {
-                    self.record_chat_leftovers(previous, now, &mut effects);
-                }
-                (self, effects)
+                effects
             }
             Err(ModelError::Unavailable(reason)) => {
                 self.chat.queue.push_front(flight.pending);
-                let (screen, mut effects) =
+                let mut effects =
                     self.record_availability(Ok(Availability::Unavailable(reason)), now.instant);
                 if effects.is_empty() {
                     effects.push(Effect::Save);
                 }
-                (screen, effects)
+                effects
             }
             Err(
                 ModelError::TimedOut
@@ -402,32 +295,26 @@ impl MainScreen {
                 | ModelError::Refused
                 | ModelError::Malformed
                 | ModelError::Failed,
-            ) => {
-                let effects = self.fail_owner_turn(&flight.pending);
-                (self, effects)
-            }
+            ) => self.fail_owner_turn(&flight.pending),
         }
     }
     fn fail_owner_turn(&mut self, pending: &Pending) -> Vec<Effect> {
-        self.day
-            .cancel_owner_message(pending.index, pending.question_before);
+        self.day.cancel_owner_message(pending.index);
         vec![Effect::ChatNotice(ChatNotice::Failed), Effect::Save]
     }
     pub(super) fn cancel_pending_chat(&mut self) -> bool {
         let pending = self.owner_waiting();
         while let Some(queued) = self.chat.queue.pop_back() {
-            self.day
-                .cancel_owner_message(queued.index, queued.question_before);
+            self.day.cancel_owner_message(queued.index);
         }
         if let Some(flight) = self.chat.flight.take() {
-            self.day
-                .cancel_owner_message(flight.pending.index, flight.pending.question_before);
+            self.day.cancel_owner_message(flight.pending.index);
         }
         pending
     }
-    /// Claim one initial/recovery availability probe, avoiding repeated queued probes.
+    /// Claim one initial or recovery availability probe, avoiding repeated queued probes.
     #[must_use]
-    pub fn prepare_availability(mut self, at: UnixMillis) -> (Self, bool) {
+    pub fn prepare_availability(&mut self, at: UnixMillis) -> bool {
         if self
             .chat
             .probe_observed_at
@@ -440,15 +327,15 @@ impl MainScreen {
         let needed = self.chat.availability != Some(Availability::Available);
         let probe = needed && due && !self.chat.probing && self.chat.flight.is_none();
         self.chat.probing |= probe;
-        (self, probe)
+        probe
     }
     /// Record a worker probe or an unavailable call. Readiness changes produce one notice.
     #[must_use]
     pub fn record_availability(
-        mut self,
+        &mut self,
         result: Result<Availability, ModelError>,
         at: UnixMillis,
-    ) -> (Self, Vec<Effect>) {
+    ) -> Vec<Effect> {
         self.chat.probing = false;
         self.chat.probe_observed_at = Some(at);
         self.chat.probe_at = Some(UnixMillis(at.0.saturating_add(
@@ -462,11 +349,10 @@ impl MainScreen {
                         Availability::Unavailable(reason) => {
                             effects.push(Effect::ChatNotice(ChatNotice::Unavailable(reason)));
                         }
-                        Availability::Available => {
-                            if self.chat.availability.is_some() {
-                                effects.push(Effect::ChatNotice(ChatNotice::ModelBack));
-                            }
+                        Availability::Available if self.chat.availability.is_some() => {
+                            effects.push(Effect::ChatNotice(ChatNotice::ModelBack));
                         }
+                        Availability::Available => {}
                     }
                 }
                 self.chat.availability = Some(availability);
@@ -476,18 +362,16 @@ impl MainScreen {
         if !effects.is_empty() {
             effects.push(Effect::Save);
         }
-        (self, effects)
+        effects
     }
     /// Append binary-owned wording as persistent feedback before the Save effect.
-    #[must_use]
-    pub fn record_chat_notice(mut self, notice: ChatNotice, text: &str, at: UnixMillis) -> Self {
+    pub fn record_chat_notice(&mut self, notice: ChatNotice, text: &str, at: UnixMillis) {
         let kind = if notice == ChatNotice::Failed {
             MessageKind::Error
         } else {
             MessageKind::Notice
         };
         self.append_chat_row(Author::System, kind, text.to_owned(), at);
-        self
     }
     fn append_chat_row(&mut self, author: Author, kind: MessageKind, text: String, at: UnixMillis) {
         self.day.append_message(Message {
@@ -495,8 +379,6 @@ impl MainScreen {
             text,
             time: at,
             kind,
-            unprompted: None,
-            answers_question: None,
             change_set: None,
             cancelled: false,
             in_reply_to: None,
