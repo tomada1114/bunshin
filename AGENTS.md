@@ -20,9 +20,9 @@ keeping a second copy that goes stale.
 ## Overview
 
 This is a Rust command-line tool built from a strict template: one binary, `bunshin`,
-whose clap subcommands do the work and whose `bunshin tui` subcommand opens a full-screen
-ratatui view over the same core. It builds and runs on macOS and Linux, and it is
-installed from its checkout with `cargo install --path`; there is no release pipeline.
+whose only clap subcommand, `bunshin tui`, opens a full-screen ratatui view over the core.
+It builds and runs on macOS and Linux, and it is installed from its checkout with
+`cargo install --path`; there is no release pipeline.
 The code is a Cargo workspace — the logic in `crates/bunshin-core`, the OS adapters in
 `crates/bunshin-platform`, fakes and contract suites in `crates/bunshin-test-support`, and the
 `bunshin` binary itself in `crates/bunshin` — and repository automation is Rust in the
@@ -82,7 +82,7 @@ just lint          # rustfmt check, clippy -D warnings
 just test          # test-core + test-xtask: every test that runs anywhere, with the coverage floors
 just test-core     # bunshin-core with its 80/80 floors, its doctests, and the Linux-buildable crates' tests
 just test-xtask    # The xtask crate's tests with its floors (85/90; the guard's rules 90/100)
-just test-fast logical_date  # One core test or a group of them, no floor (iteration only)
+just test-fast board        # One core test or a group of them, no floor (iteration only)
 just test-platform # Platform adapter and CLI tests against the real OS, macOS or Linux (no human)
 just test-scripts  # The skills' bundled Python suites and shellcheck over their shell scripts (no floor)
 just check-harness # Re-assert the harness's claims about itself (cargo xtask check-harness)
@@ -174,7 +174,7 @@ xtask/                      # Repository automation in Rust, run as `cargo xtask
   hands core a fake from `bunshin-test-support`. Core never meets async.
   The worked example is `Clock` / `SystemClock` / `FixedClock`.
   A clock read returns `Now`: an instant for elapsed gaps and local civil time for
-  the day's dates. `logical_date` applies `Tuning.day_boundary` in core.
+  displaying wall times.
 - The core boundary is enforced three times, so removing one layer leaves the others:
   core's `Cargo.toml` lists no OS or platform crate; `deny.toml`'s `[bans]`
   `wrappers` let only `bunshin` depend on `bunshin-platform`; and a harness check fails
@@ -218,15 +218,12 @@ xtask/                      # Repository automation in Rust, run as `cargo xtask
   `$XDG_STATE_HOME/bunshin/logs`); `just logs` prints the newest. While `bunshin tui` owns
   the terminal, logging goes to the file only: a line on stdout or stderr would corrupt
   the frame.
-- Every value a front end shows is a core view type (`day::TaskView`), so a subcommand's
-  output and a TUI frame read the same model. A subcommand prints data to stdout and
-  diagnostics to stderr (`designing-clis`); the TUI's state and key table live in core
-  and its loop and view in `crates/bunshin/src/tui/` (`building-tuis`). Every string a
-  user reads comes from `crates/bunshin/src/wording.rs`.
-- Four things are contract rather than private — core's public API, the bundle
-  identifier, the command line (subcommands, flags, output streams, and exit codes:
-  0 success, 1 a runtime error, 2 a usage error), and on-disk file formats
-  (`days/YYYY-MM-DD.json` carries a format version) — and each changes only as
+- The TUI renders the board and input state held by `screen::BoardScreen` in core; its
+  loop and view live in `crates/bunshin/src/tui/` (`building-tuis`). Every string a user
+  reads comes from `crates/bunshin/src/wording.rs`.
+- Three things are contract rather than private — core's public API, the bundle
+  identifier, and the command line (subcommands, flags, output streams, and exit codes:
+  0 success, 1 a runtime error, 2 a usage error) — and each changes only as
   `docs/architecture.md` says.
 - `target/` and `coverage/` are build output: never edit or commit them.
 

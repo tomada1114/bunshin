@@ -47,8 +47,8 @@ The expected value comes from somewhere other than the code under test: a litera
 worked out by hand, a table pairing each input with its answer, or an invariant that
 must hold whatever the input (the value stays inside the range; a save then a load
 returns what went in). Never compute it by calling the implementation, and never
-re-derive it with the implementation's own formula: for a time just before 04:00, assert a
-literal previous date, rather than recomputing it with the same boundary formula.
+re-derive it with the implementation's own formula: for a turn just before its interval,
+assert that it is not due rather than recomputing due time with the same formula.
 
 ## Fakes and the Contract Suite
 
@@ -70,10 +70,10 @@ literal previous date, rather than recomputing it with the same boundary formula
 ## What to Test
 
 - Behavior and contracts, not implementation details: a test names the behavior it
-  proves (`logical_date_changes_at_four_in_the_morning`,
-  `q_and_control_c_finish_an_open_shell`)
+  proves (`owner_posts_are_immediate_and_whitespace_only_posts_are_ignored`,
+  `first_turn_starts_immediately_and_an_empty_board_falls_back_to_a_new_topic`)
 - The happy path AND the error path of every public function and every subcommand
-- Assert the error variant (`Err(day::DayError::TaskNotFound)`), never its message text;
+- Assert the error variant (`Err(ModelError::TimedOut)`), never its message text;
   the binary's tests assert the exit code and the last stderr line, which is the
   wording the user reads
 - Boundary values: at every bound, one step inside it, and one step outside it; repeated operations

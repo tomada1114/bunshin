@@ -47,7 +47,7 @@ that looks small.
 |---|---|---|
 | `low` | fewer, high-confidence findings | **never** in this skill -- see below |
 | `medium` | fewer, high-confidence findings, precision over recall | **the default** -- every branch, unless the next row applies |
-| `high` | broader coverage, may include uncertain findings | the change can lose or corrode state that already exists -- an on-disk format (in the sample, `days/YYYY-MM-DD.json`), a migration of stored user data, the helper's command line a launchd job calls -- or it rewrites a gate (a contract function, a harness check, a lint setting, a workflow), or the user asked for one |
+| `high` | broader coverage, may include uncertain findings | the change can lose or corrode state that already exists -- an on-disk format, a migration of stored user data, the helper's command line a launchd job calls -- or it rewrites a gate (a contract function, a harness check, a lint setting, a workflow), or the user asked for one |
 
 The middle column is the `/code-review` skill's own description of its levels, as
 Claude Code listed it on 2026-09-29; how each level works inside is that skill's

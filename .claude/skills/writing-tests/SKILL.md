@@ -9,7 +9,7 @@ description: >
   never a sleep, tempfile::tempdir per test, the built bunshin binary run with a
   temporary HOME (exit code, stdout, last stderr line), a TUI view drawn into ratatui's
   TestBackend (assert_buffer_lines, assert_buffer for styles), and keys as values
-  (KeyEvent::new_with_kind, ShellKey). Use when writing or reviewing a #[test], a file
+  (KeyEvent::new_with_kind, ScreenKey). Use when writing or reviewing a #[test], a file
   under crates/*/tests, a test module in crates/bunshin/src, the regression test for a
   bug, a flaky or ignored test, or the missing test a coverage floor asks for.
 ---
@@ -37,7 +37,7 @@ Worked examples of every pattern below are in
 - Cover the happy path and the error path of every public function and every
   subcommand.
 - Build a case's data with a helper that takes what varies, never a shared mutable
-  fixture another test can change. Build a fresh clock or day fixture for each case.
+  fixture another test can change. Build a fresh clock, board, or model fixture for each case.
 
 ## Test through an interface
 
@@ -46,11 +46,10 @@ test green:
 
 - **Core's public API** from `crates/bunshin-core/tests/`, over fakes; a private helper
   from the inline `#[cfg(test)] mod tests` beside it.
-- **A TUI screen's behavior** through core's `…Screen::update`, with actions and keys
-  built as values; fold a list of `ShellKey`s through
-  `ShellAction::for_key` and `update` the way the binary's loop does.
+- **A TUI screen's behavior** through core's `BoardScreen::update`, with keys built as
+  values; drive the board with `ScreenKey`s the way the binary's loop does.
 - **The terminal's key translation** by building a crossterm `KeyEvent` with
-  `KeyEvent::new_with_kind` and asserting the `ShellKey` it becomes (`tui/mod.rs`).
+  `KeyEvent::new_with_kind` and asserting the `ScreenKey` it becomes (`tui/mod.rs`).
 - **A view** by drawing it into ratatui's `TestBackend` and comparing every cell
   (`tui/view.rs`; `building-tuis` › "Testing without a terminal").
 - **The `bunshin` binary** as a built executable (`env!("CARGO_BIN_EXE_bunshin")`) with
@@ -87,7 +86,7 @@ the fake drifting from the real thing.
 
 - Assert the variant, never the `#[error]` message text: the message is for a
   developer reading a log, and rewording it must not break a test. For example, match
-  `Err(day::DayError::TaskNotFound)`. When a type has no
+  `Err(ModelError::TimedOut)`. When a type has no
   `PartialEq`, use `assert!(matches!(result, Err(Kind::Variant)))`.
 - The user-facing sentence is asserted where it is the subject: once per variant in
   `wording.rs`'s tests, and as the whole `error: …` line in `cli.rs` and on the TUI's
@@ -95,19 +94,16 @@ the fake drifting from the real thing.
   exception is a test proving a message carries no user data.
 - From the binary, assert the exit code, stdout exactly (`"0\n"`, not "contains 0"),
   and the last stderr line, since a debug build echoes log lines to stderr first.
-- After a rejected change, assert that nothing changed as well: the store still holds
-  the old value, and the command printed no data.
+- After a rejected change, assert that nothing changed as well: the board still has the
+  same posts, and the command printed no data.
 
 ## Expected values come from outside the code
 
 The expected value is a literal worked out by hand, a table pairing each input with
 its answer, or an invariant that holds whatever the input (a save then a load returns
 what went in). Never compute it with the code under test or re-derive it with the
-implementation's formula. Assert a literal previous date just before 04:00, rather than
-duplicating the logical-day formula.
-JSON that reaches disk or a script is pinned with a literal `json!({ … })`, independent
-of serde's derive (`crates/bunshin-core/tests/day_file.rs`), and a screen with its
-lines written out, border included.
+implementation's formula. JSON sent across a port is pinned with a literal value,
+independent of serde's derive, and a screen with its lines written out, border included.
 
 ## Edge cases to sweep
 

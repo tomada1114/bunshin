@@ -51,8 +51,8 @@ of glue.
 ## Core: inline module or `tests/`
 
 - An inline `#[cfg(test)] mod tests` sees private items, so it is for a private detail
-  and for a pure value type's own rules. Day model invariants are tested beside `day`; the shell
-  key table is tested in `shell.rs`.
+  and for a pure value type's own rules. Board invariants are tested beside `board`; the
+  key table is tested in `screen/keys.rs`.
 - Anything that uses `bunshin-test-support` goes in `crates/bunshin-core/tests/`. The
   support crate depends on core, so inside core's own unit-test build it links a
   second copy of core: a fake then implements the other copy's trait, and the compiler
@@ -60,7 +60,7 @@ of glue.
   right. An integration test sees only core's `pub` API, which is also what keeps it
   from pinning internals.
 - Each file under `tests/` is its own test binary; group by subject
-  (`day.rs`, `day_file.rs`, `contracts.rs`), not
+  (`board.rs`, `contracts.rs`), not
   one file per test. The Book on this layout:
   https://doc.rust-lang.org/book/ch11-03-test-organization.html
 - A code example in a `///` comment on a core item is compiled and run as a doctest by
@@ -76,7 +76,7 @@ of glue.
   check fails on a normal dependency edge to it (`just check-harness`).
 - Never make one test crate depend on another's `tests/` files: shared test code
   belongs in `bunshin-test-support`. Views without ports need no fake: the `TestBackend` tests
-  build `ShellScreen::default()`.
+  build `BoardScreen::new(Tuning::default(), 0)`.
 
 ## Platform and the human's machine
 

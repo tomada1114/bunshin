@@ -1,6 +1,6 @@
 //! One clock reading supplies an instant and its local civil date-time.
 
-use jiff::civil::{Date, DateTime, Time};
+use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 
 /// Milliseconds since the Unix epoch. Core never reads the clock itself (see [`Clock`]).
@@ -12,7 +12,7 @@ pub struct UnixMillis(pub i64);
 pub struct Now {
     /// Milliseconds since the Unix epoch, used for gaps and timeouts.
     pub instant: UnixMillis,
-    /// The same instant in the local zone, used for dates, deadlines, and active hours.
+    /// The same instant in the local zone, used for displayed wall times.
     pub local: DateTime,
 }
 impl Now {
@@ -43,82 +43,5 @@ pub trait Clock: Send + Sync {
     /// override it to account for historical daylight-saving transitions.
     fn local_at(&self, instant: UnixMillis) -> Option<Now> {
         self.now().at_fixed_offset(instant)
-    }
-}
-
-/// The day an owner is still working on, changing at `boundary` in local civil time.
-/// At the earliest representable date, an earlier logical day saturates at [`Date::MIN`].
-#[must_use]
-pub fn logical_date(local: DateTime, boundary: Time) -> Date {
-    let date = local.date();
-    if local.time() < boundary {
-        date.yesterday().unwrap_or(Date::MIN)
-    } else {
-        date
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use jiff::civil::{Date, date, time};
-
-    use super::logical_date;
-    use crate::Tuning;
-
-    #[test]
-    fn logical_date_changes_at_four_in_the_morning() {
-        let boundary = Tuning::default().day_boundary;
-        assert_eq!(boundary, time(4, 0, 0, 0));
-        for (local, expected) in [
-            (date(2026, 10, 2).at(0, 0, 0, 0), date(2026, 10, 1)),
-            (
-                date(2026, 10, 2).at(3, 59, 59, 999_999_999),
-                date(2026, 10, 1),
-            ),
-            (date(2026, 10, 2).at(4, 0, 0, 0), date(2026, 10, 2)),
-            (date(2026, 10, 2).at(4, 0, 0, 1), date(2026, 10, 2)),
-        ] {
-            assert_eq!(logical_date(local, boundary), expected, "{local}");
-        }
-    }
-
-    #[test]
-    fn logical_date_crosses_month_year_and_leap_day_boundaries() {
-        for (local, expected) in [
-            (date(2026, 11, 1).at(3, 59, 59, 0), date(2026, 10, 31)),
-            (date(2027, 1, 1).at(0, 0, 0, 0), date(2026, 12, 31)),
-            (date(2024, 3, 1).at(1, 0, 0, 0), date(2024, 2, 29)),
-            (date(2026, 3, 1).at(1, 0, 0, 0), date(2026, 2, 28)),
-        ] {
-            assert_eq!(logical_date(local, time(4, 0, 0, 0)), expected, "{local}");
-        }
-    }
-
-    #[test]
-    fn logical_date_uses_the_boundary_passed_by_the_caller() {
-        let tuning = Tuning {
-            day_boundary: time(6, 0, 0, 0),
-            ..Tuning::default()
-        };
-        assert_eq!(
-            logical_date(date(2026, 10, 2).at(5, 59, 59, 0), tuning.day_boundary),
-            date(2026, 10, 1)
-        );
-        assert_eq!(
-            logical_date(date(2026, 10, 2).at(6, 0, 0, 0), tuning.day_boundary),
-            date(2026, 10, 2)
-        );
-        assert_eq!(
-            logical_date(date(2026, 10, 2).at(0, 0, 0, 0), time(0, 0, 0, 0)),
-            date(2026, 10, 2)
-        );
-    }
-
-    #[test]
-    fn logical_date_stays_representable_at_the_minimum_date() {
-        assert_eq!(
-            logical_date(Date::MIN.at(0, 0, 0, 0), time(4, 0, 0, 0)),
-            Date::MIN
-        );
     }
 }

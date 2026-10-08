@@ -46,8 +46,8 @@ markers exist so a reader can tell "must load" from "may skip" at a glance).
 ## Deletable illustrations
 
 Write: "A state transition is a method that returns the new state or a typed error,
-never a mutation the caller has to read back. For example, `ShellScreen::update` takes `self`
-and returns the next screen."
+never a mutation the caller has to read back. For example, `BoardScreen::update` mutates
+its state from a key and clock sample."
 
 Avoid making a rule depend on an illustration: name the principle first so an app can replace
 the example without losing its guidance.

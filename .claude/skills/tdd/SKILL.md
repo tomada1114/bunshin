@@ -58,16 +58,16 @@ Cover the edge cases from the start: at each bound, one step inside, one step ou
 the operation repeated at a bound; the state after an error (nothing changed); both
 sides of every conditional.
 
-A new day rule starts beside its pure model for private details, or in
+A new board rule starts beside its pure model for private details, or in
 `crates/bunshin-core/tests/` for public transitions and injected ports. Write literal
-expected task views and typed errors. A command-line change starts in `cli.rs` against
+expected post values and typed errors. A command-line change starts in `cli.rs` against
 the built binary, asserting streams and exit codes. A drawing change starts with a
 `TestBackend` test in `crates/bunshin/src/tui/view.rs`, with expected lines written out.
 
 ## Step 2: prove it fails
 
 ```bash
-just test-fast logical_date              # core: cargo nextest, filtered by test name
+just test-fast board                     # core: cargo nextest, filtered by test name
 ```
 
 For a test in `crates/bunshin`, the narrowest recipe is `just test-platform`. Read the

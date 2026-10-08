@@ -85,7 +85,7 @@ on macOS, `$scratch/.local/state/bunshin/logs/` on Linux); `just logs` reads the
 
 Do not add a flag or an environment switch only to look at a state. A state you only
 need to see is one a test can build directly: a core test or a `TestBackend` test constructs
-the state directly (`ShellScreen::default()` or a `day::Day` fixture), and a `cli.rs`
+the state directly (`BoardScreen::new(Tuning::default(), seed)` or a `board::Board` fixture), and a `cli.rs`
 test writes any legacy-file fixture into its temporary `HOME`. For a human's run, write that file into a
 scratch `HOME` the same way. A start state genuinely needed by hand as well as by tests
 is read once in the composition root and handed to core as a value, so a core test

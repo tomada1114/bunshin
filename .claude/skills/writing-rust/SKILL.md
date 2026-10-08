@@ -120,7 +120,7 @@ formats. None of them opens a window or takes over a terminal.
   panic a `# Panics` section (clippy pedantic). Whether a change owes other
   documentation, and where, is `updating-docs`.
 - One module per concern: a directory with `mod.rs` when it has submodules.
-  `crates/bunshin-core/src/day/` groups its model, change sets, and file DTOs. A constant
+  `crates/bunshin-core/src/board.rs` groups board state, turn selection, and post values. A constant
   sits beside the code that uses it; there is no `constants.rs` and no `static mut`. The
   Book on modules:
   https://doc.rust-lang.org/book/ch07-00-managing-growing-projects-with-packages-crates-and-modules.html

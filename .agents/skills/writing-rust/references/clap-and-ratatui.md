@@ -7,7 +7,7 @@ documentation (https://docs.rs/ratatui/latest/ratatui/). Where code goes and wha
 decide is `designing-clis` and `building-tuis`; this file is only the language side.
 
 - A subcommand enum derives `Subcommand`; a fieldless one also derives `Clone, Copy`
-  so a handler can pass it by value and log it with `?action` (`ShellAction`). The
+  so a handler can pass it by value and log it with `?action` (`ScreenAction`). The
   `///` on each variant is the user-facing `--help` line, not a note for developers:
   write it for the person typing the command.
 - `main` returns `std::process::ExitCode` and each handler returns one, rather than
@@ -33,4 +33,3 @@ decide is `designing-clis` and `building-tuis`; this file is only the language s
   (`drawn` and `bold` in `tui/view.rs`), because `allow-unwrap-in-tests` covers it;
   only a helper in a `tests/*.rs` file that is not itself a `#[test]` must match and
   panic with context instead (`writing-tests` › "Rejected in review").
-

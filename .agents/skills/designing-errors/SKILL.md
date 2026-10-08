@@ -31,7 +31,7 @@ which stream and exit code a failure gets, and the wording module's style
 A caller branches on the variant, because it only changes on purpose. The text in
 `#[error("…")]` is for a developer reading a log, and may be reworded in any pull
 request. So a test, a `match`, or the binary's wording never compares message text: it
-names the variant. For example, `Err(day::DayError::TaskNotFound)`.
+names the variant. For example, `Err(ModelError::TimedOut)`.
 `.claude/rules/testing.md` holds the same rule for tests.
 
 ## Where an error type lives, and its shape
@@ -44,8 +44,8 @@ names the variant. For example, `Err(day::DayError::TaskNotFound)`.
   `Display` and `std::error::Error` impls from the `#[error]` attributes, so an error
   type costs a derive rather than two hand-written impls
   (<https://docs.rs/thiserror/latest/thiserror/>, checked 2026-09-30).
-- Variants name what the caller can do something about, not which call failed. `day::DayError`
-  distinguishes `EmptyTitle` and `TaskNotFound`, requiring different responses.
+- Variants name what the caller can do something about, not which call failed. `ModelError`
+  distinguishes an unavailable model from a timeout, requiring different responses.
 - A payload is a small value the caller decides on: an enum of kinds, a number. Never a
   `std::io::Error` or a `Box<dyn Error>`, which are not `PartialEq` (so a test cannot
   `assert_eq!` on them), and never a `PathBuf` or a `String` from the OS, which can
@@ -70,22 +70,15 @@ compile until someone decides what the user is told.
 - A subcommand prints `error: <wording>` on stderr and exits 1 for every runtime error;
   the `tui` screen shows the same sentence on its error line. One sentence per variant,
   wherever the user meets it. The streams and codes are `designing-clis`'.
-- An error that may leave the process as data, in a `--json` consumer's output or a
-  file, derives `Serialize` and is internally tagged, so its variant becomes a stable
-  `code`:
+- An error that may leave the process as data derives `Serialize` and uses an internally
+  tagged representation, so its variant becomes a stable `code`. No current command
+  serializes a core error, but any future JSON error form pins each code with a literal
+  value in core integration tests. An error that never leaves the process
+  (`LoggingError`) derives no `Serialize`.
 
-  ```rust
-  use bunshin_core::day::DayError;
-  assert_eq!(
-      serde_json::to_value(DayError::EmptyTitle).unwrap(),
-      serde_json::json!({ "code": "emptyTitle" }),
-  );
-  ```
-
-  `tag = "code"` puts the variant name in a `code` field and places any payload beside it (`{ "code": "emptyTitle" }`); serde calls this the internally
-  tagged representation (<https://serde.rs/enum-representations.html>, checked
-  2026-09-30). Pin each code with literal JSON in core integration tests. An error that never leaves the process (`LoggingError`) derives
-  no `Serialize`.
+  `tag = "code"` puts the variant name in a `code` field and places any payload beside it;
+  serde calls this the internally tagged representation
+  (<https://serde.rs/enum-representations.html>, checked 2026-09-30).
 
 ## What an error or a log field may carry
 
@@ -94,7 +87,7 @@ bug report, and a pull request.
 
 - No user data in a payload, a `#[error]` message, a wording sentence, or a `tracing`
   field: no path under the home directory, no file content, nothing a user typed.
-  `DayError` and `LoggingError` say what failed without naming the file, because
+  `ModelError` and `LoggingError` say what failed without naming local data, because
   the caller already knows which one it passed.
 - `tracing::warn!(%error, …)` writes the error's `Display`, so the `#[error]` text is
   held to the same rule as the payload. `?error` writes its `Debug`, which prints the
