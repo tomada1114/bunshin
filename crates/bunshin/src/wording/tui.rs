@@ -128,6 +128,12 @@ fn unavailable(reason: UnavailableReason) -> &'static str {
         UnavailableReason::UnsupportedOs => "この環境ではモデルを利用できません",
         UnavailableReason::NotInstalled => "fm が見つかりません",
         UnavailableReason::TermsNotAccepted => "モデルの利用条件への同意が必要です",
+        UnavailableReason::ModelNotReady => {
+            "モデルの準備中です。完了を待ち、設定 › Apple Intelligence と Siri を確認してください"
+        }
+        UnavailableReason::Other => {
+            "モデルが利用できません。しばらく待ち、設定 › Apple Intelligence と Siri を確認してください"
+        }
     }
 }
 

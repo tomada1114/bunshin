@@ -224,6 +224,10 @@ fn model_failures_are_shown_in_the_header_without_adding_a_post() {
             Err(ModelError::Unavailable(UnavailableReason::UnsupportedOs)),
             "この環境ではモデルを利用できません",
         ),
+        (
+            Err(ModelError::Unavailable(UnavailableReason::ModelNotReady)),
+            "モデルの準備中です。完了を待ち、設定 › Apple Intelligence と Siri を確認してください",
+        ),
         (Err(ModelError::TimedOut), "応答がタイムアウトしました"),
         (Err(ModelError::Malformed), "応答を読み取れませんでした"),
         (Err(ModelError::Failed), "モデル応答に失敗しました"),
@@ -235,6 +239,10 @@ fn model_failures_are_shown_in_the_header_without_adding_a_post() {
         ),
     ];
     for (result, expected) in cases {
+        let is_not_ready = matches!(
+            &result,
+            Err(ModelError::Unavailable(UnavailableReason::ModelNotReady))
+        );
         let mut screen = BoardScreen::new(Tuning::default(), 3);
         let request = screen.prepare_turn(now).expect("first turn");
         screen.finish_turn(request.id, result, now);
@@ -246,10 +254,14 @@ fn model_failures_are_shown_in_the_header_without_adding_a_post() {
             })
             .expect("draw");
         let rendered = rendered(&terminal);
+        let expected = expected.replace(' ', "");
         assert!(
-            rendered.contains(expected),
+            rendered.contains(&expected),
             "{expected:?} missing from {rendered:?}"
         );
+        if is_not_ready {
+            assert!(!rendered.contains("モデル応答に失敗しました"));
+        }
         assert!(screen.board().posts().is_empty());
     }
 }

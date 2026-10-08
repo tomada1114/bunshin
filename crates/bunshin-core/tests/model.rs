@@ -34,12 +34,15 @@ fn scripted_model_replays_each_typed_error_and_success_in_order() {
         ModelError::Unavailable(UnavailableReason::NotInstalled),
         ModelError::Unavailable(UnavailableReason::TermsNotAccepted),
         ModelError::Unavailable(UnavailableReason::UnsupportedOs),
+        ModelError::Unavailable(UnavailableReason::ModelNotReady),
+        ModelError::Unavailable(UnavailableReason::Other),
         ModelError::TimedOut,
         ModelError::Cancelled,
         ModelError::Refused,
         ModelError::Malformed,
         ModelError::Failed,
     ];
+    let request_count = errors.len() + 1;
     let answer = ModelAnswer { json: "{}".into() };
     let model = ScriptedLanguageModel::new(errors.into_iter().map(Err).chain([Ok(answer.clone())]));
     let request = ModelRequest {
@@ -53,7 +56,7 @@ fn scripted_model_replays_each_typed_error_and_success_in_order() {
         assert!(!format!("{error}").contains("private"));
     }
     assert_eq!(model.respond(&request, &CancelFlag::default()), Ok(answer));
-    assert_eq!(model.requests(), vec![request; 9]);
+    assert_eq!(model.requests(), vec![request; request_count]);
 }
 
 #[test]
@@ -69,6 +72,8 @@ fn unavailable_fake_preserves_script_and_records_no_request() {
         UnavailableReason::NotInstalled,
         UnavailableReason::TermsNotAccepted,
         UnavailableReason::UnsupportedOs,
+        UnavailableReason::ModelNotReady,
+        UnavailableReason::Other,
     ] {
         let model =
             ScriptedLanguageModel::new([]).with_availability(Ok(Availability::Unavailable(reason)));
