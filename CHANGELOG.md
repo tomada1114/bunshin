@@ -94,6 +94,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The board talks like a casual chat board: a new topic starts from one of 40 concrete
+  everyday subjects, シズク and ゲン speak more lightly, characters answer what the owner
+  actually wrote and follow a requested change of subject, and bodies no longer show
+  JSON or code-fence fragments. Character posts are written as plain text rather than
+  through a schema, which also stops most model-call timeouts.
+
 - `bunshin tui` is now a three-character board, kept in memory only.
 
 - Core's `Clock::now` returns `Now`; counter timestamps keep their existing Unix

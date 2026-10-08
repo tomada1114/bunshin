@@ -5,8 +5,7 @@ use std::time::Duration;
 use bunshin_core::{
     ModelAnswer, ModelError, Tuning, UnavailableReason, UnixMillis,
     board::{
-        Author, Board, BoardTuning, FailureKind, Outcome, Rng, Speaker, TopicCategory, TopicDepth,
-        TopicMood, Turn, TurnKind,
+        Author, Board, BoardTuning, FailureKind, Outcome, Rng, Speaker, Topic, Turn, TurnKind,
     },
 };
 
@@ -25,7 +24,7 @@ fn finish_post(board: &mut Board, turn: &Turn, milliseconds: i64) -> Outcome {
     board.finish(
         turn,
         Ok(ModelAnswer {
-            json: r#"{"body":"  いいですね。  "}"#.into(),
+            text: "  いいですね。  ".into(),
         }),
         at(milliseconds),
     )
@@ -50,10 +49,10 @@ fn defaults_match_the_board_prototype_values() {
     let tuning = BoardTuning::default();
 
     assert_eq!(tuning.post_interval, Duration::from_secs(30));
-    assert_eq!(tuning.context_posts, 12);
+    assert_eq!(tuning.context_posts, 8);
     assert_eq!(tuning.max_posts, 200);
     assert_eq!(tuning.body_max_chars, 120);
-    assert_eq!(tuning.asked_max_chars, 80);
+    assert_eq!(tuning.asked_max_chars, 60);
     assert_eq!(tuning.screen_input_max_chars, 400);
 }
 
@@ -101,7 +100,7 @@ fn only_one_model_turn_can_be_in_flight() {
 }
 
 #[test]
-fn request_uses_the_speaker_rules_schema_and_latest_context() {
+fn owner_reply_request_names_the_owner_apart_from_the_speaker() {
     let mut board = Board::default();
     let owner = board
         .owner_post("週末に旅行したい", at(10))
@@ -112,18 +111,97 @@ fn request_uses_the_speaker_rules_schema_and_latest_context() {
         .request(&turn, Tuning::default())
         .expect("active request");
 
-    assert!(request.instructions.contains(turn.speaker.name()));
-    assert!(request.instructions.contains("80文字"));
-    assert!(request.instructions.contains("名前を付けず"));
-    assert!(request.prompt.contains(&format!("あなた: {}", owner.body)));
-    assert!(request.prompt.contains("あなたの投稿に返信"));
-    assert_eq!(request.timeout, Duration::from_secs(30));
-    assert_eq!(
-        request.schema,
-        r#"{"type":"object","properties":{"body":{"type":"string"}},"required":["body"],"additionalProperties":false,"title":"Post","x-order":["body"]}"#
+    assert!(
+        request
+            .instructions
+            .contains(&format!("あなたは「{}」", turn.speaker.name()))
     );
+    assert!(request.instructions.contains("60文字以内"));
+    assert!(
+        request
+            .instructions
+            .contains("名前・かぎかっこ・記号・前置きは付けない")
+    );
+    assert!(request.instructions.contains("政治やニュースの話はしない"));
+    assert!(
+        request
+            .prompt
+            .contains(&format!("これまでの流れ:\nユーザー: {}", owner.body))
+    );
+    assert!(request.prompt.contains(&format!(
+        "ユーザーが今こう書き込みました: 「{}」",
+        owner.body
+    )));
+    assert!(request.prompt.contains("その話題に乗って"));
+    assert!(!request.prompt.contains("あなた"));
+    assert_eq!(request.timeout, Duration::from_secs(30));
 }
 
+#[test]
+fn context_holds_only_the_latest_posts() {
+    let mut board = board_with_interval(Duration::ZERO);
+    for index in 0..10 {
+        board.owner_post(&format!("投稿{index}"), at(index));
+    }
+    let mut rng = Rng::from_seed(7);
+    let turn = start_turn(&mut board, 20, &mut rng);
+    let request = board
+        .request(&turn, Tuning::default())
+        .expect("active request");
+
+    assert!(!request.prompt.contains("投稿1\n"));
+    assert!(request.prompt.contains("ユーザー: 投稿2\n"));
+    assert!(request.prompt.contains("ユーザー: 投稿9"));
+}
+
+#[test]
+fn new_topic_request_names_a_concrete_subject_without_old_context() {
+    let mut board = board_with_interval(Duration::ZERO);
+    let mut rng = Rng::from_seed(3);
+    let mut now = 0;
+    let (turn, topic) = loop {
+        let turn = start_turn(&mut board, now, &mut rng);
+        if let TurnKind::NewTopic { topic } = turn.kind
+            && !board.posts().is_empty()
+        {
+            break (turn, topic);
+        }
+        finish_post(&mut board, &turn, now + 1);
+        now += 2;
+    };
+    let request = board
+        .request(&turn, Tuning::default())
+        .expect("active request");
+
+    assert!(
+        request
+            .prompt
+            .contains(&format!("お題: {}。", topic.subject))
+    );
+    assert!(!request.prompt.contains("これまでの流れ"));
+    assert!(!request.prompt.contains("いいですね"));
+}
+
+#[test]
+fn owner_reaction_request_asks_for_a_different_angle_on_the_owner_post() {
+    let mut board = board_with_interval(Duration::from_secs(30));
+    let owner = board
+        .owner_post("スタバの話しよう", at(0))
+        .expect("owner post");
+    let mut rng = Rng::from_seed(9);
+    let first = start_turn(&mut board, 0, &mut rng);
+    finish_post(&mut board, &first, 1);
+    let second = start_turn(&mut board, 30_001, &mut rng);
+    let request = board
+        .request(&second, Tuning::default())
+        .expect("active request");
+
+    assert!(request.prompt.contains(&format!(
+        "ユーザーが少し前にこう書き込みました: 「{}」",
+        owner.body
+    )));
+    assert!(request.prompt.contains("前の返事とは違う角度"));
+}
 #[test]
 fn owner_post_gets_two_responses_about_the_same_post_by_different_characters() {
     let mut board = board_with_interval(Duration::from_secs(30));
@@ -153,11 +231,9 @@ fn owner_post_gets_two_responses_about_the_same_post_by_different_characters() {
 fn failed_owner_turns_consume_the_two_response_cycle() {
     for (index, (answer, expected)) in [
         (Err(ModelError::TimedOut), FailureKind::TimedOut),
-        (Ok(ModelAnswer { json: "{".into() }), FailureKind::Malformed),
+        (Err(ModelError::Malformed), FailureKind::Malformed),
         (
-            Ok(ModelAnswer {
-                json: r#"{"body":"  "}"#.into(),
-            }),
+            Ok(ModelAnswer { text: "  ".into() }),
             FailureKind::EmptyBody,
         ),
     ]
@@ -288,24 +364,62 @@ fn a_backward_clock_correction_makes_the_next_attempt_due() {
 }
 
 #[test]
-fn malformed_answers_unknown_fields_and_empty_bodies_fail_without_a_post() {
-    let cases = [
-        ("{", FailureKind::Malformed),
-        (r#"{"body":"ok","name":"Haru"}"#, FailureKind::Malformed),
-        (r#"{"body":"   \n"}"#, FailureKind::EmptyBody),
-    ];
+fn blank_or_only_leftover_answers_fail_without_a_post() {
+    let cases = ["", "   \n", r#"{"body":"   \n"}"#, "```json {", "「」"];
 
-    for (index, (json, expected)) in cases.into_iter().enumerate() {
+    for (index, text) in cases.into_iter().enumerate() {
         let mut board = Board::default();
         let mut rng = Rng::from_seed(index as u64 + 1);
         let turn = start_turn(&mut board, 0, &mut rng);
-        let outcome = board.finish(&turn, Ok(ModelAnswer { json: json.into() }), at(1));
+        let outcome = board.finish(&turn, Ok(ModelAnswer { text: text.into() }), at(1));
 
-        assert_eq!(outcome, Outcome::Failed(expected));
+        assert_eq!(outcome, Outcome::Failed(FailureKind::EmptyBody), "{text:?}");
         assert!(board.posts().is_empty());
     }
 }
 
+#[test]
+fn answers_are_cleaned_of_wrappers_names_and_leftover_structure() {
+    let cases = [
+        (r#"{"body":"いいね！"}"#, "いいね！"),
+        (
+            "新しい政策は心配ですね。」} 追記：その背景を…」}   ```json   {",
+            "新しい政策は心配ですね。",
+        ),
+        (
+            "スタバの話しましょうか？」} 質問があれば。」}<<|model_start|>```markdown",
+            "スタバの話しましょうか？",
+        ),
+        ("「プリン最高！」", "プリン最高！"),
+        ("「いちご大福」が好き", "「いちご大福」が好き"),
+        ("一行目\n\n二行目", "一行目 二行目"),
+        ("\"そうだね\"", "そうだね"),
+    ];
+
+    for (index, (text, expected)) in cases.into_iter().enumerate() {
+        let mut board = Board::default();
+        let mut rng = Rng::from_seed(index as u64 + 1);
+        let turn = start_turn(&mut board, 0, &mut rng);
+        let Outcome::Posted(post) =
+            board.finish(&turn, Ok(ModelAnswer { text: text.into() }), at(1))
+        else {
+            panic!("expected a post for {text:?}");
+        };
+        assert_eq!(post.body, expected, "{text:?}");
+    }
+}
+
+#[test]
+fn a_leading_speaker_name_is_removed() {
+    let mut board = Board::default();
+    let mut rng = Rng::from_seed(4);
+    let turn = start_turn(&mut board, 0, &mut rng);
+    let text = format!("{}：週末どうする？", turn.speaker.name());
+    let Outcome::Posted(post) = board.finish(&turn, Ok(ModelAnswer { text }), at(1)) else {
+        panic!("expected a post");
+    };
+    assert_eq!(post.body, "週末どうする？");
+}
 #[test]
 fn every_model_error_is_reduced_to_a_typed_failure_kind() {
     let failures = [
@@ -355,7 +469,7 @@ fn normal_turns_follow_the_reply_chime_topic_weights_and_chime_prompt_context() 
             .expect("owner post");
         let first = start_turn(&mut board, 0, &mut rng);
         let first_answer = ModelAnswer {
-            json: format!(r#"{{"body":"first-{index}"}}"#),
+            text: format!("first-{index}"),
         };
         assert!(matches!(
             board.finish(&first, Ok(first_answer), at(1)),
@@ -363,7 +477,7 @@ fn normal_turns_follow_the_reply_chime_topic_weights_and_chime_prompt_context() 
         ));
         let second = start_turn(&mut board, 1, &mut rng);
         let second_answer = ModelAnswer {
-            json: format!(r#"{{"body":"second-{index}"}}"#),
+            text: format!("second-{index}"),
         };
         assert!(matches!(
             board.finish(&second, Ok(second_answer), at(2)),
@@ -406,7 +520,7 @@ fn finished_bodies_are_trimmed_and_truncated_by_unicode_scalar_values() {
     let outcome = board.finish(
         &turn,
         Ok(ModelAnswer {
-            json: r#"{"body":"  あいうえ  "}"#.into(),
+            text: "  あいうえ  ".into(),
         }),
         at(1),
     );
@@ -474,62 +588,29 @@ fn character_speakers_never_repeat_in_adjacent_successful_posts() {
 }
 
 #[test]
-fn new_topic_categories_do_not_repeat_and_uniform_dimensions_cover_the_fixed_sets() {
+fn new_topics_avoid_the_recent_subjects_and_cover_the_fixed_list() {
     let mut board = board_with_interval(Duration::ZERO);
     let mut rng = Rng::from_seed(1_337);
-    let mut previous_category = None;
-    let mut categories = Vec::new();
-    let mut depths = Vec::new();
-    let mut moods = Vec::new();
+    let mut subjects: Vec<Topic> = Vec::new();
 
-    for tick in 0..1_000 {
+    for tick in 0..2_000 {
         let now = tick * 2;
         let turn = start_turn(&mut board, now, &mut rng);
         if let TurnKind::NewTopic { topic } = turn.kind {
-            assert_ne!(Some(topic.category), previous_category);
-            previous_category = Some(topic.category);
-            categories.push(topic.category);
-            depths.push(topic.depth);
-            moods.push(topic.mood);
+            let recent = &subjects[subjects.len().saturating_sub(8)..];
+            assert!(!recent.contains(&topic), "repeated {topic:?}");
+            subjects.push(topic);
         }
         finish_post(&mut board, &turn, now + 1);
     }
 
-    for expected in [
-        TopicCategory::Travel,
-        TopicCategory::Technology,
-        TopicCategory::Economics,
-        TopicCategory::Food,
-        TopicCategory::Movies,
-        TopicCategory::Music,
-        TopicCategory::Sports,
-        TopicCategory::Science,
-        TopicCategory::History,
-        TopicCategory::Health,
-        TopicCategory::Career,
-        TopicCategory::Hobbies,
-    ] {
-        assert!(
-            categories.contains(&expected),
-            "missing category: {expected:?}"
-        );
-    }
-    assert!(
-        categories.len() >= 200,
-        "new-topic count: {}",
-        categories.len()
-    );
-    for expected in [TopicDepth::Casual, TopicDepth::Deeper, TopicDepth::Expert] {
-        assert!(depths.contains(&expected), "missing depth: {expected:?}");
-    }
-    for expected in [TopicMood::Relaxed, TopicMood::Excited, TopicMood::Debatable] {
-        assert!(moods.contains(&expected), "missing mood: {expected:?}");
+    for expected in Topic::all() {
+        assert!(subjects.contains(&expected), "missing topic: {expected:?}");
     }
 }
-
 #[test]
-fn failed_new_topics_do_not_replace_the_last_successful_category() {
-    let mut failed_category_was_reused = false;
+fn failed_new_topics_do_not_count_as_recent() {
+    let mut failed_topic_was_reused = false;
 
     for seed in 0..512 {
         let mut board = board_with_interval(Duration::ZERO);
@@ -539,14 +620,13 @@ fn failed_new_topics_do_not_replace_the_last_successful_category() {
             panic!("an empty board starts with a new topic");
         };
         finish_post(&mut board, &first, 1);
-        let last_successful_category = first_topic.category;
         let mut now = 3;
 
-        let mut failed_category = None;
+        let mut failed_topic = None;
         for _ in 0..100 {
             let turn = start_turn(&mut board, now, &mut rng);
             if let TurnKind::NewTopic { topic } = turn.kind {
-                failed_category = Some(topic.category);
+                failed_topic = Some(topic);
                 assert_eq!(
                     board.finish(&turn, Err(ModelError::Failed), at(now + 1)),
                     Outcome::Failed(FailureKind::Failed)
@@ -557,16 +637,16 @@ fn failed_new_topics_do_not_replace_the_last_successful_category() {
             finish_post(&mut board, &turn, now + 1);
             now += 2;
         }
-        let Some(failed_category) = failed_category else {
+        let Some(failed_topic) = failed_topic else {
             continue;
         };
 
         for _ in 0..100 {
             let turn = start_turn(&mut board, now, &mut rng);
             if let TurnKind::NewTopic { topic } = turn.kind {
-                assert_ne!(topic.category, last_successful_category);
-                if topic.category == failed_category {
-                    failed_category_was_reused = true;
+                assert_ne!(topic, first_topic);
+                if topic == failed_topic {
+                    failed_topic_was_reused = true;
                 }
                 finish_post(&mut board, &turn, now + 1);
                 break;
@@ -575,17 +655,16 @@ fn failed_new_topics_do_not_replace_the_last_successful_category() {
             now += 2;
         }
 
-        if failed_category_was_reused {
+        if failed_topic_was_reused {
             break;
         }
     }
 
     assert!(
-        failed_category_was_reused,
-        "a failed new topic should not prevent its category from being selected again"
+        failed_topic_was_reused,
+        "a failed new topic should not prevent its subject from being selected again"
     );
 }
-
 #[test]
 fn successful_character_turns_are_appended_with_the_selected_speaker() {
     let mut board = board_with_interval(Duration::ZERO);
@@ -625,23 +704,14 @@ fn a_turn_from_a_previous_attempt_cannot_finish_the_current_attempt() {
 }
 
 #[test]
-fn topic_values_have_stable_user_facing_labels() {
-    assert_eq!(TopicCategory::Travel.label(), "旅行");
-    assert_eq!(TopicCategory::Technology.label(), "IT・テクノロジー");
-    assert_eq!(TopicCategory::Economics.label(), "経済・お金");
-    assert_eq!(TopicCategory::Food.label(), "食べ物・料理");
-    assert_eq!(TopicCategory::Movies.label(), "映画・ドラマ");
-    assert_eq!(TopicCategory::Music.label(), "音楽");
-    assert_eq!(TopicCategory::Sports.label(), "スポーツ");
-    assert_eq!(TopicCategory::Science.label(), "科学");
-    assert_eq!(TopicCategory::History.label(), "歴史");
-    assert_eq!(TopicCategory::Health.label(), "健康・暮らし");
-    assert_eq!(TopicCategory::Career.label(), "仕事・キャリア");
-    assert_eq!(TopicCategory::Hobbies.label(), "趣味・遊び");
-    assert_eq!(TopicDepth::Casual.label(), "気軽な雑談");
-    assert_eq!(TopicDepth::Deeper.label(), "ちょっと掘り下げる");
-    assert_eq!(TopicDepth::Expert.label(), "詳しい人向け");
-    assert_eq!(TopicMood::Relaxed.label(), "のんびり");
-    assert_eq!(TopicMood::Excited.label(), "盛り上がる");
-    assert_eq!(TopicMood::Debatable.label(), "ちょっと意見が分かれる");
+fn topics_are_forty_distinct_casual_subjects() {
+    let topics = Topic::all().collect::<Vec<_>>();
+    assert_eq!(topics.len(), 40);
+    for (index, topic) in topics.iter().enumerate() {
+        assert!(!topic.subject.is_empty());
+        assert!(!topics[index + 1..].contains(topic), "duplicate {topic:?}");
+    }
+    assert!(topics.contains(&Topic {
+        subject: "コンビニの新作スイーツ"
+    }));
 }

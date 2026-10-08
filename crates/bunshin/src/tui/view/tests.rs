@@ -103,7 +103,7 @@ fn character_names_are_bold_and_use_the_character_style() {
     screen.finish_turn(
         request.id,
         Ok(ModelAnswer {
-            json: r#"{"body":"model post"}"#.into(),
+            text: "model post".into(),
         }),
         now,
     );
@@ -235,12 +235,7 @@ fn model_failures_are_shown_in_the_header_without_adding_a_post() {
         (Err(ModelError::TimedOut), "応答がタイムアウトしました"),
         (Err(ModelError::Malformed), "応答を読み取れませんでした"),
         (Err(ModelError::Failed), "モデル応答に失敗しました"),
-        (
-            Ok(ModelAnswer {
-                json: r#"{"body":"  "}"#.into(),
-            }),
-            "空の応答でした",
-        ),
+        (Ok(ModelAnswer { text: "  ".into() }), "空の応答でした"),
     ];
     for (result, expected) in cases {
         let is_not_ready = matches!(
@@ -280,7 +275,7 @@ fn a_successful_response_clears_the_previous_failure_status() {
     let model = ScriptedLanguageModel::new([
         Err(ModelError::TimedOut),
         Ok(ModelAnswer {
-            json: r#"{"body":"戻ってきたよ"}"#.into(),
+            text: "戻ってきたよ".into(),
         }),
     ]);
     let first = screen.prepare_turn(now).expect("first turn");

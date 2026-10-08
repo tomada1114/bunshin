@@ -11,7 +11,7 @@ use crate::{
 pub struct BoardRequest {
     /// Completion token returned by the worker.
     pub id: u64,
-    /// The board turn's schema-backed model request.
+    /// The board turn's plain-text model request.
     pub request: ModelRequest,
 }
 

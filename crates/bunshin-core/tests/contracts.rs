@@ -11,7 +11,9 @@ fn fixed_clock_meets_the_clock_contract() {
 fn scripted_model_meets_contract() {
     bunshin_test_support::language_model_contract(|| {
         Box::new(bunshin_test_support::ScriptedLanguageModel::new([Ok(
-            bunshin_core::ModelAnswer { json: "{}".into() },
+            bunshin_core::ModelAnswer {
+                text: "こんにちは".into(),
+            },
         )]))
     });
 }

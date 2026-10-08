@@ -252,8 +252,6 @@ mod command {
                 &[
                     "respond",
                     "--no-stream",
-                    "--schema",
-                    &request.schema,
                     "--instructions",
                     &request.instructions,
                 ],
@@ -270,9 +268,8 @@ mod command {
             if !status.success() {
                 return Err(ModelError::Failed);
             }
-            let json = String::from_utf8(output).map_err(|_| ModelError::Malformed)?;
-            serde_json::from_str::<serde_json::Value>(&json).map_err(|_| ModelError::Malformed)?;
-            Ok(ModelAnswer { json })
+            let text = String::from_utf8(output).map_err(|_| ModelError::Malformed)?;
+            Ok(ModelAnswer { text })
         }
     }
 }
@@ -305,7 +302,6 @@ mod tests {
         ModelRequest {
             instructions: "rules ' \"\nnext".into(),
             prompt: "task ' \"\n続き\n".into(),
-            schema: r#"{"type":"object"}"#.into(),
             timeout: Duration::from_secs(5),
         }
     }
@@ -321,12 +317,12 @@ mod tests {
             r#"cd "$(dirname "$0")"
 printf '%s\000' "$@" >args
 /bin/cat >input
-printf '{"reply":"了解"}'"#,
+printf '了解です'"#,
         );
         let req = request();
         assert_eq!(
-            model.respond(&req, &CancelFlag::default()).unwrap().json,
-            r#"{"reply":"了解"}"#
+            model.respond(&req, &CancelFlag::default()).unwrap().text,
+            "了解です"
         );
         assert_eq!(
             fs::read(dir.path().join("input")).unwrap(),
@@ -336,8 +332,6 @@ printf '{"reply":"了解"}'"#,
         let expected = [
             "respond",
             "--no-stream",
-            "--schema",
-            &req.schema,
             "--instructions",
             &req.instructions,
         ]
@@ -402,7 +396,7 @@ exit 1",
         );
     }
     #[test]
-    fn nonzero_exit_and_invalid_json_do_not_expose_diagnostics() {
+    fn nonzero_exit_and_invalid_utf8_do_not_expose_diagnostics() {
         for code in [64, 73] {
             let (_dir, model) = stub(&format!(
                 "/bin/cat >/dev/null\nprintf 'private task' >&2\nexit {code}"
@@ -417,13 +411,6 @@ exit 1",
             model.respond(&request(), &CancelFlag::default()),
             Err(ModelError::Unavailable(UnavailableReason::TermsNotAccepted))
         );
-        for text in ["", "invalid", "{} trailing"] {
-            let (_dir, model) = stub(&format!("/bin/cat >/dev/null\nprintf '%s' '{text}'"));
-            assert_eq!(
-                model.respond(&request(), &CancelFlag::default()),
-                Err(ModelError::Malformed)
-            );
-        }
         let (_dir, model) = stub("/bin/cat >/dev/null\nprintf '\\377'");
         assert_eq!(
             model.respond(&request(), &CancelFlag::default()),
@@ -538,7 +525,7 @@ exit 1",
         let mut req = request();
         req.prompt = "y".repeat(2_000_000);
         let answer = model.respond(&req, &CancelFlag::default()).unwrap();
-        assert_eq!(answer.json.len(), 200_002);
+        assert_eq!(answer.text.len(), 200_002);
     }
     #[test]
     fn non_executable_command_and_signal_exit_are_failed() {
@@ -560,12 +547,12 @@ exit 1",
         );
     }
     #[test]
-    fn any_valid_json_is_preserved_for_core_validation() {
-        for json in ["null", "[]", "42", "true", "  {}\n"] {
-            let (_dir, model) = stub(&format!("/bin/cat >/dev/null\nprintf '%s' '{json}'"));
+    fn any_text_is_preserved_for_core_cleaning() {
+        for text in ["", "invalid", "{} trailing", "  こんにちは\n"] {
+            let (_dir, model) = stub(&format!("/bin/cat >/dev/null\nprintf '%s' '{text}'"));
             assert_eq!(
                 model.respond(&request(), &CancelFlag::default()),
-                Ok(ModelAnswer { json: json.into() })
+                Ok(ModelAnswer { text: text.into() })
             );
         }
     }

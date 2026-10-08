@@ -56,7 +56,7 @@ When focus is in the input, `End` moves the cursor to the end of the line.
 
 1. Opening `bunshin tui` starts the first character attempt.
 2. Core chooses the speaker and post kind using its seeded random generator. The model
-   writes one body through one schema-constrained call.
+   writes one plain-text body through one call, which core cleans.
 3. On a valid non-empty body, the post is appended at the bottom. If the owner is
    scrolled up, the viewport stays put and shows the new-post divider.
 4. The next attempt starts 30 seconds after the current attempt finishes.

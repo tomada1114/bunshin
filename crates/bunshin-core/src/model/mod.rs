@@ -30,8 +30,6 @@ pub struct ModelRequest {
     pub instructions: String,
     /// Prompt, passed unchanged through stdin rather than argv.
     pub prompt: String,
-    /// JSON schema text; parsing belongs to the adapter.
-    pub schema: String,
     /// Maximum wait measured by the adapter's monotonic clock.
     pub timeout: Duration,
 }
@@ -40,11 +38,10 @@ impl ModelRequest {
     /// The supplied text is copied unchanged; individual callers may then override
     /// the public timeout for a particular request.
     #[must_use]
-    pub fn new(instructions: &str, prompt: &str, schema: &str, tuning: crate::Tuning) -> Self {
+    pub fn new(instructions: &str, prompt: &str, tuning: crate::Tuning) -> Self {
         Self {
             instructions: instructions.into(),
             prompt: prompt.into(),
-            schema: schema.into(),
             timeout: tuning.model_timeout,
         }
     }
@@ -56,11 +53,14 @@ impl std::fmt::Debug for ModelRequest {
             .finish_non_exhaustive()
     }
 }
-/// JSON answer text, before core parses it into a proposal.
+/// Plain answer text, before core cleans it into a post.
+///
+/// The request asks for plain text rather than a schema: the on-device model's
+/// guided generation ran past its context or leaked JSON into Japanese bodies.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ModelAnswer {
-    /// Valid JSON text; no schema or domain validation is promised here.
-    pub json: String,
+    /// UTF-8 text exactly as the model wrote it; no cleaning is promised here.
+    pub text: String,
 }
 impl std::fmt::Debug for ModelAnswer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -104,7 +104,7 @@ pub enum ModelError {
     /// The model refused this request.
     #[error("model refused")]
     Refused,
-    /// The successful process returned invalid JSON.
+    /// The successful process returned text that is not UTF-8.
     #[error("malformed model answer")]
     Malformed,
     /// An unclassified process or I/O failure.
@@ -136,10 +136,10 @@ pub trait LanguageModel: Send + Sync {
         }
         result
     }
-    /// Return JSON text, or a typed failure. Prompt bytes are preserved.
+    /// Return the answer text, or a typed failure. Prompt bytes are preserved.
     ///
     /// # Errors
-    /// Unavailability, timeout, cancellation, refusal, malformed JSON, or I/O failure.
+    /// Unavailability, timeout, cancellation, refusal, non-UTF-8 output, or I/O failure.
     fn respond(
         &self,
         request: &ModelRequest,
