@@ -226,7 +226,11 @@ fn model_failures_are_shown_in_the_header_without_adding_a_post() {
         ),
         (
             Err(ModelError::Unavailable(UnavailableReason::ModelNotReady)),
-            "モデルの準備中です。完了を待ち、設定 › Apple Intelligence と Siri を確認してください",
+            "準備中。設定でApple Intelligence/Siriを確認",
+        ),
+        (
+            Err(ModelError::Unavailable(UnavailableReason::Other)),
+            "利用不可。設定でApple Intelligence/Siriを確認",
         ),
         (Err(ModelError::TimedOut), "応答がタイムアウトしました"),
         (Err(ModelError::Malformed), "応答を読み取れませんでした"),
@@ -247,13 +251,15 @@ fn model_failures_are_shown_in_the_header_without_adding_a_post() {
         let request = screen.prepare_turn(now).expect("first turn");
         screen.finish_turn(request.id, result, now);
 
-        let mut terminal = Terminal::new(TestBackend::new(100, 18)).expect("test terminal");
+        let mut terminal = Terminal::new(TestBackend::new(60, 18)).expect("test terminal");
         terminal
             .draw(|frame| {
                 draw_with_metrics(frame, &screen, now, &|at| clock.local_at(at));
             })
             .expect("draw");
         let rendered = rendered(&terminal);
+        assert!(rendered.contains("Bunshin"), "{rendered:?}");
+        assert!(rendered.contains("22:13"), "{rendered:?}");
         let expected = expected.replace(' ', "");
         assert!(
             rendered.contains(&expected),
