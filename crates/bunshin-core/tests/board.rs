@@ -313,6 +313,14 @@ fn every_model_error_is_reduced_to_a_typed_failure_kind() {
             ModelError::Unavailable(UnavailableReason::NotInstalled),
             FailureKind::Unavailable,
         ),
+        (
+            ModelError::Unavailable(UnavailableReason::ModelNotReady),
+            FailureKind::Unavailable,
+        ),
+        (
+            ModelError::Unavailable(UnavailableReason::Other),
+            FailureKind::Unavailable,
+        ),
         (ModelError::TimedOut, FailureKind::TimedOut),
         (ModelError::Cancelled, FailureKind::Cancelled),
         (ModelError::Refused, FailureKind::Refused),

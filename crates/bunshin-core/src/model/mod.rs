@@ -76,6 +76,10 @@ pub enum UnavailableReason {
     NotInstalled,
     /// The owner must accept Apple's terms.
     TermsNotAccepted,
+    /// The on-device model is still preparing.
+    ModelNotReady,
+    /// The model is unavailable for another or unrecognized reason.
+    Other,
 }
 /// Result of probing the model command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

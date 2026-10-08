@@ -224,6 +224,14 @@ fn model_failures_are_shown_in_the_header_without_adding_a_post() {
             Err(ModelError::Unavailable(UnavailableReason::UnsupportedOs)),
             "この環境ではモデルを利用できません",
         ),
+        (
+            Err(ModelError::Unavailable(UnavailableReason::ModelNotReady)),
+            "準備中。設定でApple Intelligence/Siriを確認",
+        ),
+        (
+            Err(ModelError::Unavailable(UnavailableReason::Other)),
+            "利用不可。設定でApple Intelligence/Siriを確認",
+        ),
         (Err(ModelError::TimedOut), "応答がタイムアウトしました"),
         (Err(ModelError::Malformed), "応答を読み取れませんでした"),
         (Err(ModelError::Failed), "モデル応答に失敗しました"),
@@ -235,21 +243,31 @@ fn model_failures_are_shown_in_the_header_without_adding_a_post() {
         ),
     ];
     for (result, expected) in cases {
+        let is_not_ready = matches!(
+            &result,
+            Err(ModelError::Unavailable(UnavailableReason::ModelNotReady))
+        );
         let mut screen = BoardScreen::new(Tuning::default(), 3);
         let request = screen.prepare_turn(now).expect("first turn");
         screen.finish_turn(request.id, result, now);
 
-        let mut terminal = Terminal::new(TestBackend::new(100, 18)).expect("test terminal");
+        let mut terminal = Terminal::new(TestBackend::new(60, 18)).expect("test terminal");
         terminal
             .draw(|frame| {
                 draw_with_metrics(frame, &screen, now, &|at| clock.local_at(at));
             })
             .expect("draw");
         let rendered = rendered(&terminal);
+        assert!(rendered.contains("Bunshin"), "{rendered:?}");
+        assert!(rendered.contains("22:13"), "{rendered:?}");
+        let expected = expected.replace(' ', "");
         assert!(
-            rendered.contains(expected),
+            rendered.contains(&expected),
             "{expected:?} missing from {rendered:?}"
         );
+        if is_not_ready {
+            assert!(!rendered.contains("モデル応答に失敗しました"));
+        }
         assert!(screen.board().posts().is_empty());
     }
 }

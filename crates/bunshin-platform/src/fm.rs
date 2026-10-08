@@ -123,13 +123,14 @@ mod command {
                 let output = reader.join().map_err(|_| ModelError::Failed)?;
                 let drained = diagnostics.join().map_err(|_| ModelError::Failed)?;
                 let status = status?;
+                let output = output.map_err(|_| ModelError::Failed)?;
                 if !status.success() {
                     tracing::warn!(code = status.code(), "model command failed");
-                    return Ok((status, Vec::new()));
+                    return Ok((status, output));
                 }
                 written.map_err(|_| ModelError::Failed)?;
                 drained.map_err(|_| ModelError::Failed)?;
-                Ok((status, output.map_err(|_| ModelError::Failed)?))
+                Ok((status, output))
             })
         }
     }
@@ -139,6 +140,18 @@ mod command {
         } else {
             ModelError::Failed
         }
+    }
+    fn probe_unavailable_reason(output: &[u8]) -> Option<UnavailableReason> {
+        const PREFIX: &str = "System model unavailable:";
+        let output = std::str::from_utf8(output).ok()?;
+        let reason = output
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(PREFIX))?;
+        Some(if reason.trim() == "modelNotReady" {
+            UnavailableReason::ModelNotReady
+        } else {
+            UnavailableReason::Other
+        })
     }
     fn terminate(child: &mut Child) -> Result<(), ModelError> {
         terminate_using(child, KILL_PATH)
@@ -224,7 +237,10 @@ mod command {
                 Ok((status, _)) if status.code() == Some(69) => Ok(Availability::Unavailable(
                     UnavailableReason::TermsNotAccepted,
                 )),
-                Ok(_) => Err(ModelError::Failed),
+                Ok((_, output)) => probe_unavailable_reason(&output)
+                    .map_or(Err(ModelError::Failed), |reason| {
+                        Ok(Availability::Unavailable(reason))
+                    }),
             }
         }
         fn respond(
@@ -247,6 +263,9 @@ mod command {
             )?;
             if status.code() == Some(69) {
                 return Err(ModelError::Unavailable(UnavailableReason::TermsNotAccepted));
+            }
+            if status.code() == Some(1) {
+                return Err(ModelError::Unavailable(UnavailableReason::Other));
             }
             if !status.success() {
                 return Err(ModelError::Failed);
@@ -355,8 +374,36 @@ printf '{"reply":"了解"}'"#,
         }
     }
     #[test]
+    fn unavailable_probe_reasons_are_read_from_stdout() {
+        let (_dir, not_ready) =
+            stub(r"printf '%s\n' 'System model unavailable: modelNotReady'; exit 1");
+        assert_eq!(
+            not_ready.availability(),
+            Ok(Availability::Unavailable(UnavailableReason::ModelNotReady))
+        );
+
+        let (_dir, unknown) =
+            stub(r"printf '%s\n' 'System model unavailable: anotherReason'; exit 1");
+        assert_eq!(
+            unknown.availability(),
+            Ok(Availability::Unavailable(UnavailableReason::Other))
+        );
+    }
+    #[test]
+    fn response_exit_one_is_unavailable_without_reading_stderr() {
+        let (_dir, model) = stub(
+            r"/bin/cat >/dev/null
+printf '%s\n' 'System model unavailable: modelNotReady' >&2
+exit 1",
+        );
+        assert_eq!(
+            model.respond(&request(), &CancelFlag::default()),
+            Err(ModelError::Unavailable(UnavailableReason::Other))
+        );
+    }
+    #[test]
     fn nonzero_exit_and_invalid_json_do_not_expose_diagnostics() {
-        for code in [1, 64, 73] {
+        for code in [64, 73] {
             let (_dir, model) = stub(&format!(
                 "/bin/cat >/dev/null\nprintf 'private task' >&2\nexit {code}"
             ));

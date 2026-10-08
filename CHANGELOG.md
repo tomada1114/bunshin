@@ -73,6 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The board reports a preparing or otherwise unavailable on-device model with guidance
+  to wait and check Apple Intelligence & Siri settings.
+
 - **Day file format 2:** a check-in that failed once keeps its single spent retry across
   a restart. Day files gain `retryingTriggers` and are written as format 2; format-1
   files are read and migrated with no check-in counted as retrying. A build that only
