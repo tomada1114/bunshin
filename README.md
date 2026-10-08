@@ -233,7 +233,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 ```bash
 just install      # once per clone
 just check        # the full local gate; takes over no terminal
-just test-fast logical_date   # one core test or a group of them, while iterating
+just test-fast board        # one core test or a group of them, while iterating
 just logs         # the newest app log's last lines
 just install-cli  # install the bunshin binary into ~/.cargo/bin (a human's step)
 ```

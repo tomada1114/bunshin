@@ -54,6 +54,7 @@ fn defaults_match_the_board_prototype_values() {
     assert_eq!(tuning.max_posts, 200);
     assert_eq!(tuning.body_max_chars, 120);
     assert_eq!(tuning.asked_max_chars, 80);
+    assert_eq!(tuning.screen_input_max_chars, 400);
 }
 
 #[test]

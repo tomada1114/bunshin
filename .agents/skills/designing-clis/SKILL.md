@@ -125,9 +125,9 @@ The shell has no `--json`; add one only when a tool's output is consumed by a pr
 ## Configuration and the environment
 
 - Core reads no environment (`crates/bunshin-core/clippy.toml` bans it). The binary
-  reads `HOME` through `bunshin_platform::home_dir`, and on Linux `XDG_DATA_HOME` and
-  `XDG_STATE_HOME` through `app_data_dir` and `log_dir`; every file location hangs off
-  them, which is what lets a test redirect all of it with one variable.
+  reads `HOME` through `bunshin_platform::home_dir` and the log location through
+  `log_dir`; on Linux, `XDG_STATE_HOME` selects that log path. The older
+  `app_data_dir` / `XDG_DATA_HOME` path is legacy: current commands leave it untouched.
 - When a tool grows a setting, resolve it once, in the composition root, highest first:
   a flag on the command line, then an environment variable, then a config file, then
   the shipped default (`Tuning::default()` in the sample). Hand core the result as a

@@ -24,6 +24,8 @@ pub struct BoardTuning {
     pub body_max_chars: usize,
     /// Character limit asked of the model in its instructions.
     pub asked_max_chars: usize,
+    /// Maximum Unicode scalar values accepted by the screen's input line.
+    pub screen_input_max_chars: usize,
 }
 
 impl Default for BoardTuning {
@@ -34,6 +36,7 @@ impl Default for BoardTuning {
             max_posts: 200,
             body_max_chars: 120,
             asked_max_chars: 80,
+            screen_input_max_chars: 400,
         }
     }
 }

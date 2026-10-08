@@ -2,10 +2,10 @@
 name: building-tuis
 description: >
   Covers the full-screen terminal UI behind bunshin tui: the screen's model and update in
-  bunshin-core (a ...Screen value, a ShellAction per user intent, a ShellKey that names
-  no terminal library, update(self, action) returning the next screen), the
+  bunshin-core (a ...Screen value, a ScreenAction per user intent, a ScreenKey that names
+  no terminal library), the
   binary's crates/bunshin/src/tui/ (mod.rs enters raw mode and the alternate screen, runs
-  the event loop, translates crossterm KeyEvent into ShellKey, and restores the
+  the event loop, translates crossterm KeyEvent into ScreenKey, and restores the
   terminal on exit, on an error, and from a panic hook; view.rs draws with ratatui
   widgets and Style, words from wording.rs, a help line built from core's key table),
   testing the view with ratatui's TestBackend (assert_buffer_lines, assert_buffer with
@@ -31,11 +31,11 @@ test reaches, because the one part no check runs is the loop that owns a real te
 
 ## What lives where
 
-| Piece | Where | In the shell |
+| Piece | Where | In this app |
 |---|---|---|
-| The screen's state, and what an action does to it | core, a `…Screen` type | `ShellScreen` in `crates/bunshin-core/src/shell.rs` |
-| The user's intents, and the keys bound to each | core, an action enum with its key table | `ShellAction` with `keys()`, `for_key`, and `ALL` |
-| A key as the screen sees it | core, an enum that names no terminal library | `ShellKey::{Char, Interrupt}` |
+| The screen's state and input handling | core, a `…Screen` type | `BoardScreen` in `crates/bunshin-core/src/screen/board_screen.rs` |
+| The user's intents and their key bindings | core, an action enum and key table | `ScreenAction` and `KEY_TABLE` in `crates/bunshin-core/src/screen/keys.rs` |
+| A key as the screen sees it | core, an enum that names no terminal library | `ScreenKey` |
 | Entering, reading events, translating keys, leaving | the binary, `crates/bunshin/src/tui/mod.rs` | `run`, `enter`, `leave`, `install_panic_hook`, `event_loop`, `screen_key` |
 | Drawing one state | the binary, `crates/bunshin/src/tui/view.rs` | `draw(frame, screen)` |
 
@@ -43,16 +43,14 @@ test reaches, because the one part no check runs is the loop that owns a real te
   in `AGENTS.md` › "Architecture" name OS and GUI crates, not these), so review holds
   the line: with a key type of core's own, the whole state machine is tested inside the
   coverage floor with plain values, and a second front end could drive the same screen.
-- A screen's `update` takes `self` and returns the next screen: success shows the new
-  view and clears the error; failure keeps the last view and holds the error; quitting
-  only marks it finished. In the shell, `ShellScreen::update(self, action)`
-  marks the shell finished on its quit action.
-- The key table is data in core, and the help line is built from it
-  (`ShellAction::ALL` and `keys()`), so the line on screen cannot drift from what the
-  keys do. Every action has a key and is named on screen: nothing is reachable only by
-  a mouse or a hidden chord.
+- `BoardScreen::update(&mut self, key, now)` applies a translated key and clock sample
+  to the current screen. Model requests and completions are handled separately through
+  `prepare_turn` and `finish_turn`.
+- The key table is data in core, and the on-screen hints are built from it
+  (`KEY_TABLE`), so the hints cannot drift from what the keys do. Every action has a
+  key and is named on screen: nothing is reachable only by a mouse or a hidden chord.
 - Control-C arrives as a key in raw mode, not as a signal, so it must map to quit
-  (`ShellKey::Interrupt`); otherwise the user cannot leave.
+  (`ScreenKey::Interrupt`); otherwise the user cannot leave.
 
 ## The terminal's lifecycle
 
@@ -81,10 +79,9 @@ repeats never acts twice on one key. ratatui reaches crossterm only as
 `ratatui::crossterm`, so the two never disagree on a version; the API is ratatui's
 (<https://docs.rs/ratatui/latest/ratatui/>).
 
-A timer, a tick, or watching a file for another process's change is not in the shell.
-Add it as an action the loop produces (a tick becomes a `ShellAction`), with the time
-handed to core as a value; core still never sleeps or reads the clock
-(`designing-core-logic`).
+The board loop polls its model worker and asks core for the next request when the worker
+is free. Time arrives through `Clock` as a value; core still never sleeps or reads the
+clock (`designing-core-logic`).
 
 ## Drawing
 
@@ -104,10 +101,10 @@ handed to core as a value; core still never sleeps or reads the clock
 
 ## Testing without a terminal
 
-| Question | Test | In the shell |
+| Question | Test | In this app |
 |---|---|---|
-| What an action does to the screen | core tests over the fakes, keys and actions as values | `crates/bunshin-core/src/shell.rs`'s unit tests |
-| Which key event becomes which `ShellKey` | unit tests of the translation, `KeyEvent` built with `KeyEvent::new_with_kind` | `tui/mod.rs`'s tests |
+| What a key does to the screen | core tests over keys as values | `crates/bunshin-core/src/screen/board_screen.rs`'s tests |
+| Which key event becomes which `ScreenKey` | unit tests of the translation, `KeyEvent` built with `KeyEvent::new_with_kind` | `tui/mod.rs`'s tests |
 | What a state looks like | `draw` into ratatui's `TestBackend` and compare the buffer | `tui/view.rs`'s tests |
 
 - `Terminal::new(TestBackend::new(width, height))` and `terminal.draw(|frame| draw(frame,

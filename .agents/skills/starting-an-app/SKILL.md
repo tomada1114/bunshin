@@ -69,8 +69,8 @@ who works beside the tool. Decide before the first feature which the
 app needs, and write it into the Product section's core interaction:
 
 - **Subcommands only**, for a tool that is scripted or scheduled: remove the `tui`
-  subcommand, `crates/bunshin/src/tui/`, and core's screen types (`ShellScreen`,
-  `ShellAction`, `ShellKey`), drop `ratatui` from `crates/bunshin/Cargo.toml`, and,
+  subcommand, `crates/bunshin/src/tui/`, and core's screen types (`BoardScreen`,
+  `ScreenAction`, `ScreenKey`), drop `ratatui` from `crates/bunshin/Cargo.toml`, and,
   since no other member uses it, its entry in the root `Cargo.toml`'s
   `[workspace.dependencies]` (crossterm has no entry of its own: the binary reaches it
   as `ratatui::crossterm`). `mise exec -- cargo shear` confirms nothing is left unused
@@ -87,13 +87,10 @@ recorded decision too (below).
 
 ## Decide where it keeps state
 
-The planned day storage keeps `days/YYYY-MM-DD.json` where each system expects an app's data:
-`~/Library/Application Support/<bundle identifier>/` on macOS and
-`$XDG_DATA_HOME/<slug>/` on Linux (`crates/bunshin-platform/src/paths.rs`), with logs
-beside them. The bundle identifier and the slug the bootstrap set key those
-directories, so they are fixed once the tool has run anywhere a user's data lives.
-Decide the app's own files — where, in what format, with what version field — as soon
-as it keeps state of its own, and record it as a decision. A privacy (TCC) permission the
+The current board stores no board data. Earlier data directories may remain on disk, but
+the app neither reads nor deletes them. If a future feature adds persistence, decide the
+app's own files — where, in what format, with what version field — before it keeps state,
+and record that choice. A privacy (TCC) permission the
 tool will need on macOS is decided here too, each its own recorded decision
 (`integrating-system-apis`).
 
@@ -108,9 +105,9 @@ the date it was checked.
 
 ## Keep guidance current
 
-The template examples have been removed. The domain foundation in
-`docs/getting-started.md` shows the remaining day model, clock contract, and empty
-shell. When replacing an illustration, keep its governing rule, rewrite code samples
+The template examples have been removed. `docs/getting-started.md` is maintained with
+the product documentation; check its examples against the current requirements and
+APIs before using them as a model. When replacing an illustration, keep its governing rule, rewrite code samples
 against existing APIs, and run `just agents-sync`. Keep real domain code covered by
 the existing floors. Preserve general logging, path conventions, exit codes, and
 terminal enter, leave, and panic-hook behavior.

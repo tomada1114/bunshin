@@ -55,7 +55,7 @@ and `disallowed-types` (run by `just lint`). The judgment is what to do instead:
 | Another process | a port whose adapter runs it | `std::process::Command` |
 | To stop the process | an `Err` the binary turns into wording and an exit code | `std::process::exit`, `std::process::abort` |
 | Randomness | a seed or an already-drawn value as an argument, like time | a random-number crate in core (a new dependency) |
-| "Today", a formatted date or number, any sentence | core computes `logical_date` from a supplied local time and boundary and returns civil dates, `UnixMillis`, numbers, and variants; the binary formats them for its stdout or its screen (`crates/bunshin/src/wording.rs`, `tui/view.rs`) | a formatted string from core |
+| A displayed wall time | `Clock::now` and `Clock::local_at` supply `Now` and `UnixMillis`; the binary formats local times for the header and board posts | a formatted timestamp from core |
 | To log | nothing: core has no `tracing` dependency, so it returns what happened and the binary logs it; adding one is a dependency decision (`managing-dependencies`) | `print!`, `println!`, `eprint!`, `eprintln!`, `dbg!`, `std::io::stdout`, `std::io::stderr` |
 
 clippy enforces the `std` and `jiff` paths and macros named in the last column in core's library
@@ -101,16 +101,16 @@ reading the clock is banned, not representing time.
   is a field of one `Tuning` struct, never a literal in a method body. It derives
   `Debug, Clone, Copy, PartialEq, Eq`, implements `Default` with the shipped values,
   and each field's `///` says why it has that value.
-- The binary builds it and passes it in, so a test passes a tiny one to reach a
-  boundary in one step. `Tuning` lives in `crates/bunshin-core/src/tuning.rs`; tests override
-  `DayTuning` fields to reach a boundary quickly.
+- The binary builds it and passes it in, so a test passes a small value to reach a
+  boundary in one step. `Tuning` lives in `crates/bunshin-core/src/tuning.rs`; board tests
+  override `BoardTuning` fields to reach a post interval or limit quickly.
 - When fields only make sense together, keep them private and let a constructor refuse
   an inconsistent set with a typed error.
 - A domain invariant is not a tunable. Ask: would changing it be a product tweak
   (`Tuning`) or change what the type means (a constant or a parameter of the type)?
-- A value from outside is never trusted to be well formed: code that receives stored
-  data or a user's input handles an inconsistent one without panicking. Day file loading
-  validates task invariants before returning a `Day`.
+- A value from outside is never trusted to be well formed: code that receives a user's
+  input handles an inconsistent one without panicking. Board input and model responses
+  are validated before they change the in-memory board.
 - When a second feature needs tunables, give `Tuning` one nested struct per feature and
   keep one root type, so there is one place to look.
 
@@ -131,22 +131,15 @@ reading the clock is banned, not representing time.
 
 ## What leaves core: views and screens
 
-- A front end receives one `…View` struct per model: the data it shows, in plain
-  numbers, strings, `Option`s, and `UnixMillis`, never wording and never an internal
-  type. A subcommand prints it and a TUI frame draws it, so both front ends show the
-  same facts from one value. `day::TaskView` supplies the display facts independently of the day
-  file DTO.
-- A TUI's state is a core value too: a `…Screen` holding the last view, the last
-  error, and whether the user asked to leave, with an `update(self, action, &service)`
-  that returns the next one, and an action enum with its key table. In the shell,
-  `ShellScreen`, `ShellAction`, and `ShellKey` in
-  `crates/bunshin-core/src/shell.rs`. **REQUIRED:** `building-tuis` before
-  adding one.
-- What goes to disk is its own type (such as `day::file::DayFile`), separate from the
-  view, so the file format and the output can change independently. A view that a
-  `--json` flag prints derives `Serialize` with `#[serde(rename_all = "camelCase")]`,
-  and then its JSON is contract as the file format is (`docs/architecture.md` › "What
-  is contract and what is private").
+- A front end receives the plain values it shows from core, never wording and never an
+  internal type. The current TUI draws the board and input state from `screen::BoardScreen`.
+- A TUI's state is a core value too. `BoardScreen` owns the board, input, viewport, and
+  turn state; it accepts `ScreenKey` values and uses the key table's `ScreenAction`s.
+  Model requests and completions cross the port separately. **REQUIRED:**
+  `building-tuis` before adding or changing a screen.
+- The board is in memory only; it has no persistence port or on-disk format. If a future
+  feature adds persistence, give its stored value a separate type and record the format
+  decision (`deciding-architecture`).
 - Input arrives already typed: the binary parses arguments with clap and keys into
   core's own enum, so core takes enums rather than strings for closed sets.
 - A failure leaves as a variant, never a sentence (`designing-errors`).

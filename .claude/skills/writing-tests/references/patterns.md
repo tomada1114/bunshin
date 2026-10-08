@@ -5,9 +5,9 @@ when replacing its illustration; use the cheapest seam that can fail for the beh
 
 ## State transitions and error paths
 
-Construct a valid `day::Day`, apply a task change, and assert the resulting task view
-against literal values. For a rejected title, match `DayError` rather than its display
-text, and assert the day is unchanged. The fixture and the expected answer must not
+Construct a `board::Board`, add an owner post, finish a selected turn, and assert the
+resulting post against literal values. For a malformed model answer, assert the typed
+failure and that the board has no new post. The fixture and expected answer must not
 call the implementation's private helpers.
 
 ## Injected time
@@ -20,14 +20,13 @@ assert_eq!(clock.now().instant, UnixMillis(12));
 ```
 
 Read time through `Clock`, never sleep. `FixedClock` also permits a fixed UTC offset so
-civil-day tests do not depend on the host zone. Expected logical dates are literal
-calendar values, including the instant before and at the boundary.
+display-time tests do not depend on the host zone. Expected times are literal values.
 
 ## Tables and boundaries
 
 Pair each input with a literal expected answer; do not recreate the implementation's
-formula. Title limits need empty, at-limit, and over-limit cases. Task budgets include
-delete and undo, since neither replenishes the creation budget.
+formula. Owner input limits need empty, at-limit, and over-limit cases. Board history
+limits include repeated posts, since the oldest post is dropped at capacity.
 
 ## One shared contract
 
@@ -41,10 +40,10 @@ and real adapter must satisfy every promise in its documentation.
 
 ## Screen sequences and drawing
 
-Feed `ShellKey` values through `ShellAction::for_key`, then update `ShellScreen` and
-assert the finished state. Unbound keys yield no action. Draw the screen into a
-`Terminal<TestBackend>` and assert literal lines (and styles when meaningful), never
-run the real terminal loop in a test. Include a small frame to verify clipping.
+Feed `ScreenKey` values to `screen::BoardScreen::update` and assert its board or finished
+state. Unbound keys have no effect. Draw the screen into a `Terminal<TestBackend>` and
+assert literal lines (and styles when meaningful), never run the real terminal loop in a
+test. Include a small frame to verify clipping.
 
 ## Built binary and wording
 

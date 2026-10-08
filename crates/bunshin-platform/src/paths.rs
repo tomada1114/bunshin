@@ -9,18 +9,6 @@ pub const BUNDLE_IDENTIFIER: &str = "io.github.tomada1114.bunshin";
 /// with the slug, and the justfile's `log_dir` uses the same name.
 pub const XDG_APP_NAME: &str = "bunshin";
 
-/// Whole-day JSON files under the resolved application data directory.
-#[must_use]
-pub fn days_dir(data: &Path) -> PathBuf {
-    data.join("days")
-}
-
-/// The single writer's lifetime lock under the application data directory.
-#[must_use]
-pub fn lock_file(data: &Path) -> PathBuf {
-    data.join("tui.lock")
-}
-
 /// The user's home directory, from `HOME`. Tests point `HOME` at a temporary directory,
 /// so nothing they run touches the real home directory.
 #[must_use]
@@ -30,7 +18,8 @@ pub fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// `~/Library/Application Support/<identifier>`: the data directory on macOS.
+/// `~/Library/Application Support/<identifier>`: the legacy data path on macOS.
+/// The current binary leaves this directory untouched.
 #[must_use]
 pub fn macos_data_dir(home: &Path) -> PathBuf {
     home.join("Library")
@@ -56,8 +45,8 @@ fn xdg_base(home: &Path, value: Option<&OsStr>, default: &str) -> PathBuf {
         .map_or_else(|| home.join(default), Path::to_path_buf)
 }
 
-/// `$XDG_DATA_HOME/<name>` (default `~/.local/share/<name>`): the data directory on
-/// Linux, given the value of `XDG_DATA_HOME`.
+/// `$XDG_DATA_HOME/<name>` (default `~/.local/share/<name>`): the legacy data path on
+/// Linux, given the value of `XDG_DATA_HOME`. The current binary leaves it untouched.
 #[must_use]
 pub fn xdg_data_dir(home: &Path, xdg_data_home: Option<&OsStr>) -> PathBuf {
     xdg_base(home, xdg_data_home, ".local/share").join(XDG_APP_NAME)
@@ -72,8 +61,9 @@ pub fn xdg_log_dir(home: &Path, xdg_state_home: Option<&OsStr>) -> PathBuf {
         .join("logs")
 }
 
-/// Where the binary keeps its data: [`macos_data_dir`] on macOS, [`xdg_data_dir`]
-/// elsewhere (reading `XDG_DATA_HOME`).
+/// The previous version's data path: [`macos_data_dir`] on macOS, [`xdg_data_dir`]
+/// elsewhere (reading `XDG_DATA_HOME`). Current commands do not read or write it; the
+/// compatibility tests use it to verify earlier files remain untouched.
 #[must_use]
 pub fn app_data_dir(home: &Path) -> PathBuf {
     if cfg!(target_os = "macos") {

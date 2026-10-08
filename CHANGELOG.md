@@ -86,6 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** Removed check-ins, day rhythm, the inbox, task form, key-driven task
   editing, and the instructions feature. The `today` and `instructions` subcommands
   are gone; the data directory's `instructions.md` file is no longer read or modified.
+- **Breaking:** removed the obsolete day model, file store, writer lock, and chat prompt
+  APIs. Existing day data files are left untouched and ignored.
 
 ### Changed
 

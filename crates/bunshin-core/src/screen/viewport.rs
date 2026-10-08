@@ -99,3 +99,88 @@ impl BoardViewport {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{UnixMillis, board::Author};
+
+    fn posts(ids: &[u64]) -> Vec<Post> {
+        ids.iter()
+            .map(|id| Post {
+                id: PostId(*id),
+                author: Author::Owner,
+                body: format!("post {id}"),
+                at: UnixMillis(i64::try_from(*id).unwrap_or_default()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn scrolling_tracks_unseen_posts_and_clamps_to_the_available_rows() {
+        let initial = posts(&[1, 2, 3]);
+        let mut viewport = BoardViewport::default();
+
+        assert!(viewport.follows_latest());
+        assert_eq!(viewport.new_post_count(&initial), 0);
+        assert_eq!(viewport.first_unseen_post(&initial), None);
+
+        viewport.record_layout(12, 4);
+        assert_eq!(viewport.top(), 8);
+        viewport.scroll_up(&initial);
+        assert_eq!(viewport.top(), 7);
+        assert!(!viewport.follows_latest());
+
+        viewport.follow_latest();
+        assert_eq!(viewport.top(), 8);
+        assert!(viewport.follows_latest());
+        viewport.scroll_up(&initial);
+
+        let appended = posts(&[1, 2, 3, 4, 5]);
+        assert_eq!(viewport.new_post_count(&appended), 2);
+        assert_eq!(viewport.first_unseen_post(&appended), Some(3));
+
+        viewport.record_layout(20, 4);
+        assert_eq!(viewport.top(), 7);
+        viewport.record_layout(10, 4);
+        assert_eq!(viewport.top(), 6);
+
+        viewport.scroll_up(&appended);
+        assert_eq!(viewport.top(), 5);
+        viewport.scroll_page_up(&appended);
+        assert_eq!(viewport.top(), 1);
+        viewport.scroll_page_up(&appended);
+        assert_eq!(viewport.top(), 0);
+        viewport.scroll_up(&appended);
+        assert_eq!(viewport.top(), 0);
+
+        viewport.scroll_down(&appended);
+        assert_eq!(viewport.top(), 1);
+        viewport.scroll_page_down(&appended);
+        assert_eq!(viewport.top(), 5);
+        viewport.scroll_page_down(&appended);
+        assert_eq!(viewport.top(), 6);
+        assert!(viewport.follows_latest());
+        assert_eq!(viewport.new_post_count(&appended), 0);
+        assert_eq!(viewport.first_unseen_post(&appended), None);
+
+        viewport.record_layout(2, 5);
+        assert_eq!(viewport.top(), 0);
+    }
+
+    #[test]
+    fn scrolling_before_any_post_treats_the_existing_posts_as_unseen() {
+        let appended = posts(&[1, 2]);
+        let mut viewport = BoardViewport::default();
+
+        viewport.record_layout(3, 1);
+        viewport.scroll_up(&[]);
+
+        assert_eq!(viewport.new_post_count(&appended), 2);
+        assert_eq!(viewport.first_unseen_post(&appended), Some(0));
+
+        viewport.scroll_down(&appended);
+        assert!(viewport.follows_latest());
+        assert_eq!(viewport.new_post_count(&appended), 0);
+    }
+}
