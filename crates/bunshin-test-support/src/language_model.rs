@@ -111,17 +111,12 @@ impl LanguageModel for ScriptedLanguageModel {
     }
 }
 /// Every model honours cancellation before entry. An available fixture must answer
-/// a harmless JSON-object request; unavailable fixtures return the matching kind.
+/// a harmless request with nonblank text; unavailable fixtures return the matching kind.
 ///
 /// # Panics
 /// When an implementation violates these promises.
 pub fn language_model_contract(mut make: impl FnMut() -> Box<dyn LanguageModel>) {
-    let request = ModelRequest::new(
-        "Reply with a JSON object.",
-        "Return an empty JSON object.",
-        r#"{"type":"object","title":"Empty","properties":{},"additionalProperties":false,"x-order":[],"required":[]}"#,
-        Tuning::default(),
-    );
+    let request = ModelRequest::new("Answer in one short word.", "Say hello.", Tuning::default());
     let model = make();
     let cancelled = CancelFlag::default();
     cancelled.cancel();
@@ -139,14 +134,9 @@ pub fn language_model_contract(mut make: impl FnMut() -> Box<dyn LanguageModel>)
     );
     match model.availability() {
         Ok(Availability::Available) => match model.respond(&request, &CancelFlag::default()) {
-            Ok(answer) => assert_eq!(
-                answer
-                    .json
-                    .chars()
-                    .filter(|c| !c.is_whitespace())
-                    .collect::<String>(),
-                "{}",
-                "the empty-object schema must produce an empty JSON object"
+            Ok(answer) => assert!(
+                !answer.text.trim().is_empty(),
+                "an available model must answer with nonblank text"
             ),
             Err(error) => panic!("contract response failed: {error:?}"),
         },

@@ -124,12 +124,7 @@ mod tests {
     fn request(id: u64) -> BoardRequest {
         BoardRequest {
             id,
-            request: ModelRequest::new(
-                "private instructions",
-                "private prompt",
-                "{}",
-                Tuning::default(),
-            ),
+            request: ModelRequest::new("private instructions", "private prompt", Tuning::default()),
         }
     }
 
@@ -157,7 +152,7 @@ mod tests {
     fn worker_keeps_one_request_outstanding_and_sends_ordered_answers_back_as_data() {
         let model = Arc::new(ScriptedLanguageModel::new([
             Ok(ModelAnswer {
-                json: "first".into(),
+                text: "first".into(),
             }),
             Err(ModelError::Refused),
         ]));
@@ -174,7 +169,7 @@ mod tests {
                 assert_eq!(
                     result,
                     Ok(ModelAnswer {
-                        json: "first".into()
+                        text: "first".into()
                     })
                 );
             }

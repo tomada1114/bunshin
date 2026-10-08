@@ -20,7 +20,7 @@ fn new_screen(tuning: Tuning) -> BoardScreen {
 
 fn answer(body: &str) -> ModelAnswer {
     ModelAnswer {
-        json: format!(r#"{{"body":"{body}"}}"#),
+        text: body.to_owned(),
     }
 }
 
@@ -81,7 +81,7 @@ fn an_owner_post_is_visible_during_a_call_and_replaces_its_pending_target() {
     let reply = screen
         .prepare_turn(clock.now())
         .expect("owner reply is immediate");
-    assert!(reply.request.prompt.contains("あなた: カレー好き"));
+    assert!(reply.request.prompt.contains("ユーザー: カレー好き"));
 }
 
 #[test]

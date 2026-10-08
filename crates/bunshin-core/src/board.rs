@@ -6,10 +6,56 @@ use serde::Deserialize;
 
 use crate::{ModelAnswer, ModelError, ModelRequest, Tuning, UnixMillis};
 
-const POST_SCHEMA: &str = r#"{"type":"object","properties":{"body":{"type":"string"}},"required":["body"],"additionalProperties":false,"title":"Post","x-order":["body"]}"#;
 const ZERO_SEED: u64 = 0x9e37_79b9_7f4a_7c15;
-const TOPIC_DEPTHS: [TopicDepth; 3] = [TopicDepth::Casual, TopicDepth::Deeper, TopicDepth::Expert];
-const TOPIC_MOODS: [TopicMood; 3] = [TopicMood::Relaxed, TopicMood::Excited, TopicMood::Debatable];
+/// The owner's name in model prompts. あなた is the display name, but in a prompt
+/// that also says "あなたは…" the model reads it as itself and ignores the owner.
+const OWNER_PROMPT_NAME: &str = "ユーザー";
+/// How many recent New topic subjects a new draw avoids.
+const RECENT_TOPICS: usize = 8;
+/// Markers after which a model body is leftover structure rather than prose.
+const BODY_CUT_MARKERS: [&str; 5] = ["```", "<|", "<<", "{", "}"];
+const TOPICS: [&str; 40] = [
+    "コンビニの新作スイーツ",
+    "休日の朝ごはん",
+    "最近ハマってるゲーム",
+    "スタバの期間限定ドリンク",
+    "最近見て面白かったドラマやアニメ",
+    "推しのお菓子",
+    "カップ麺の最強の食べ方",
+    "行ってみたい旅行先",
+    "雨の日の過ごし方",
+    "最近買ってよかったもの",
+    "朝型か夜型か",
+    "好きなおにぎりの具",
+    "スマホの便利なアプリ",
+    "最近聴いてる音楽",
+    "子どもの頃に好きだった遊び",
+    "地元の名物",
+    "ラーメンは何味派か",
+    "寝る前のルーティン",
+    "猫派か犬派か",
+    "ちょっとした贅沢",
+    "冬に食べたくなるもの",
+    "休日に行きたいカフェ",
+    "最近の小さなラッキー",
+    "部屋に置きたいもの",
+    "好きなパンの種類",
+    "100円ショップの掘り出し物",
+    "家でできる気分転換",
+    "サウナや温泉",
+    "最近覚えた料理",
+    "好きな季節とその理由",
+    "ついやってしまう癖",
+    "おすすめの散歩コース",
+    "目玉焼きに何をかけるか",
+    "買ってよかったキッチングッズ",
+    "最近笑ったこと",
+    "コンビニのホットスナック",
+    "好きなアイス",
+    "週末にやりたいこと",
+    "最近ちょっと面倒だったこと",
+    "映画館で食べたいもの",
+];
 
 /// Fixed starting values for the board's scheduling and display bounds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,10 +78,10 @@ impl Default for BoardTuning {
     fn default() -> Self {
         Self {
             post_interval: Duration::from_secs(30),
-            context_posts: 12,
+            context_posts: 8,
             max_posts: 200,
             body_max_chars: 120,
-            asked_max_chars: 80,
+            asked_max_chars: 60,
             screen_input_max_chars: 400,
         }
     }
@@ -109,13 +155,13 @@ impl Speaker {
     const fn persona(self) -> &'static str {
         match self {
             Self::Haru => {
-                "楽観的で好奇心旺盛。話題を始めるのが好きで、「〜じゃない？」「やばい！」のようなくだけた口調。"
+                "楽観的で好奇心旺盛。話題を振るのが好きで、「〜じゃない？」「やばい！」のようなくだけた口調。"
             }
             Self::Shizuku => {
-                "慎重で心配性。前提を問い直し、「でもそれって…」のような丁寧さの混じる口調。"
+                "現実的なツッコミ役だけど明るい。「いやそれ〜でしょ笑」「わかる、でも〜」のような口調。"
             }
             Self::Gen => {
-                "博識で落ち着いており、話をまとめる。「〜だな」「なあ」のような穏やかな口調。"
+                "雑学好きのおっちゃん。豆知識をひとこと添える。「〜なんだよな」「なあ」のような穏やかな口調。"
             }
         }
     }
@@ -139,6 +185,13 @@ impl Author {
             Self::Character(speaker) => speaker.name(),
         }
     }
+
+    const fn prompt_name(self) -> &'static str {
+        match self {
+            Self::Owner => OWNER_PROMPT_NAME,
+            Self::Character(speaker) => speaker.name(),
+        }
+    }
 }
 
 /// Stable identity for one post during the current process.
@@ -158,126 +211,18 @@ pub struct Post {
     pub at: UnixMillis,
 }
 
-/// The twelve fixed categories that can seed a new topic.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TopicCategory {
-    /// Travel.
-    Travel,
-    /// Information technology and technology.
-    Technology,
-    /// Economics and money.
-    Economics,
-    /// Food and cooking.
-    Food,
-    /// Movies and television dramas.
-    Movies,
-    /// Music.
-    Music,
-    /// Sports.
-    Sports,
-    /// Science.
-    Science,
-    /// History.
-    History,
-    /// Health and everyday life.
-    Health,
-    /// Work and careers.
-    Career,
-    /// Hobbies and play.
-    Hobbies,
-}
-
-impl TopicCategory {
-    const ALL: [Self; 12] = [
-        Self::Travel,
-        Self::Technology,
-        Self::Economics,
-        Self::Food,
-        Self::Movies,
-        Self::Music,
-        Self::Sports,
-        Self::Science,
-        Self::History,
-        Self::Health,
-        Self::Career,
-        Self::Hobbies,
-    ];
-
-    /// The fixed Japanese label used in a topic prompt.
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Travel => "旅行",
-            Self::Technology => "IT・テクノロジー",
-            Self::Economics => "経済・お金",
-            Self::Food => "食べ物・料理",
-            Self::Movies => "映画・ドラマ",
-            Self::Music => "音楽",
-            Self::Sports => "スポーツ",
-            Self::Science => "科学",
-            Self::History => "歴史",
-            Self::Health => "健康・暮らし",
-            Self::Career => "仕事・キャリア",
-            Self::Hobbies => "趣味・遊び",
-        }
-    }
-}
-
-/// How deeply a new topic should be explored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TopicDepth {
-    /// A light conversation.
-    Casual,
-    /// A little more depth.
-    Deeper,
-    /// A topic for someone familiar with it.
-    Expert,
-}
-
-impl TopicDepth {
-    /// The fixed Japanese label used in a topic prompt.
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Casual => "気軽な雑談",
-            Self::Deeper => "ちょっと掘り下げる",
-            Self::Expert => "詳しい人向け",
-        }
-    }
-}
-
-/// The fixed mood for a new topic.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TopicMood {
-    /// Relaxed.
-    Relaxed,
-    /// Excited.
-    Excited,
-    /// A little divisive.
-    Debatable,
-}
-
-impl TopicMood {
-    /// The fixed Japanese label used in a topic prompt.
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Relaxed => "のんびり",
-            Self::Excited => "盛り上がる",
-            Self::Debatable => "ちょっと意見が分かれる",
-        }
-    }
-}
-
-/// The fixed parameters selected for a new topic.
+/// One concrete, casual subject that seeds a new topic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Topic {
-    /// The selected subject area.
-    pub category: TopicCategory,
-    /// The desired discussion depth.
-    pub depth: TopicDepth,
-    /// The desired conversation mood.
-    pub mood: TopicMood,
+    /// The fixed Japanese subject named in the prompt.
+    pub subject: &'static str,
+}
+
+impl Topic {
+    /// Every subject a New topic can draw, fixed in code.
+    pub fn all() -> impl Iterator<Item = Self> {
+        TOPICS.into_iter().map(|subject| Self { subject })
+    }
 }
 
 /// What one selected character turn should do.
@@ -297,7 +242,7 @@ pub enum TurnKind {
     },
     /// Start a new topic for everyone.
     NewTopic {
-        /// The category, depth, and mood to use.
+        /// The subject to start talking about.
         topic: Topic,
     },
     /// Immediately answer a new owner post.
@@ -335,7 +280,7 @@ pub enum FailureKind {
     Cancelled,
     /// The model refused the request.
     Refused,
-    /// The response was not the required body object.
+    /// The model returned text that is not UTF-8.
     Malformed,
     /// The model adapter failed for another reason.
     Failed,
@@ -377,7 +322,7 @@ pub struct Board {
     in_flight: Option<u64>,
     generation: u64,
     last_attempt_finished: Option<UnixMillis>,
-    previous_topic_category: Option<TopicCategory>,
+    recent_topics: Vec<Topic>,
     owner_cycle: Option<OwnerCycle>,
 }
 
@@ -399,7 +344,7 @@ impl Board {
             in_flight: None,
             generation: 0,
             last_attempt_finished: None,
-            previous_topic_category: None,
+            recent_topics: Vec::new(),
             owner_cycle: None,
         }
     }
@@ -490,7 +435,7 @@ impl Board {
         Some(turn)
     }
 
-    /// Build one schema-backed model request for the active turn.
+    /// Build one plain-text model request for the active turn.
     #[must_use]
     pub fn request(&self, turn: &Turn, model_tuning: Tuning) -> Option<ModelRequest> {
         if self.in_flight != Some(turn.id) || self.generation != turn.generation {
@@ -498,24 +443,27 @@ impl Board {
         }
 
         let instructions = format!(
-            "あなたは{}として掲示板に参加します。{}\n日本語で投稿本文を一つ書いてください。本文は{}文字以内にし、名前を付けず、本文だけをJSONで返してください。",
+            "あなたは「{}」。気軽な雑談掲示板の常連です。性格: {}\nルール: 投稿本文だけを日本語で1〜2文、{}文字以内で書く。名前・かぎかっこ・記号・前置きは付けない。具体的な商品名や体験を入れる。政治やニュースの話はしない。前の投稿の言い回しをまねしない。",
             turn.speaker.name(),
             turn.speaker.persona(),
             self.tuning.asked_max_chars
         );
-        let mut prompt = self.context_prompt();
+        // A small model copies whatever the context dwells on, so a new topic starts
+        // without the old conversation.
+        let mut prompt = match turn.kind {
+            TurnKind::NewTopic { .. } => String::new(),
+            TurnKind::Reply { .. }
+            | TurnKind::ChimeIn { .. }
+            | TurnKind::OwnerReply { .. }
+            | TurnKind::OwnerReaction { .. } => self.context_prompt(),
+        };
         let instruction = self.turn_instruction(turn);
         if !prompt.is_empty() {
             prompt.push_str("\n\n");
         }
         prompt.push_str(&instruction);
 
-        Some(ModelRequest::new(
-            &instructions,
-            &prompt,
-            POST_SCHEMA,
-            model_tuning,
-        ))
+        Some(ModelRequest::new(&instructions, &prompt, model_tuning))
     }
 
     /// Finish one active model attempt and update the board or its failure state.
@@ -537,16 +485,10 @@ impl Board {
         self.advance_owner_cycle(turn);
 
         let body: String = match answer {
-            Ok(answer) => match serde_json::from_str::<PostAnswer>(&answer.json) {
-                Ok(parsed) if !parsed.body.trim().is_empty() => parsed
-                    .body
-                    .trim()
-                    .chars()
-                    .take(self.tuning.body_max_chars)
-                    .collect(),
-                Ok(_) => return Outcome::Failed(FailureKind::EmptyBody),
-                Err(_) => return Outcome::Failed(FailureKind::Malformed),
-            },
+            Ok(answer) => clean_body(&answer.text, turn.speaker)
+                .chars()
+                .take(self.tuning.body_max_chars)
+                .collect(),
             Err(error) => return Outcome::Failed(failure_kind(error)),
         };
         if body.is_empty() {
@@ -555,7 +497,10 @@ impl Board {
 
         let post = self.make_post(Author::Character(turn.speaker), body, now);
         if let TurnKind::NewTopic { topic } = turn.kind {
-            self.previous_topic_category = Some(topic.category);
+            if self.recent_topics.len() >= RECENT_TOPICS {
+                self.recent_topics.remove(0);
+            }
+            self.recent_topics.push(topic);
         }
         self.append(post.clone());
         Outcome::Posted(post)
@@ -699,36 +644,33 @@ impl Board {
             .collect()
     }
 
-    fn choose_topic(&mut self, rng: &mut Rng) -> Topic {
-        let categories = TopicCategory::ALL
-            .into_iter()
-            .filter(|category| Some(*category) != self.previous_topic_category)
+    fn choose_topic(&self, rng: &mut Rng) -> Topic {
+        let topics = Topic::all()
+            .filter(|topic| !self.recent_topics.contains(topic))
             .collect::<Vec<_>>();
-        let category = categories[rng.index(categories.len())];
-
-        Topic {
-            category,
-            depth: TOPIC_DEPTHS[rng.index(TOPIC_DEPTHS.len())],
-            mood: TOPIC_MOODS[rng.index(TOPIC_MOODS.len())],
-        }
+        topics[rng.index(topics.len())]
     }
 
     fn context_prompt(&self) -> String {
-        self.posts
+        let lines = self
+            .posts
             .iter()
             .rev()
             .take(self.tuning.context_posts)
             .rev()
-            .map(|post| format!("{}: {}", post.author.name(), post.body))
-            .collect::<Vec<_>>()
-            .join("\n")
+            .map(|post| format!("{}: {}", post.author.prompt_name(), post.body))
+            .collect::<Vec<_>>();
+        if lines.is_empty() {
+            return String::new();
+        }
+        format!("これまでの流れ:\n{}", lines.join("\n"))
     }
 
     fn turn_instruction(&self, turn: &Turn) -> String {
         match turn.kind {
             TurnKind::Reply { target } => {
                 let body = self.target_body(target, turn);
-                format!("直近の投稿に自然に返信してください。対象の投稿: {body}")
+                format!("直近の投稿に自然に返事してください。対象: {body}")
             }
             TurnKind::ChimeIn { older, latest } => {
                 let older_body = self.target_body(older, turn);
@@ -738,19 +680,19 @@ impl Board {
                 )
             }
             TurnKind::NewTopic { topic } => format!(
-                "全員に向けて新しい話題を始めてください。カテゴリ: {}、深さ: {}、雰囲気: {}。",
-                topic.category.label(),
-                topic.depth.label(),
-                topic.mood.label()
+                "みんなに向けて新しい話題を振ってください。お題: {}。自分の体験を一つ入れて、みんなが返しやすい問いかけで終える。",
+                topic.subject
             ),
             TurnKind::OwnerReply { target } => {
                 let body = self.target_body(target, turn);
-                format!("あなたの投稿に返信してください。対象の投稿: {body}")
+                format!(
+                    "{OWNER_PROMPT_NAME}が今こう書き込みました: 「{body}」\n{OWNER_PROMPT_NAME}の書き込みの内容にまっすぐ応えてください。話題を変えたいと言われたら、その話題に乗ってください。"
+                )
             }
             TurnKind::OwnerReaction { target } => {
                 let body = self.target_body(target, turn);
                 format!(
-                    "あなたの同じ投稿に、前の返事とは違う観点から反応してください。対象の投稿: {body}"
+                    "{OWNER_PROMPT_NAME}が少し前にこう書き込みました: 「{body}」\n前の返事とは違う角度から、{OWNER_PROMPT_NAME}の書き込みに反応してください。"
                 )
             }
         }
@@ -769,9 +711,55 @@ impl Board {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PostAnswer {
     body: String,
+}
+
+/// Turn the model's raw text into one display line. The model sometimes still wraps
+/// its answer as JSON, prefixes its name or quotes, or runs on into JSON or code
+/// fences after the sentence; each is removed rather than shown.
+fn clean_body(raw: &str, speaker: Speaker) -> String {
+    let raw = raw.trim();
+    let unwrapped = serde_json::from_str::<PostAnswer>(raw)
+        .map_or_else(|_| raw.to_owned(), |answer| answer.body);
+    let mut text = unwrapped.as_str();
+    if let Some(cut) = BODY_CUT_MARKERS
+        .iter()
+        .filter_map(|marker| text.find(marker))
+        .min()
+    {
+        text = &text[..cut];
+    }
+    let mut body = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    for prefix in [speaker.name(), OWNER_PROMPT_NAME] {
+        for separator in [":", "：", "「"] {
+            if let Some(rest) = body.strip_prefix(&format!("{prefix}{separator}")) {
+                body = rest.trim_start().to_owned();
+            }
+        }
+    }
+    let mut body = body.trim();
+    for (open, close) in [('「', '」'), ('『', '』'), ('"', '"')] {
+        if let Some(inner) = body
+            .strip_prefix(open)
+            .and_then(|rest| rest.strip_suffix(close))
+            && !inner.contains([open, close])
+        {
+            body = inner.trim();
+        }
+    }
+    // A cut at a stray brace often leaves the closing bracket of a quote that never opened.
+    for (open, close) in [('「', '」'), ('『', '』')] {
+        if body.ends_with(close) && body.matches(open).count() < body.matches(close).count() {
+            body = body[..body.len() - close.len_utf8()].trim_end();
+        }
+    }
+    body.to_owned()
 }
 
 fn failure_kind(error: ModelError) -> FailureKind {

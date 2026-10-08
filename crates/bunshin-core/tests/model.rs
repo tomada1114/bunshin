@@ -10,7 +10,6 @@ fn cancellation_does_not_consume_script() {
     let request = ModelRequest {
         instructions: "rules".into(),
         prompt: "hello".into(),
-        schema: "{}".into(),
         timeout: Duration::from_secs(1),
     };
     let cancel = CancelFlag::default();
@@ -43,12 +42,11 @@ fn scripted_model_replays_each_typed_error_and_success_in_order() {
         ModelError::Failed,
     ];
     let request_count = errors.len() + 1;
-    let answer = ModelAnswer { json: "{}".into() };
+    let answer = ModelAnswer { text: "{}".into() };
     let model = ScriptedLanguageModel::new(errors.into_iter().map(Err).chain([Ok(answer.clone())]));
     let request = ModelRequest {
         instructions: "private rules".into(),
         prompt: "private task".into(),
-        schema: "{}".into(),
         timeout: Duration::from_secs(1),
     };
     for error in errors {
@@ -65,7 +63,6 @@ fn unavailable_fake_preserves_script_and_records_no_request() {
     let request = ModelRequest {
         instructions: String::new(),
         prompt: String::new(),
-        schema: "{}".into(),
         timeout: Duration::ZERO,
     };
     for reason in [
@@ -109,11 +106,10 @@ fn cloned_cancel_flag_is_shared_and_model_debug_redacts_text() {
     let request = ModelRequest {
         instructions: "secret-instructions".into(),
         prompt: "secret-prompt".into(),
-        schema: "secret-schema".into(),
         timeout: Duration::ZERO,
     };
     let answer = ModelAnswer {
-        json: "secret-answer".into(),
+        text: "secret-answer".into(),
     };
     assert!(!format!("{request:?}").contains("secret"));
     assert!(!format!("{answer:?}").contains("secret"));
@@ -125,13 +121,12 @@ fn cloned_cancel_flag_is_shared_and_model_debug_redacts_text() {
 fn model_request_uses_the_root_timeout_default() {
     use bunshin_core::Tuning;
     assert_eq!(Tuning::default().model_timeout, Duration::from_secs(30));
-    let request = ModelRequest::new("rules", "prompt", "{}", Tuning::default());
+    let request = ModelRequest::new("rules", "prompt", Tuning::default());
     assert_eq!(
         request,
         ModelRequest {
             instructions: "rules".into(),
             prompt: "prompt".into(),
-            schema: "{}".into(),
             timeout: Duration::from_secs(30)
         }
     );
@@ -144,13 +139,12 @@ fn model_request_preserves_text_and_custom_timeout() {
         model_timeout: Duration::from_millis(75),
         ..Tuning::default()
     };
-    let request = ModelRequest::new("rules\n'", "prompt\n日本語", "{}\n", tuning);
+    let request = ModelRequest::new("rules\n'", "prompt\n日本語", tuning);
     assert_eq!(
         request,
         ModelRequest {
             instructions: "rules\n'".into(),
             prompt: "prompt\n日本語".into(),
-            schema: "{}\n".into(),
             timeout: Duration::from_millis(75)
         }
     );

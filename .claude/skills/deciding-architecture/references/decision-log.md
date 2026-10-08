@@ -318,3 +318,20 @@ why), and **Sources** where an external fact carried weight.
 - **Rejected:** continuing to write format 2 — its reader requires retryingTriggers,
   which the reduced model no longer writes, so the same version would describe two
   incompatible schemas.
+
+### 2026-10-07 — One plain-text call per post
+
+- **Revises:** 2026-10-07, One schema-constrained call per post.
+
+- **Decided:** each character post is one `fm respond --no-stream --instructions` call
+  with no `--schema`. `ModelRequest` carries no schema and `ModelAnswer` carries the raw
+  UTF-8 `text`; `ModelError::Malformed` now means output that is not UTF-8. Core cleans
+  the text into a body. The context is the latest 8† posts, and a New topic carries none.
+- **Rejected:** keeping the inline schema — most local runs ran to the model's context
+  limit (past the 30 s timeout) and the rest leaked `」}`, code fences, or control markers
+  into the body; passing the schema as a file — the same runaway with and without
+  greedy sampling; keeping the schema and only cleaning bodies — the timeouts remain.
+- **Sources:** local runs on macOS 27 (`fm respond`, 2026-10-07): inline schema 2 of 3
+  runs failed with "The session's transcript exceeded the model's context size" after
+  about 95 s; a schema file failed 2 of 3, greedy 2 of 2; plain text answered in 2–3 s
+  every time. `fm respond --help` documents `--schema <file>` as a path.

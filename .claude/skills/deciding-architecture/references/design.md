@@ -44,7 +44,7 @@ single worker thread.
 
 The board needs no new crate. Its seeded xorshift generator is a few lines in core; the
 random choice is reproducible without a random-number dependency. Existing JSON support
-parses the schema-constrained model response.
+in core unwraps a body the model still writes as a JSON object.
 
 ## Data
 
@@ -55,11 +55,14 @@ board app writes.
 ## Model call
 
 One character post uses one `fm respond` call through `LanguageModel`. Core chooses the
-speaker and task first; the model receives that speaker's persona, the board rules, the
-latest 12† posts, and the task. Its schema has one string field, `body`. The response is
-trimmed; an empty body fails, and displayed text is cut to 120† characters. The
-instruction asks for at most 80 characters. Calls use the existing 30-second timeout.
-The owner observed a real schema-constrained reply with `bunshin tui`, 2026-10-07.
+speaker and task first; the model receives that speaker's persona, the casual-board
+rules, the latest 8† posts (none for a New topic), and the task. The owner is named
+ユーザー in prompts so the model never confuses them with the "あなた" it is told to
+play. The call asks for plain text, with no schema; `LanguageModel` returns the raw
+UTF-8 text, and core cleans it (unwraps a JSON body, cuts leftover JSON, code fences,
+and control markers, removes a name prefix and wrapping quotes). An empty body fails,
+and displayed text is cut to 120† characters. The instruction asks for at most 60†
+characters. Calls use the existing 30-second timeout.
 
 ## Main flows
 
