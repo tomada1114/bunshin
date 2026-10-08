@@ -39,7 +39,7 @@ just test-core      # core: nextest under llvm-cov (lines 80, functions 80), doc
                     #   and the other Linux-buildable crates' tests
 just test-xtask     # xtask's tests under llvm-cov (lines 85, functions 90; the staged
                     #   guard's rules in xtask/guard/ lines 90, functions 100)
-just test-fast logical_date   # one core test or a group of them, no coverage
+just test-fast board        # one core test or a group of them, no coverage
 just test-platform  # platform adapters and the CLI against the real OS (macOS or Linux)
 just test-scripts   # the skills' bundled Python tests and shellcheck (no floor)
 just check-harness  # the harness's checks about itself (cargo xtask check-harness)

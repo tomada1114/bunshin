@@ -35,7 +35,7 @@ The first `cargo` command installs the Rust toolchain `rust-toolchain.toml` pins
 ```bash
 just check       # the full local gate, in CI's order; takes over no terminal
 just test        # core and xtask, with their coverage floors
-just test-fast logical_date   # one core test or a group of them
+just test-fast board        # one core test or a group of them
 just lint        # rustfmt, clippy -D warnings
 just fmt         # format everything
 ```

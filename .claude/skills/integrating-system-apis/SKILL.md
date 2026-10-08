@@ -53,17 +53,20 @@ in CI's `Rust Core` (Linux) and `macOS` jobs.
 | Adapter or function | macOS | Linux |
 |---|---|---|
 | `SystemClock`, `init_logging` | yes | yes |
-| `app_data_dir` | `~/Library/Application Support/<bundle id>` | `$XDG_DATA_HOME/bunshin`, default `~/.local/share/bunshin` |
 | `log_dir` | `~/Library/Logs/<bundle id>` | `$XDG_STATE_HOME/bunshin/logs`, default `~/.local/state/bunshin/logs` |
 
 The Linux paths follow the XDG Base Directory Specification
 (<https://specifications.freedesktop.org/basedir-spec/latest/>, checked 2026-10-01): an
 unset, empty, or relative variable takes the default.
 
-- **Map in a pure function, select by `cfg`.** Each mapping is a pure function of its
-  inputs, unit-tested on any host (`macos_log_dir`, `xdg_log_dir`, and their
-  data-directory pairs); only the selection is `cfg!(target_os = "macos")`
-  (`app_data_dir`, `log_dir`). The same split works for anything that differs per OS:
+The older `app_data_dir` path (`~/Library/Application Support/<bundle id>` on macOS,
+`$XDG_DATA_HOME/bunshin` on Linux) is retained for compatibility tests only. Current
+commands leave it untouched; `macos_data_dir` and `xdg_data_dir` are legacy helpers too.
+
+- **Map in a pure function, select by `cfg`.** Each current mapping is a pure function of
+  its inputs, unit-tested on any host (`macos_log_dir`, `xdg_log_dir`); only the log path
+  selection is `cfg!(target_os = "macos")` (`log_dir`). Legacy data-path helpers are
+  used only by compatibility tests. The same split works for anything that differs per OS:
   the parsing of a tool's output, the choice of a path.
 - **One port, one adapter per OS when the mechanism differs.** Both implement the same
   port, each behind `#[cfg(target_os = "macos")]` or `#[cfg(target_os = "linux")]`,

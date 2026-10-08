@@ -111,7 +111,7 @@ impl BoardScreen {
     /// Maximum input length in Unicode scalar values.
     #[must_use]
     pub const fn input_limit(&self) -> usize {
-        self.tuning.board.input_max_chars
+        self.tuning.board.screen_input_max_chars
     }
 
     /// Current header status, using the caller's clock sample.
